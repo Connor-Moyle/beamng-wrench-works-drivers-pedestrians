@@ -108,9 +108,10 @@ def remaster_folder(folder, size, upscaler, normal_px=1024):
     replaced["/art/" + os.path.relpath(src, ART).replace(os.sep, "/")] = rel + ".color.png"
     mats = json.load(open(mats_path))
     for m in mats.values():
-        m["Stages"][0] = {"baseColorMap": rel + ".color.png", "normalMap": rel + ".normal.png",
-                          "roughnessMap": rel + "_r.data.png", "ambientOcclusionMap": rel + "_ao.data.png",
-                          "metallicFactor": 0}
+        # only the maps change; anything else in the stage (hand-tuned factors, flags) is kept
+        m["Stages"][0].update({"baseColorMap": rel + ".color.png", "normalMap": rel + ".normal.png",
+                               "roughnessMap": rel + "_r.data.png", "ambientOcclusionMap": rel + "_ao.data.png"})
+        m["Stages"][0].setdefault("metallicFactor", 0)
     json.dump(mats, open(mats_path, "w"), indent=1)
     return True
 
