@@ -29,6 +29,9 @@ from scipy import ndimage
 HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, "..", "mod", "art")
 SIZE = {"slrr_drivers": 2048, "slrr_pedestrians": 1024}
+# the series' 6 GB video-memory budget: drivers are seen up close, pedestrians are many and further off
+NORMAL_PX = {"slrr_drivers": 1024, "slrr_pedestrians": 512}
+SIDE_PX = 256   # roughness and AO
 NORMAL_STRENGTH = 2.2
 
 
@@ -85,7 +88,7 @@ def pbr_maps(rgb):
 replaced = {}   # old .dds path -> new colour map, for other materials that point at it
 
 
-def remaster_folder(folder, size, upscaler):
+def remaster_folder(folder, size, upscaler, normal_px=1024):
     mats_path = os.path.join(folder, "main.materials.json")
     srcs = glob.glob(os.path.join(folder, "*.dds"))
     if not srcs or not os.path.isfile(mats_path):
@@ -96,11 +99,10 @@ def remaster_folder(folder, size, upscaler):
     rgb = np.asarray(img, float) / 255
     normal, rough, ao = pbr_maps(rgb)
     img.save(os.path.join(folder, stem + ".color.png"))
-    # the series' video-memory budget (6 GB): normals at most 1024, roughness and AO at most 256
     side = lambda a, n: Image.fromarray(a).resize((min(size, n), min(size, n)), Image.LANCZOS)   # noqa: E731
-    side(normal, 1024).save(os.path.join(folder, stem + ".normal.png"))
-    side(rough, 256).save(os.path.join(folder, stem + "_r.data.png"))
-    side(ao, 256).save(os.path.join(folder, stem + "_ao.data.png"))
+    side(normal, normal_px).save(os.path.join(folder, stem + ".normal.png"))
+    side(rough, SIDE_PX).save(os.path.join(folder, stem + "_r.data.png"))
+    side(ao, SIDE_PX).save(os.path.join(folder, stem + "_ao.data.png"))
     os.remove(src)
     rel = "/art/" + os.path.relpath(folder, ART).replace(os.sep, "/") + "/" + stem
     replaced["/art/" + os.path.relpath(src, ART).replace(os.sep, "/")] = rel + ".color.png"
@@ -122,7 +124,7 @@ def main():
             folder = os.path.dirname(mats)
             if os.path.basename(folder) == "models":
                 continue
-            if remaster_folder(folder, size, upscaler):
+            if remaster_folder(folder, size, upscaler, NORMAL_PX[kind]):
                 print("remastered", os.path.relpath(folder, ART))
     # other materials using a replaced texture (the drivers' base_driver placeholder)
     for mats_path in glob.glob(os.path.join(ART, "*", "models", "main.materials.json")):
