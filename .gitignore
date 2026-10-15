@@ -1,0 +1,5 @@
+# made from your own SLRR install by tools/build.py
+mod/art/
+dist/
+__pycache__/
+*.pyc
