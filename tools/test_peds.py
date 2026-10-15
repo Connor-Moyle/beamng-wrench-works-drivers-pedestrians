@@ -3,8 +3,8 @@ first signalled junction, using the real sidewalks, ped.json files and the map's
 
     python test_peds.py [MAP_DIR]
 
-Checks: walkers move at their shape's speed (no foot slide), nobody starts a signalled crossing on anything but
-green, standing and waiting both happen, pedestrians keep apart, and the count drops when frames are slow and
+Checks: walkers move at their shape's speed (no foot slide), nobody starts a signalled crossing unless the traffic
+they cross is red until they're over, nobody steps into a moving car's path, standing and waiting both happen, pedestrians keep apart, and the count drops when frames are slow and
 comes back when they are fast, and areas are weighted (downtown and the beachfront busiest). MAP_DIR defaults to C:/Dev/SLRR map for beam ng.
 """
 import json
@@ -42,7 +42,11 @@ function simObjectExists(o) return o and not o.dead end
 scenetree = {findObject = function() return nil end, MissionGroup = setmetatable({}, Obj)}
 camPos = vec3(-340, 210, 7)
 core_camera = {getPosition = function() return camPos end}
-be = {getObjectCount = function() return 0 end}
+-- one car driving through junction_0 at 12 m/s along +x, from 260 m before it to 240 m past, then round again
+car = {}
+function car:getPosition() return vec3(-600 + (time * 12) % 500, 210, 7) end
+function car:getVelocity() return vec3(12, 0, 0) end
+be = {getObjectCount = function() return 1 end, getObject = function() return car end}
 -- signals as signals.json runs them: phase 1 then phase 2 (each 10 s green, 4 s yellow, 1.5 s red), then a 7 s
 -- walk phase with every approach red; phase = controllerId
 local Sig = {}
@@ -94,8 +98,9 @@ def main():
     M.setOptions(lua.table_from({"maxCount": 200}))
 
     dt = 1 / 30
-    states, crossings, close, slides, steps = set(), {"green": 0, "walk phase": 0, "other": 0, "free": 0}, 0, [], 0
+    states, crossings, close, slides, steps = set(), {"crossed traffic red": 0, "green alongside": 0, "other": 0, "free": 0}, 0, [], 0
     seen = {}
+    road_starts = car_conflicts = 0
     for frame in range(int(240 / dt)):
         g.time = frame * dt
         slow = 1800 <= frame < 2700          # 30 s of slow frames (40 ms) in the middle
@@ -109,12 +114,25 @@ def main():
             c = p.cross
             if c is not None and c.t <= dt * p.speed / c.len + 1e-9 and seen.get(id(c)) is None:
                 seen[id(c)] = True
-                if c.signal is None:
+                if c.road:
+                    # K5: the car must not come within 3 m of the crossing before they're over (+2 s)
+                    road_starts += 1
+                    a, b = (c["from"].x, c["from"].y), (c.to.x, c.to.y)
+                    mid, half = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), math.dist(a, b) / 2 + 3
+                    for k in range(int((c.len / p.speed + 2) / 0.1)):
+                        g.time = frame * dt + k * 0.1
+                        cp = g.car.getPosition(g.car)
+                        if math.dist((cp.x, cp.y), mid) < half - 3 + 1.0:   # 1 m slack for the 0.1 s steps
+                            car_conflicts += 1
+                            break
+                    g.time = frame * dt
+                across = list(c.across.values()) if c.across else []
+                if c.signal is None and not across:
                     crossings["free"] += 1
-                elif c.signal.getState(c.signal) == "greenTrafficLight":
-                    crossings["green"] += 1
-                elif all(o.getState(o) == "redTrafficLight" for o in c.junction.signals.values()):
-                    crossings["walk phase"] += 1
+                elif across and all(o.getState(o) == "redTrafficLight" for o in across):
+                    crossings["crossed traffic red"] += 1
+                elif not across and c.signal.getState(c.signal) == "greenTrafficLight":
+                    crossings["green alongside"] += 1
                 else:
                     crossings["other"] += 1
             # along-path speed of walkers on a sidewalk (no sidestep or dodge running) vs their shape's speed
@@ -132,6 +150,7 @@ def main():
     end_count, share = len(list(end_state.peds.values())), end_state.share
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
+    print("road crossings started: %d, into the car's path: %d" % (road_starts, car_conflicts))
     print("walking speed error: max %.4f m/s over %d steps" % (max(slides), len(slides)))
     print("walker pairs closer than 0.3 m: %d of %d pair-frames" % (close, steps))
     print("count: 40 set x area share %.2f, %d after 30 s of 40 ms frames, %d after 60 s of fast frames" % (
@@ -141,7 +160,8 @@ def main():
                                                     "industrial": (1000, -300), "outskirts": (3000, 3000)}.items()}
     print("density weights:", w)
     assert states >= {"walk", "idle", "wait"}, states
-    assert crossings["other"] == 0 and crossings["green"] > 0, crossings
+    assert crossings["other"] == 0 and crossings["crossed traffic red"] > 0, crossings
+    assert road_starts > 0 and car_conflicts == 0, (road_starts, car_conflicts)
     assert max(slides) < 0.01, max(slides)
     assert close < steps * 0.001, (close, steps)
     assert slow_count <= 10 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)
@@ -155,7 +175,7 @@ def main():
         M.onUpdate(1 / 90, dt)
         for p in M.getState().peds.values():
             idle += p.state == "idle"
-            long_cross += p.cross is not None and p.cross.len >= 5 and p.cross.t < 0.05
+            long_cross += p.cross is not None and bool(p.cross.road) and p.cross.t < 0.05
     opts = M.getOptions()
     print("idling/crossing off: %d idle frames, %d road crossings started; options %s" % (
         idle, long_cross, dict(opts.items())))
@@ -171,5 +191,20 @@ def main():
     print("ok")
 
 
+def footpaths():
+    """K1: every sidewalk sample on pavement (tools/ped_paths.py classifies against the map's collision meshes)."""
+    if not os.path.isdir(MAP):
+        print("footpaths: map not found, skipped")
+        return
+    import ped_paths
+    data = json.load(open(ped_paths.WALK))
+    cls = ped_paths.classify(data["lines"] if isinstance(data, dict) else data)[0]
+    off = sum(1 for c in cls if c not in ped_paths.OK)
+    print("footpaths: %d of %d samples off the pavement" % (off, len(cls)))
+    assert off == 0, off
+
+
 if __name__ == "__main__":
     main()
+    footpaths()
+    print("all ok")

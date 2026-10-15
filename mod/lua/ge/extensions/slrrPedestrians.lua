@@ -40,6 +40,7 @@ local JUNCTION_REACH = 35   -- a crossing this close to a signalled junction's c
 local GREEN, RED = 'greenTrafficLight', 'redTrafficLight'
 local GAP_MARGIN = 2        -- seconds: no crossing while a car would reach it before they're over plus this
 local CAR_CLEAR = 3         -- metres: a car passing this close to the crossing counts as reaching it
+local CAR_NEAR = 15         -- metres: a moving car this close to a crossing blocks it whichever way it heads
 local FRAME_TAU = 2         -- seconds of frame-time smoothing
 local MIN_CAP = 6
 local MIN_SHARE = 0.15      -- the quietest area still gets this share of the count
@@ -125,6 +126,9 @@ local function loadWalks()
     for _, f in ipairs(FS:findFiles(ROOT, '*.materials.json', -1, true, false)) do loadJsonMaterialsFile(f) end
     loadedMaterials = true
   end
+  -- {lines, links} (links checked offline: tools/ped_paths.py) or a bare list of lines (linked by distance)
+  local given = data.lines and data.links
+  if data.lines then data = data.lines end
   lines, ends, grid = {}, {}, {}
   for i, l in ipairs(data) do
     local pts, len = {}, {0}
@@ -140,6 +144,21 @@ local function loadWalks()
     end
     table.insert(ends, {line = i, atStart = true, p = pts[1]})
     table.insert(ends, {line = i, atStart = false, p = pts[#pts]})
+  end
+  for _, e in ipairs(ends) do
+    local l = lines[e.line]
+    if e.atStart then l.startEnd = e else l.endEnd = e end
+  end
+  if given then
+    for _, e in ipairs(ends) do e.links, e.crosses = {}, {} end
+    for _, k in ipairs(given) do   -- [line, at start, line, at start, crosses a road], lines 0-based
+      local a = k[2] and lines[k[1] + 1].startEnd or lines[k[1] + 1].endEnd
+      local b = k[4] and lines[k[3] + 1].startEnd or lines[k[3] + 1].endEnd
+      table.insert(a.links, b)
+      table.insert(b.links, a)
+      a.crosses[b], b.crosses[a] = k[5], k[5]
+    end
+    return
   end
   -- each end's neighbours: other sidewalk ends within reach
   local egrid = {}
@@ -193,7 +212,7 @@ local function signalFor(a, b)
   loadJunctions()
   local c = vec3(b.x - a.x, b.y - a.y, 0)
   local len = c:length()
-  if not junctions or len < CROSS_MIN then return end
+  if not junctions or len < 1e-3 then return end   -- callers ask only for links that cross a road
   c = c * (1 / len)
   local mid = (a + b) * 0.5
   local best, bestD = nil, JUNCTION_REACH
@@ -204,14 +223,15 @@ local function signalFor(a, b)
   if not best then return end
   -- the approach's arm (its bearing from the centre), as the map's tools/signals.py phases them: curving
   -- lanes end up to 50 deg off their arm, so their heading picks the wrong phase
-  local sig, bestDot = nil, 0.7
+  local sig, bestDot, across = nil, 0.7, {}
   for _, s in ipairs(best.signals) do
     local arm = vec3(s.pos.x - best.c.x, s.pos.y - best.c.y, 0)
     if arm:length() > 3 then arm = arm:normalized() else arm = vec3(s.dir.x, s.dir.y, 0) end
     local d = math.abs(c.x * arm.x + c.y * arm.y)
     if d > bestDot then sig, bestDot = s, d end
+    if d <= 0.7 then table.insert(across, s) end   -- traffic on the road they walk across
   end
-  return sig, best
+  return sig, best, across
 end
 
 -- 0..1: how busy the sidewalks are here (the last matching box wins)
@@ -317,6 +337,13 @@ local function walkOn(p)
   setShape(p, p.walk.shape)
 end
 
+-- the type's fastest walk, for getting out of a car's way mid-crossing (no faster SLRR animation exists)
+local function fastest(t)
+  local f = t.walks[1]
+  for _, w in ipairs(t.walks) do if w.speed > f.speed then f = w end end
+  return f
+end
+
 local function spawnNear(cam)
   -- a random sidewalk point in a ring around the camera
   for _ = 1, 20 do
@@ -354,23 +381,35 @@ local function stepOut(q, side, car)
   return best
 end
 
+-- does the link from end e to end o cross a road: as the walk file says, else guessed from its length
+local function crossesRoad(e, o)
+  if e.crosses then return e.crosses[o] == true end
+  return e.p:distance(o.p) >= CROSS_MIN
+end
+
 local function startLink(p)
-  local e, o, signal, junction = p.link.from, p.link.to, p.link.signal, p.link.junction
+  local l = p.link
+  local e, o = l.from, l.to
   p.link = nil
-  p.cross = {from = e.p, to = o.p, t = 0, len = math.max(0.5, e.p:distance(o.p)), signal = signal, junction = junction}
+  p.cross = {from = e.p, to = o.p, t = 0, len = math.max(0.5, e.p:distance(o.p)), signal = l.signal, across = l.across,
+             road = l.cross}
   p.line, p.dir = o.line, o.atStart and 1 or -1
   p.s = o.atStart and 0 or lines[o.line].total
 end
 
--- would a moving car come within reach of the crossing a-b in the next `time` seconds
+-- could a moving car reach the crossing a-b within `time` seconds: one heading its way whose distance (less
+-- CAR_CLEAR) over its speed is less, or any within CAR_NEAR m (cars turn; the AI can't see pedestrians)
 local function carComing(a, b, time)
-  local mid, half = (a + b) * 0.5, a:distance(b) * 0.5 + CAR_CLEAR
+  local ab = vec3(b.x - a.x, b.y - a.y, 0)
+  local l2 = math.max(ab:dot(ab), 1e-6)
   for _, v in ipairs(cars) do
     local sp = v.vel:length()
     if sp > 1 then
-      local rel = mid - v.pos
-      local t = clamp(rel:dot(v.vel) / (sp * sp), 0, time)   -- closest approach within the window
-      if (v.pos + v.vel * t - mid):length() < half then return true end
+      local t = clamp(((v.pos.x - a.x) * ab.x + (v.pos.y - a.y) * ab.y) / l2, 0, 1)
+      local qx, qy = a.x + ab.x * t - v.pos.x, a.y + ab.y * t - v.pos.y
+      local d = math.sqrt(qx * qx + qy * qy) - CAR_CLEAR
+      -- heading towards it (lanes bend, so not just straight at it), or close by whichever way (turning cars)
+      if d < CAR_NEAR or (qx * v.vel.x + qy * v.vel.y > 0 and d / sp < time) then return true end
     end
   end
   return false
@@ -379,18 +418,20 @@ end
 -- may p start its crossing now: no car on its way, and no signal or green now and still green when they're over
 local function mayCross(p)
   local time = p.link.len / p.speed
-  if p.link.len >= CROSS_MIN and carComing(p.link.from.p, p.link.to.p, time + GAP_MARGIN) then return false end
-  local s = p.link.signal
-  if not s then return true end
-  local now = s:getState()
+  if p.link.cross and carComing(p.link.from.p, p.link.to.p, time + GAP_MARGIN) then return false end
+  local s, across = p.link.signal, p.link.across or {}
+  if not s and #across == 0 then return true end   -- no lights here
+  local now = (s or across[1]):getState()
   if now == 'none' then return true end   -- signal system not running
-  -- the junction's walk phase: every approach red now and until they're over (the map's all-red, signals.json)
-  local allRed = true
-  for _, o in ipairs(p.link.junction.signals) do
-    if o:getState() ~= RED or o:getStateAfterTime(time + 1) ~= RED then allRed = false break end
+  -- the traffic they walk across is red now and stays red until they're over (the parallel green, its yellow and
+  -- the all-red, plus the map's walk phase); cars turning off the green road are the gap check's job
+  if #across > 0 then
+    for _, o in ipairs(across) do
+      if o:getState() ~= RED or o:getStateAfterTime(time + 1) ~= RED then return false end
+    end
+    return true
   end
-  -- or with the traffic alongside: green now and still green when they're over (turning cars: the gap check above)
-  return allRed or (now == GREEN and s:getStateAfterTime(time + 1) == GREEN)
+  return now == GREEN and s:getStateAfterTime(time + 1) == GREEN
 end
 
 -- at a sidewalk's end: pick the next sidewalk, maybe stand a while, then go (or wait for the light)
@@ -400,20 +441,23 @@ local function reachEnd(p)
   local choices = e and e.links or {}
   if not opts.crossing then
     local corners = {}
-    for _, o in ipairs(choices) do if o.p:distance(e.p) < CROSS_MIN then table.insert(corners, o) end end
+    for _, o in ipairs(choices) do if not crossesRoad(e, o) then table.insert(corners, o) end end
     choices = corners
   end
   if #choices == 0 then p.dir = -p.dir return end
   local o = choices[math.random(#choices)]
-  local signal, junction = signalFor(e.p, o.p)
-  p.link = {from = e, to = o, len = e.p:distance(o.p), signal = signal, junction = junction}
+  local cross = crossesRoad(e, o)
+  local signal, junction, across
+  if cross then signal, junction, across = signalFor(e.p, o.p) end
+  p.link = {from = e, to = o, len = e.p:distance(o.p), cross = cross, signal = signal, junction = junction,
+            across = across}
   if opts.idling and math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   elseif not mayCross(p) then stand(p)
   else startLink(p) end
 end
 
 local function updateStanding(p, dt)
-  if p.link and not opts.crossing and p.link.len >= CROSS_MIN then   -- crossing switched off: turn back
+  if p.link and not opts.crossing and p.link.cross then   -- crossing switched off: turn back
     p.link, p.dir = nil, -p.dir
   end
   if p.state == 'idle' then
@@ -441,9 +485,24 @@ local function updatePed(p, dt, vehicles, near)
     stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   end
   local moving = p.state == 'walk'
+  if p.cross and moving and p.cross.road then
+    p.hurryCheck = (p.hurryCheck or 0) - dt
+    if p.hurryCheck <= 0 then
+      p.hurryCheck = 0.25
+      local left = (1 - p.cross.t) * p.cross.len
+      if not p.hurry and carComing(lerp(p.cross.from, p.cross.to, p.cross.t), p.cross.to, left / p.speed + GAP_MARGIN) then
+        p.hurry = fastest(p.type)
+        setShape(p, p.hurry.shape)
+      end
+    end
+  end
+  local speed = p.hurry and p.hurry.speed or p.speed
   if p.cross then
-    if moving then p.cross.t = p.cross.t + dt * p.speed / p.cross.len end
-    if p.cross.t >= 1 then p.cross = nil end
+    if moving then p.cross.t = p.cross.t + dt * speed / p.cross.len end
+    if p.cross.t >= 1 then
+      p.cross = nil
+      if p.hurry then p.hurry = nil setShape(p, p.walk.shape) end
+    end
   end
   if p.cross then
     pos = lerp(p.cross.from, p.cross.to, p.cross.t)
