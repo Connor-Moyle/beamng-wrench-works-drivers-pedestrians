@@ -203,6 +203,37 @@ def check_tints():
     print("tints ok: at most %d clothing colours loaded" % most)
 
 
+def check_bake():
+    """The baked-tint fallback: shirt pixels become shade x colour, everything else stays the skin."""
+    import numpy as np
+    lua = LuaRuntime(unpack_returned_tuples=True, encoding=None)   # bytes in and out: the bake is binary
+    rd = lambda name: open(os.path.join(HERE, name), "rb").read()   # noqa: E731
+    lua.execute(rd("bng_shim.lua"))
+    lua.execute(rd("bng_shim_game.lua"))
+    g = lua.globals()
+    g[b"SHIM_MOD"] = MOD.replace("\\", "/").encode()
+    g[b"SHIM_RIG"] = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json")))).encode()
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua"), "rb").read())
+    g[b"M"] = M
+    lua.execute(b"shim_start(M)")
+    M[b"setTintMode"](b"bake")
+    lua.execute(b"M.setAppearance(7, {shirt = {1, 0, 0}})")
+    g[b"shim_step"](DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+    saved = list(g[b"SHIM_SAVED"].values())
+    assert saved, "nothing baked"
+    out = np.frombuffer(saved[0], np.uint8).reshape(1024, 1024, 4)
+    src = np.frombuffer(open(os.path.join(MOD, "art/slrr_drivers/slrr_mitch/mitch_whole_tint.bin"), "rb").read(), np.uint8).reshape(1024, 1024, 6).astype(float)
+    ms = src[..., 4] / 255
+    want_r = np.minimum(255, src[..., 0] * np.maximum(0, 1 - ms) + src[..., 3] * ms)
+    assert np.abs(out[..., 0].astype(float) - want_r).max() <= 1.5, "red channel off"
+    shirt, bare = ms > 0.99, ms < 0.01
+    assert out[..., 1][shirt].max() <= 1, "shirt not pure red"
+    none = ms == 0
+    assert (out[..., :3][none] == src[..., :3][none]).all(), "skin outside the shirt changed"
+    assert np.abs(out[..., :3][bare].astype(float) - src[..., :3][bare]).max() <= 2, "skin at the shirt's edge changed"
+    print("bake ok: %d shirt pixels red, the rest unchanged" % shirt.sum())
+
+
 def check_sizes():
     """The hard drive at both ends of the size range, with tinted clothes and a helmet: J1/J2 must pass."""
     import tempfile
@@ -223,6 +254,7 @@ if __name__ == "__main__":
         print("recorded"); sys.exit()
     check_modes()
     check_tints()
+    check_bake()
     check_sizes()
     for animated in (True, False):
         w = run(animated)

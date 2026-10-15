@@ -8,6 +8,8 @@ Per driver (art/slrr_drivers/<id>/):
       legs and hips are trousers), minus bare skin inside them (a T-shirt's forearms), by colour.
   <stem>_shade.color.png    the cloth's shading as grey, normalised so a garment's average is 0.8;
       the tint layer is this grey times the chosen colour, so folds and seams stay.
+  <stem>_tint.bin           the skin, shade and both masks packed (1024 x 1024 x 6 bytes) for baking a
+      tinted colour map in game when material layers aren't used.
 Per body (art/slrr_drivers/models/<model>/):
   helmet.dae    a closed shell around the head piece (same pivot), material base_helmet.
 """
@@ -83,6 +85,13 @@ def make_driver_layers(ddir, model, masks):
             shade[big] = np.clip(lum_full[big] / max(mean, 1e-3) * 0.8, 0, 1)
         out[name] = float(mask.mean())
     Image.fromarray((shade * 255).astype(np.uint8)).convert("RGB").save(os.path.join(ddir, stem + "_shade.color.png"))
+    # the same at SHADE_PX, packed for baking tints in game (the fallback to material layers):
+    # per pixel r, g, b (the skin), shade, shirt mask, trousers mask; rows top to bottom
+    base = np.asarray(rgb_full.resize((SHADE_PX, SHADE_PX), Image.BILINEAR), np.uint8)
+    m_s = np.asarray(Image.open(os.path.join(ddir, "%s_shirt.data.png" % stem)).resize((SHADE_PX, SHADE_PX), Image.BILINEAR), np.uint8)
+    m_t = np.asarray(Image.open(os.path.join(ddir, "%s_trousers.data.png" % stem)).resize((SHADE_PX, SHADE_PX), Image.BILINEAR), np.uint8)
+    packed = np.dstack([base, (shade * 255).astype(np.uint8), m_s, m_t])
+    open(os.path.join(ddir, stem + "_tint.bin"), "wb").write(packed.tobytes())
     return stem, out
 
 

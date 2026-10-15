@@ -4,14 +4,28 @@
 function log() end
 function jsonWriteFile() end
 function loadJsonMaterialsFile() end
-function readFile() return 'dae' end
+function readFile(path)
+  if path:find('%.bin$') then   -- real data from the mod folder (tint sources)
+    local f = io.open(SHIM_MOD .. path, 'rb') if not f then return nil end
+    local d = f:read('*a') f:close() return d
+  end
+  return 'dae'
+end
+SHIM_SAVED = {}
+function GBitmap()
+  local b = {}
+  function b:init(w, h) self.w, self.h = w, h end
+  function b:fromBuffer(buf) self.data = buf:tostring() return true end
+  function b:saveFile(path) SHIM_SAVED[path] = self.data return true end
+  return b
+end
 function writeFile() end
 function simObjectExists(o) return o ~= nil and not o.deleted end
 
 FS = {
   findFiles = function(_, root, pattern)
     if pattern == 'driver.json' then return {'/art/slrr_drivers/slrr_mitch/driver.json'} end
-    if pattern:find('_shade') or pattern:find('_shirt') or pattern:find('_trousers') then return {root .. pattern:gsub('%*', 'mitch_whole')} end
+    if pattern:find('_shade') or pattern:find('_shirt') or pattern:find('_trousers') or pattern:find('_tint') then return {root .. pattern:gsub('%*', 'mitch_whole')} end
     return {}
   end,
   fileExists = function() return true end,

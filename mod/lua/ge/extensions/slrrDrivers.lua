@@ -286,6 +286,43 @@ end
 -- A material for a driver with tinted shirt / trousers: the skin's own maps, then per garment a layer of
 -- its grey shading times the colour, through the garment's mask. Written to /temp and loaded; identical
 -- colours share one; at most MAX_TINTS are kept (an unused one is dropped for a new one).
+-- Tinted colour map baked in Lua (the fallback when material layers don't blend): the skin's packed
+-- <stem>_tint.bin (r, g, b, shade, shirt mask, trousers mask per pixel) mixed into one texture.
+local TINT_PX = 1024
+local tintMode = 'layers'       -- 'layers' or 'bake' (setTintMode)
+local function bakeTint(d, a, name)
+  local bins = FS:findFiles(ROOT .. d.id .. '/', '*_tint.bin', 0, false, false)
+  local data = bins and bins[1] and readFile(bins[1])
+  if not data or #data < TINT_PX * TINT_PX * 6 then return nil end
+  local ffi = require('ffi')
+  pcall(ffi.cdef, 'typedef struct slrr_rgba_t { uint8_t r, g, b, a; } slrr_rgba_t;')
+  local src = ffi.cast('const uint8_t*', data)
+  local n = TINT_PX * TINT_PX
+  local out = ffi.new('slrr_rgba_t[?]', n)
+  local sr, sg, sb = (a.shirt and rgb(a.shirt) or {0, 0, 0})[1], (a.shirt and rgb(a.shirt) or {0, 0, 0})[2], (a.shirt and rgb(a.shirt) or {0, 0, 0})[3]
+  local tr, tg, tb = (a.trousers and rgb(a.trousers) or {0, 0, 0})[1], (a.trousers and rgb(a.trousers) or {0, 0, 0})[2], (a.trousers and rgb(a.trousers) or {0, 0, 0})[3]
+  local useS, useT = a.shirt and 1 or 0, a.trousers and 1 or 0
+  for i = 0, n - 1 do
+    local o = i * 6
+    local shade = src[o + 3]
+    local ms, mt = src[o + 4] / 255 * useS, src[o + 5] / 255 * useT
+    local keep = math.max(0, 1 - ms - mt)
+    local p = out[i]
+    p.r = math.min(255, src[o] * keep + shade * (sr * ms + tr * mt))
+    p.g = math.min(255, src[o + 1] * keep + shade * (sg * ms + tg * mt))
+    p.b = math.min(255, src[o + 2] * keep + shade * (sb * ms + tb * mt))
+    p.a = 255
+  end
+  local bmp = GBitmap()
+  bmp:init(TINT_PX, TINT_PX, true)
+  local buf = require('string.buffer').new()
+  buf:set(out, ffi.sizeof(out))
+  if not bmp:fromBuffer(buf) then return nil end
+  local path = '/temp/slrr_drivers/' .. name .. '.color.png'
+  bmp:saveFile(path)
+  return path
+end
+
 local function tintMaterial(d, a)
   if not a.shirt and not a.trousers then return d.skin .. '_driver' end
   local name = d.skin .. '_t' .. (hex(a.shirt) or 'x') .. (hex(a.trousers) or 'x') .. '_driver'
@@ -307,7 +344,14 @@ local function tintMaterial(d, a)
   local function file(pattern) local f = FS:findFiles(ROOT .. d.id .. '/', pattern, 0, false, false) return f and f[1] end
   local shade = file('*_shade.color.png')
   local stages = {stage0, {}, {}, {}}
-  for i, g in ipairs({'shirt', 'trousers'}) do
+  local baked = tintMode == 'bake' and bakeTint(d, a, name)
+  if baked then
+    local st = {}
+    for k, v in pairs(stage0) do st[k] = v end
+    st.baseColorMap = baked
+    stages[1] = st
+  end
+  for i, g in ipairs(baked and {} or {'shirt', 'trousers'}) do
     local mask = file('*_' .. g .. '.data.png')
     if a[g] and shade and mask then
       stages[i + 1] = {baseColorMap = shade, baseColorFactor = rgb(a[g]), opacityMap = mask, roughnessFactor = 0.85, metallicFactor = 0}
@@ -1031,6 +1075,15 @@ M.setAppearance = function(vid, look)
     if look[k] ~= nil then t[k] = look[k] ~= false and look[k] or nil end
   end
   if vid then carAppearance[vid] = t pending[vid] = 0 else saveSettings() markAll() end
+end
+-- how a tint is drawn: 'layers' (material layers, the default) or 'bake' (a baked colour map); for
+-- testing which looks right, the drivers are rebuilt
+M.setTintMode = function(mode)
+  if mode ~= 'layers' and mode ~= 'bake' then return end
+  tintMode = mode
+  for name in pairs(tints) do local m = scenetree.findObject(name) if m then m:delete() end end
+  tints = {}
+  markAll()
 end
 M.getTintCount = function() local n = 0 for _ in pairs(tints) do n = n + 1 end return n end   -- loaded clothing colours
 M.getAppearance = function(vid)
