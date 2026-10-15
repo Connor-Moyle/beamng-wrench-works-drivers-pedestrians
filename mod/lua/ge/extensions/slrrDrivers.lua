@@ -36,6 +36,7 @@ local REGRIP_TIME = 0.22
 local REGRIP_LIFT = 0.07                -- the hand comes off the rim toward the driver while it moves
 local HAND_ROLL = 0.7                   -- share of the rim rotation the fist rolls with
 local SHIFT_TIME = 0.45
+local KNOB_GRIP = vec3(0, -0.02, 0.05)  -- the wrist relative to an H-pattern knob node (palm on top)
 local REACH_RPM = 0.82                  -- fraction of max rpm where the hand goes to the lever
 local CULL_DIST = 150
 -- pedals, seat frame, relative to the steering column (x) and the cabin floor (z)
@@ -434,6 +435,16 @@ local function attach(vid)
     end
   end
   c.shifterNode = best and best.cid
+  -- H-pattern cars (BeamNG's propAnimation/hPattern): torsion hydros driven by hPatternAxisX/Y swing the
+  -- lever, so their fourth node is the knob, moving through the gate on every shift
+  if vdata and vdata.vdata and vdata.vdata.torsionHydros then
+    for _, h in pairs(vdata.vdata.torsionHydros) do
+      if type(h) == 'table' and (h.inputSource == 'hPatternAxisX' or h.inputSource == 'hPatternAxisY') and tonumber(h.id4) then
+        c.knobNode = tonumber(h.id4)
+        break
+      end
+    end
+  end
   -- otherwise the anchor node of a gear-driven prop (shifter, column lever, gear indicator)
   if not c.shifterNode and vdata and vdata.vdata and vdata.vdata.props then
     for _, p in pairs(vdata.vdata.props) do
@@ -542,6 +553,8 @@ local function updateLegs(c, wheel, world, R, dt)
   local press = c.press
   for _, k in ipairs({'throttle', 'brake', 'clutch'}) do
     local want = animated and (e[k] or 0) or 0
+    -- a manual shift: the clutch goes down with it (unless the car's own clutch input says more)
+    if k == 'clutch' and animated and c.hasClutch and c.shiftT and c.shiftT < SHIFT_TIME * 0.8 then want = math.max(want, 1) end
     press[k] = press[k] + clamp(want - press[k], -dt * 8, dt * 8)
   end
   local right = c.feet.r
@@ -661,6 +674,12 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local want = (animated and (c.shiftT or revsHigh)) and 1 or 0
   c.reach = c.reach + clamp(want - c.reach, -dt * 3, dt * (c.shiftT and 12 or 4))
   local leverTarget = lever + knob + vec3(0, -0.03, 0.07)
+  if c.knobNode then
+    local k = toSeat(c.knobNode)
+    if math.abs(k.x) < 0.75 and k.y > -0.3 and k.y < 0.8 and k.z > -1.0 and k.z < 0 then
+      leverTarget = k + KNOB_GRIP   -- palm on top of the knob, which the car moves through the gate itself
+    end
+  end
 
   local wheel = WHEEL_CENTER
   if c.wheelNode then

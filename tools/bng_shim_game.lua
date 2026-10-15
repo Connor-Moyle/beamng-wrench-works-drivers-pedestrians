@@ -89,11 +89,15 @@ addNode(31, CAM.x + 0.55, 0.0, CAM.z - 0.1)         -- door and pillar
 addNode(32, CAM.x - 0.5, -0.1, CAM.z - 0.1)
 addNode(33, CAM.x, -0.4, CAM.z + 0.25)              -- roof / windscreen top
 for k = 0, 3 do addNode(40 + k, CAM.x - 0.2 + k * 0.12, -0.75, CAM.z - 1.25) end   -- footwell floor
+addNode(50, CAM.x - 0.32, -0.30, CAM.z - 0.50)     -- H-pattern lever knob (car's right of the driver)
+local torsionHydros = {}
+if SHIM_HPATTERN then torsionHydros = {{id1 = 41, id2 = 42, id3 = 43, id4 = 50, inputSource = 'hPatternAxisY'}} end
 local props = {
   {func = 'steering', idRef = 2},
   {func = 'throttle', idRef = 40, rotation = vec3(-0.436, 0, 0)},
   {func = 'brake', idRef = 41, rotation = vec3(-0.436, 0, 0)},
 }
+if SHIM_HPATTERN then table.insert(props, {func = 'clutch', idRef = 42, rotation = vec3(-0.436, 0, 0)}) end
 
 local function axes()
   local fwd = vec3(math.cos(car.yaw), math.sin(car.yaw), 0)
@@ -130,7 +134,12 @@ core_camera = {
   getActiveCamName = function() return 'orbit' end,
   getQuat = function() return nil end,
 }
-core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props}} end}
+core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props, torsionHydros = torsionHydros}} end}
+function shim_node_seat(cid)   -- a car node in the seat frame (x right, y forward, z up)
+  local fwd, up, left = axes()
+  local d = vec3(veh:getNodePositionXYZ(cid)) - vec3(veh:getNodePositionXYZ(1))
+  return {x = d:dot(fwd:cross(up)), y = d:dot(fwd), z = d:dot(up)}
+end
 
 function shim_setup() end
 function shim_start(M)

@@ -140,7 +140,36 @@ def check_modes():
     print("display modes ok")
 
 
+def check_shift():
+    """An H-pattern car: on a gear change the shifting hand ends on the lever knob and the clutch goes down."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.SHIM_HPATTERN = True
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+    c = M.getState(7)
+    assert c.knobNode == 50 and c.hasClutch, "lever or clutch not found"
+    for _ in range(60):
+        g.shim_step(DT, 10, 0, 0, 0, 3000, 2, 0.3, 0, 0)
+    g.shim_step(DT, 10, 0, 0, 0, 3000, 3, 0.0, 0, 0)          # gear 2 -> 3
+    best, clutch = 9.0, 0.0
+    for _ in range(20):                                     # about a third of a second into the shift
+        g.shim_step(DT, 10, 0, 0, 0, 3000, 3, 0.0, 0, 0)
+        p = g.shim_parts_local()["r_hand"]
+        k = g.shim_node_seat(50)
+        best = min(best, math.dist((p.x, p.y, p.z), (k.x, k.y - 0.02, k.z + 0.05)))
+        clutch = max(clutch, c.press.clutch)
+    assert best < 0.12, ("hand never reached the knob", best)
+    assert clutch > 0.9, ("clutch not pressed during the shift", clutch)
+    print("shift ok: hand within %.3f m of the knob, clutch %.2f" % (best, clutch))
+
+
 if __name__ == "__main__":
+    check_shift()
     if "--record" in sys.argv:
         run(True, sys.argv[sys.argv.index("--record") + 1])
         print("recorded"); sys.exit()
