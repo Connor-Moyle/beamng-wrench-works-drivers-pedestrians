@@ -20,9 +20,9 @@ Death is deliberate: the head over 200 g or the chest over 150 g sustained 25 ms
 physics steps to count; nothing counts for 3 s after a spawn, reset, teleport or vehicle switch, or on a step
 where the car jumps (a glitch).
 
-Voice clips go in `art/sounds/slrr_injury/` as `hurt_*.ogg`, `wake_*.ogg` and `angry_*.ogg` (CC0 sources,
-credited below). Without clips the driver is silent.
+Voice clips go in `art/sounds/slrr_injury/` as `hurt_*.ogg`, `wake_*.ogg` and `angry_*.ogg` (CC0, see
+CREDITS.md); 16 clips, 128 KB. Without clips the driver is silent.
 
 ## Credits
 
-(voice clips: to be added, CC0 only)
+Voice clips: CC0, from OpenGameArt (HaelDB, qubodup). See [CREDITS.md](CREDITS.md).
