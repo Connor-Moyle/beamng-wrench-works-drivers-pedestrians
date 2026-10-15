@@ -47,6 +47,11 @@ local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttl
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
+local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
+local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
+local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(0.9)
+local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
+local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undoes
 local SWAY_DAMP = 0.45
 local SEATBELT = 0.07                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
@@ -544,7 +549,7 @@ local function updateLegs(c, wheel, world, R, dt)
   if wantR ~= right.pedal and not right.t then right.from, right.pedal, right.t = right.pedal, wantR, 0 end
   c.feet.l.pedal = c.hasClutch and 'clutch' or 'rest'
   local function pad(name)
-    local p = vec3(wheel.x + PEDAL_X[name], PEDAL_Y, c.pedalZ)
+    local p = vec3(wheel.x + PEDAL_X[name], PEDAL_Y - (c.seat and c.seat.y or 0), c.pedalZ)   -- in the driver's moved seat
     if name == 'rest' then p = p + vec3(0, -0.08, 0.02) end
     return p + PEDAL_TRAVEL * press[name]
   end
@@ -577,6 +582,22 @@ local function updateLegs(c, wheel, world, R, dt)
   end
 end
 
+-- Pose recorder (tools/render_pose.py turns a recording into a clip): every frame, each part's pose in
+-- the seat frame (position, then its x y z axes), plus what the car was doing.
+local function record(c, eye, R, dt, veh, wheel)
+  local function loc(v) return {v:dot(R.x), v:dot(R.y), v:dot(R.z)} end
+  local fr = {dt = dt, speed = vec3(veh:getVelocity()):length(), steer = c.e.steer, throttle = c.e.throttle,
+              brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {}}
+  for name, o in pairs(c.parts) do
+    local m = o:getTransform()
+    local p = loc(m:getPosition() - eye)
+    local x, y, z = loc(m:getColumn(0)), loc(m:getColumn(1)), loc(m:getColumn(2))
+    fr.parts[name] = {p[1], p[2], p[3], x[1], x[2], x[3], y[1], y[2], y[3], z[1], z[2], z[3], o:isHidden() and 1 or 0}
+  end
+  table.insert(c.rec, fr)
+  if #c.rec > 60 * 120 then table.remove(c.rec, 1) end   -- keep the last two minutes
+end
+
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local veh = be:getObjectByID(vid)
   if not veh then removeCar(vid) return end
@@ -604,11 +625,14 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     if lead:length() < 1.5 then eye = eye + lead end
   end
   local R = basis(fwd, up)   -- seat frame -> world
-  local function world(p) return eye + rotate(R, p) end
+  local function world(p) return eye + rotate(R, c.seat and (p + c.seat) or p) end
   local rig, e = c.rig, c.e
 
   local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos) or IDENT
   if c.reachLean then L = compose(L, c.reachLean) end
+  -- idle: slow breathing in the chest (and so the shoulders), always on when animated
+  c.clock = (c.clock or math.random() * 10) + dt
+  if animated then L = compose(L, rotX(BREATH_ANGLE * math.sin(2 * math.pi * BREATH_HZ * c.clock))) end
   local function lean(p) return rig.pelvis + rotate(L, p - rig.pelvis) end
 
   -- shifting hand: reach for the lever at high revs, run the H pattern while a shift is on
@@ -643,17 +667,23 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local l = toSeat(c.wheelNode)
     if math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1 then wheel = l + WHEEL_HUB_TO_RIM end
   end
-  -- a wheel beyond arm's reach: lean forward from the hips (a fixed lean, worked out once) instead of
-  -- the arms locking straight and the hands sliding off the rim
+  -- Reach (worked out once per car): drivers sit with the elbows bent, at about REACH of full arm length.
+  -- A wheel further away moves the seat forward (up to SEAT_SLIDE), then the rest is a lean from the
+  -- hips, instead of the arms locking straight. Everything the driver reaches for is then measured from
+  -- his moved seat, so the slide changes where he sits, not where the wheel and pedals are.
   if not c.reachLean then
     local need = 0
     for side, arm in pairs(rig.arms) do
-      local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * 0.95
+      local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * REACH
       need = math.max(need, d)
     end
+    local slide = clamp(need, 0, SEAT_SLIDE)
+    c.seat = vec3(0, slide, 0)
     local lever = (rig.parts.head - rig.pelvis):length()
-    c.reachLean = need > 0 and rotX(-clamp(need / lever, 0, 0.35)) or IDENT
+    c.reachLean = need > slide and rotX(-clamp((need - slide) / lever, 0, 0.3)) or IDENT
   end
+  wheel = wheel - c.seat
+  leverTarget = leverTarget - c.seat
   local turn = animated and math.rad(e.steer) or 0
   local grips = updateHands(c, turn, dt)
   for side, arm in pairs(rig.arms) do
@@ -679,6 +709,25 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   -- hidden when the camera leaves the head (leaning out to look back).
   local yaw, pitch = clamp(turn * 0.12, -0.4, 0.4), 0
   local fp = vid == fpVid
+  if animated and not fp then
+    -- idle life: a slow drift of the head, and now and then a glance to a mirror or out of a window
+    local t = c.clock
+    yaw = yaw + 0.03 * math.sin(0.31 * t) + 0.02 * math.sin(0.73 * t + 1.3)
+    pitch = pitch + 0.02 * math.sin(0.43 * t + 0.4)
+    c.glanceIn = (c.glanceIn or (6 + math.random() * 8)) - dt
+    if c.glanceIn <= 0 then
+      c.glance = {t = 0, yaw = (math.random() < 0.5 and -1 or 1) * (0.35 + math.random() * 0.35), pitch = -0.05 + math.random() * 0.1}
+      c.glanceIn = 6 + math.random() * 8
+    end
+    if c.glance then
+      c.glance.t = c.glance.t + dt
+      local k = math.sin(math.pi * math.min(1, c.glance.t / GLANCE_TIME))
+      yaw, pitch = yaw + c.glance.yaw * k, pitch + c.glance.pitch * k
+      if c.glance.t >= GLANCE_TIME then c.glance = nil end
+    end
+  end
+  -- the head stays level when the body leans (eyes on the road): undo most of the torso pitch
+  pitch = pitch - LEVEL_HEAD * math.asin(clamp(L.y.z, -1, 1))
   if fp and animated then
     local q = core_camera.getQuat()
     local look = q and (q * vec3(0, 1, 0)) or R.y
@@ -696,6 +745,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local turnHead = compose({x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}, rotX(pitch))
     place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
   end
+  if c.rec then record(c, eye, R, dt, veh, wheel) end
 end
 
 local function onPreRender(dt, dtSim)
@@ -760,6 +810,16 @@ M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
 M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
+-- pose recording for tools/render_pose.py
+M.startRecording = function(vid) if cars[vid] then cars[vid].rec = {} end end
+M.stopRecording = function(vid, path)
+  local c = cars[vid]
+  if not c or not c.rec then return 0 end
+  local rec = {model = c.rig.model, skin = c.id, frames = c.rec}
+  c.rec = nil
+  if path then jsonWriteFile(path, rec, false) end
+  return #rec.frames, rec
+end
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end
 
 M.onExtensionLoaded = function() loadDrivers() markAll() end

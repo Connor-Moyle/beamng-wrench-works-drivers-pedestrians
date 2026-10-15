@@ -66,6 +66,7 @@ local function newObj()
   function o:isHidden() return self.hidden end
   function o:delete() self.deleted = true end
   function o:setTransform(m) self.pos = m:getPosition() self.m = m end
+  function o:getTransform() return self.m or MatrixF() end
   function o:getPosition() return self.pos end
   return o
 end

@@ -149,7 +149,7 @@ def write_skinned_dae(path, name, bones, subs, tracks, material):
         L = np.linalg.norm(bones[i]["pos"])
         times = [k[0] for k in keys]
         mats = [local_matrix(q2m(*k[1]), np.array(k[2]) * L) for k in keys]
-        if times and times[-1] < 0.99:      # close the loop on the first key
+        if times:      # SLRR's last key is not the first one again: close the loop one step later
             times.append(times[-1] + (times[1] - times[0] if len(times) > 1 else 0.1))
             mats.append(mats[0])
         a = "a%d" % i
@@ -222,16 +222,87 @@ def sidewalks():
     return out
 
 
+def joint_paths(bones, tracks, names):
+    """Positions (m, z up, facing +y) of the named joints at every key."""
+    idx = {b["name"]: i for i, b in enumerate(bones)}
+    out = {n: [] for n in names}
+    for j in range(len(tracks[0])):
+        world = {}
+
+        def fk(i):
+            if i not in world:
+                b, k = bones[i], tracks[i][j]
+                m = local_matrix(q2m(*k[1]), np.array(k[2]) * np.linalg.norm(b["pos"]))
+                world[i] = m if b["parent"] < 0 else fk(b["parent"]) @ m
+            return world[i]
+        for n in names:
+            out[n].append((CONV @ fk(idx[n]))[:3, 3])
+    return {n: np.array(v) for n, v in out.items()}
+
+
+def cycle_time(tracks):
+    t = [k[0] for k in tracks[0]]
+    return len(t) * (t[1] - t[0])      # including the closing key write_skinned_dae adds
+
+
+def gait(bones, tracks):
+    """Walking speed that keeps the feet planted: how fast each ankle moves backward while it is on the
+    ground (its lowest keys), averaged over both feet. Returns (cycle s, speed m/s)."""
+    step = tracks[0][1][0] - tracks[0][0][0]
+    speeds = []
+    for p in joint_paths(bones, tracks, ["Bip01 L Foot", "Bip01 R Foot"]).values():
+        n, on = len(p), p[:, 2] < p[:, 2].min() + 0.015
+        keys = []          # the longest run of grounded keys, wrapping round the loop
+        for s in range(n):
+            if on[s] and not on[s - 1]:
+                run = [s]
+                while len(run) < n and on[(run[-1] + 1) % n]:
+                    run.append((run[-1] + 1) % n)
+                keys = max(keys, run, key=len)
+        run = len(keys)
+        assert run >= 3, ("stance too short to measure", run)
+        speeds.append(-np.polyfit(np.arange(run) * step, p[keys, 1], 1)[0])
+    return cycle_time(tracks), float(np.mean(speeds))
+
+
+def find(folder, fname):
+    """SLRR's file names differ in case between pedestrians (Hooley_jitter.SCX, hooley_jitter.bon)."""
+    for f in os.listdir(folder):
+        if f.lower() == fname.lower():
+            return os.path.join(folder, f)
+    raise FileNotFoundError(os.path.join(folder, fname))
+
+
+def retimed(tracks, tempo):
+    return [[(t / tempo, q, d) for t, q, d in keys] for keys in tracks]
+
+
+TEMPOS = {"slow": 0.9, "fast": 1.1}   # extra walk shapes for speed variety (Lua can't time-scale an ambient)
+
+
 if __name__ == "__main__":
     pdir = os.path.join(SLRR, "humans", "pedestrians")
     for name, skin in PEDS:
         d = os.path.join(OUT, name)
         os.makedirs(d, exist_ok=True)
-        bones = read_skl(os.path.join(pdir, name + "_walk.skl"))
-        subs = read_skinned_scx(os.path.join(pdir, name + "_walk.SCX"))
-        tracks = read_anim(os.path.join(pdir, name + "_walk.matrixdata"), bones)
+        bones = read_skl(find(pdir, name + "_walk.skl"))
+        subs = read_skinned_scx(find(pdir, name + "_walk.SCX"))
+        tracks = read_anim(find(pdir, name + "_walk.matrixdata"), bones)
         mat = "slrr_ped_" + name
         tri = write_skinned_dae(os.path.join(d, name + ".dae"), name, bones, subs, tracks, mat)
+        cycle, speed = gait(bones, tracks)
+        walks = {name + ".dae": round(speed, 3)}
+        for tag, tempo in TEMPOS.items():
+            write_skinned_dae(os.path.join(d, "%s_%s.dae" % (name, tag)), name, bones, subs, retimed(tracks, tempo), mat)
+            walks["%s_%s.dae" % (name, tag)] = round(speed * tempo, 3)
+        # idle: SLRR's <name>_jitter, standing in place
+        ibones = read_skl(find(pdir, name + "_jitter.skl"))
+        itracks = read_anim(find(pdir, name + "_jitter.matrixdata"), ibones)
+        write_skinned_dae(os.path.join(d, name + "_idle.dae"), name, ibones,
+                          read_skinned_scx(find(pdir, name + "_jitter.SCX")), itracks, mat)
+        json.dump({"cycle": round(cycle, 3), "walks": walks, "idle": name + "_idle.dae",
+                   "idleCycle": round(cycle_time(itracks), 3)}, open(os.path.join(d, "ped.json"), "w"), indent=1)
+        print(name, "walk %.2f m/s (stride %.2f m per %.1f s)," % (speed, speed * cycle, cycle), end=" ")
         shutil.copyfile(os.path.join(pdir, skin), os.path.join(d, skin))
         json.dump({mat: {"name": mat, "mapTo": mat, "class": "Material", "version": 1.5, "materialTag0": "beamng",
                          "Stages": [{"baseColorMap": "/art/slrr_pedestrians/%s/%s" % (name, skin), "roughnessFactor": 0.8,

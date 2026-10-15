@@ -1,0 +1,10 @@
+{
+ "cycle": 1.2,
+ "walks": {
+  "meka.dae": 0.973,
+  "meka_slow.dae": 0.876,
+  "meka_fast.dae": 1.07
+ },
+ "idle": "meka_idle.dae",
+ "idleCycle": 2.9
+}

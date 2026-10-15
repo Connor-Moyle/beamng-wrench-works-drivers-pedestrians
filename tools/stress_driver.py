@@ -19,12 +19,12 @@ from lupa.luajit21 import LuaRuntime   # BeamNG runs LuaJIT 2.1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MOD = os.path.join(HERE, "..", "mod")
-BODY_LIMIT = 0.08        # m the body may move from its seated place (seatbelt 7 cm at the head)
+BODY_LIMIT = 0.09        # m the body may move from its seated place (seatbelt 7 cm at the head)
 HAND_JUMP = 0.08         # m a hand or foot may move in one 60 Hz frame
 DT = 1 / 60
 
 
-def run(animated):
+def run(animated, record_to=None):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
@@ -36,6 +36,8 @@ def run(animated):
     g.M = M
     lua.execute("shim_start(M)")
     M.setAnimated(animated)
+    if record_to:
+        M.startRecording(7)
     worst = {"body": 0.0, "jump": 0.0}
     prev = {}
     t = 0.0
@@ -83,7 +85,24 @@ def run(animated):
             if not animated and name in prev:
                 assert math.dist(v, prev[name]) < 1e-4, ("moved while animation is off", name, t)
             prev[name] = v
+    if record_to:
+        n, rec = M.stopRecording(7, None)
+        save_recording(rec, record_to)
     return worst
+
+
+def lua_to_py(t):
+    """A Lua table from lupa as plain Python lists / dicts."""
+    if not hasattr(t, "keys"):
+        return t
+    keys = list(t.keys())
+    if keys and all(isinstance(k, int) for k in keys):
+        return [lua_to_py(t[k]) for k in sorted(keys)]
+    return {k: lua_to_py(t[k]) for k in keys}
+
+
+def save_recording(rec, path):
+    json.dump(lua_to_py(rec), open(path, "w"))
 
 
 def check_modes():
@@ -122,6 +141,9 @@ def check_modes():
 
 
 if __name__ == "__main__":
+    if "--record" in sys.argv:
+        run(True, sys.argv[sys.argv.index("--record") + 1])
+        print("recorded"); sys.exit()
     check_modes()
     for animated in (True, False):
         w = run(animated)

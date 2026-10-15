@@ -1,0 +1,10 @@
+{
+ "cycle": 1.0,
+ "walks": {
+  "gambler.dae": 1.189,
+  "gambler_slow.dae": 1.07,
+  "gambler_fast.dae": 1.308
+ },
+ "idle": "gambler_idle.dae",
+ "idleCycle": 2.2
+}

@@ -1,0 +1,10 @@
+{
+ "cycle": 1.2,
+ "walks": {
+  "hooley.dae": 0.957,
+  "hooley_slow.dae": 0.862,
+  "hooley_fast.dae": 1.053
+ },
+ "idle": "hooley_idle.dae",
+ "idleCycle": 2.1
+}
