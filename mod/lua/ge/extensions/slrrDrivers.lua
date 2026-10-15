@@ -287,40 +287,69 @@ end
 -- its grey shading times the colour, through the garment's mask. Written to /temp and loaded; identical
 -- colours share one; at most MAX_TINTS are kept (an unused one is dropped for a new one).
 -- Tinted colour map baked in Lua (the fallback when material layers don't blend): the skin's packed
--- <stem>_tint.bin (r, g, b, shade, shirt mask, trousers mask per pixel) mixed into one texture.
+-- <stem>_tint.bin (r, g, b, shade, shirt mask, trousers mask per pixel) mixed into one texture. Plain Lua
+-- (no ffi: the mod repository doesn't allow it), so it runs as a job spread over frames, BAKE_ROWS rows
+-- a frame; the driver attaches once his texture is ready.
 local TINT_PX = 1024
+local BAKE_ROWS = 32
 local tintMode = 'layers'       -- 'layers' or 'bake' (setTintMode)
+local bakeJobs = {}             -- material name -> coroutine
+local bakeResults = {}          -- material name -> texture path, or false if it couldn't be made
+
+local function bakeJob(d, a, name)
+  return coroutine.create(function()
+    local bins = FS:findFiles(ROOT .. d.id .. '/', '*_tint.bin', 0, false, false)
+    local data = bins and bins[1] and readFile(bins[1])
+    if not data or #data < TINT_PX * TINT_PX * 6 then return nil end
+    local S = a.shirt and rgb(a.shirt) or {0, 0, 0}
+    local T = a.trousers and rgb(a.trousers) or {0, 0, 0}
+    local useS, useT = a.shirt and 1 or 0, a.trousers and 1 or 0
+    local floor, min, max, byte, char = math.floor, math.min, math.max, string.byte, string.char
+    local buf = require('string.buffer').new()
+    local row = {}
+    for y = 0, TINT_PX - 1 do
+      local o = y * TINT_PX * 6
+      for x = 0, TINT_PX - 1 do
+        local r, g, b, shade, s8, t8 = byte(data, o + x * 6 + 1, o + x * 6 + 6)
+        local ms, mt = s8 / 255 * useS, t8 / 255 * useT
+        local keep = max(0, 1 - ms - mt)
+        local k = x * 4
+        row[k + 1] = min(255, floor(r * keep + shade * (S[1] * ms + T[1] * mt)))
+        row[k + 2] = min(255, floor(g * keep + shade * (S[2] * ms + T[2] * mt)))
+        row[k + 3] = min(255, floor(b * keep + shade * (S[3] * ms + T[3] * mt)))
+        row[k + 4] = 255
+      end
+      for k = 1, TINT_PX * 4, 4096 do buf:put(char(unpack(row, k, min(k + 4095, TINT_PX * 4)))) end
+      if y % BAKE_ROWS == BAKE_ROWS - 1 then coroutine.yield() end
+    end
+    local bmp = GBitmap()
+    bmp:init(TINT_PX, TINT_PX, true)
+    if not bmp:fromBuffer(buf) then return nil end
+    local path = '/temp/slrr_drivers/' .. name .. '.color.png'
+    bmp:saveFile(path)
+    return path
+  end)
+end
+
+-- the baked texture for a tint: its path once done, nil while the job runs (or if it can't be made)
 local function bakeTint(d, a, name)
-  local bins = FS:findFiles(ROOT .. d.id .. '/', '*_tint.bin', 0, false, false)
-  local data = bins and bins[1] and readFile(bins[1])
-  if not data or #data < TINT_PX * TINT_PX * 6 then return nil end
-  local ffi = require('ffi')
-  pcall(ffi.cdef, 'typedef struct slrr_rgba_t { uint8_t r, g, b, a; } slrr_rgba_t;')
-  local src = ffi.cast('const uint8_t*', data)
-  local n = TINT_PX * TINT_PX
-  local out = ffi.new('slrr_rgba_t[?]', n)
-  local sr, sg, sb = (a.shirt and rgb(a.shirt) or {0, 0, 0})[1], (a.shirt and rgb(a.shirt) or {0, 0, 0})[2], (a.shirt and rgb(a.shirt) or {0, 0, 0})[3]
-  local tr, tg, tb = (a.trousers and rgb(a.trousers) or {0, 0, 0})[1], (a.trousers and rgb(a.trousers) or {0, 0, 0})[2], (a.trousers and rgb(a.trousers) or {0, 0, 0})[3]
-  local useS, useT = a.shirt and 1 or 0, a.trousers and 1 or 0
-  for i = 0, n - 1 do
-    local o = i * 6
-    local shade = src[o + 3]
-    local ms, mt = src[o + 4] / 255 * useS, src[o + 5] / 255 * useT
-    local keep = math.max(0, 1 - ms - mt)
-    local p = out[i]
-    p.r = math.min(255, src[o] * keep + shade * (sr * ms + tr * mt))
-    p.g = math.min(255, src[o + 1] * keep + shade * (sg * ms + tg * mt))
-    p.b = math.min(255, src[o + 2] * keep + shade * (sb * ms + tb * mt))
-    p.a = 255
+  local job = bakeJobs[name]
+  if not job then
+    job = bakeJob(d, a, name)
+    bakeJobs[name] = job
   end
-  local bmp = GBitmap()
-  bmp:init(TINT_PX, TINT_PX, true)
-  local buf = require('string.buffer').new()
-  buf:set(out, ffi.sizeof(out))
-  if not bmp:fromBuffer(buf) then return nil end
-  local path = '/temp/slrr_drivers/' .. name .. '.color.png'
-  bmp:saveFile(path)
-  return path
+  if bakeResults[name] ~= nil then return bakeResults[name] or nil end
+  return nil, 'baking'
+end
+
+local function runBakes()
+  for name, job in pairs(bakeJobs) do
+    if coroutine.status(job) ~= 'dead' then
+      local ok, res = coroutine.resume(job)
+      if not ok then log('E', 'slrrDrivers', 'tint bake failed: ' .. tostring(res)) end
+      if coroutine.status(job) == 'dead' then bakeResults[name] = ok and res or false end
+    end
+  end
 end
 
 local function tintMaterial(d, a)
@@ -344,7 +373,11 @@ local function tintMaterial(d, a)
   local function file(pattern) local f = FS:findFiles(ROOT .. d.id .. '/', pattern, 0, false, false) return f and f[1] end
   local shade = file('*_shade.color.png')
   local stages = {stage0, {}, {}, {}}
-  local baked = tintMode == 'bake' and bakeTint(d, a, name)
+  local baked, busy
+  if tintMode == 'bake' then
+    baked, busy = bakeTint(d, a, name)
+    if busy then return nil end           -- not ready yet: the driver attaches when it is
+  end
   if baked then
     local st = {}
     for k, v in pairs(stage0) do st[k] = v end
@@ -571,6 +604,7 @@ local function attach(vid)
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
              e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0}
   c.material = tintMaterial(d, look)
+  if not c.material then return false end   -- a tint texture is still baking: try again next frame
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
@@ -1013,6 +1047,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
 end
 
 local function onPreRender(dt, dtSim)
+  if next(bakeJobs) then runBakes() end
   for vid, tries in pairs(pending) do
     if attach(vid) or tries > 300 then pending[vid] = nil else pending[vid] = tries + 1 end
   end
@@ -1082,7 +1117,7 @@ M.setTintMode = function(mode)
   if mode ~= 'layers' and mode ~= 'bake' then return end
   tintMode = mode
   for name in pairs(tints) do local m = scenetree.findObject(name) if m then m:delete() end end
-  tints = {}
+  tints, bakeJobs, bakeResults = {}, {}, {}
   markAll()
 end
 M.getTintCount = function() local n = 0 for _ in pairs(tints) do n = n + 1 end return n end   -- loaded clothing colours

@@ -218,7 +218,10 @@ def check_bake():
     lua.execute(b"shim_start(M)")
     M[b"setTintMode"](b"bake")
     lua.execute(b"M.setAppearance(7, {shirt = {1, 0, 0}})")
-    g[b"shim_step"](DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+    for _ in range(60):          # the bake runs a few dozen rows a frame
+        g[b"shim_step"](DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+    st = M[b"getState"](7)
+    assert st is not None and st[b"material"] and b"_t" in st[b"material"], "the baked tint wasn't applied"
     saved = list(g[b"SHIM_SAVED"].values())
     assert saved, "nothing baked"
     out = np.frombuffer(saved[0], np.uint8).reshape(1024, 1024, 4)
