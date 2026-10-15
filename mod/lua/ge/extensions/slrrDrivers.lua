@@ -48,7 +48,8 @@ local DRIVER_MASS = 90                  -- kg added to the car at the seat (driv
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
 local SWAY_DAMP = 0.45
-local SEATBELT = 0.35                   -- metres the head can travel from where it sits
+local SEATBELT = 0.07                   -- hard limit: the head never travels more than this from where it sits
+local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
 local UPPER_BODY_SHARE = 0.5            -- share of the driver's mass that hits things
 local HIT_MIN_SPEED = 1.0               -- m/s; slower contacts don't push on the car
 local HIT_TIME = 0.05                   -- the impact force is spread over this long
@@ -61,6 +62,12 @@ local rigs = {}         -- model -> rig.json
 local cars = {}         -- vehId -> state
 local choice = {}       -- vehId -> id or false (none)
 local defaultDriver = 'slrr_mitch'
+-- display mode, global and per car: "full" (animated), "still" (seated pose, no animation),
+-- "hideFirstPerson" (animated, but not drawn in the player's own driver camera), "hidden" (never drawn)
+local MODES = {full = true, still = true, hideFirstPerson = true, hidden = true}
+local displayMode = 'full'
+local carMode = {}       -- vehId -> mode
+local animated = true    -- set per car each frame from its mode
 local group
 
 local loadedMaterials = {}
@@ -84,6 +91,7 @@ local function loadDrivers()
   table.sort(driverList, function(a, b) return a.name < b.name end)
   local s = jsonReadFile(SETTINGS)
   if s and s.default then defaultDriver = s.default end
+  if s and MODES[s.displayMode] then displayMode = s.displayMode end
 end
 
 local function getRig(model)
@@ -296,8 +304,9 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
     local acc = c.prevVel and (vel - c.prevVel) / dtSim or vec3(0, 0, 0)
     c.prevVel = vel
     if acc:length() > 2000 then acc = vec3(0, 0, 0) end   -- teleport or reset, not a crash
-    c.acc = c.acc and lerp(c.acc, acc, math.min(1, dtSim * 20)) or acc   -- physics accel is noisy frame to frame
+    c.acc = c.acc and lerp(c.acc, acc, math.min(1, dtSim * 6)) or acc   -- physics accel is noisy frame to frame
     local a = vec3(c.acc:dot(Rnow.x), c.acc:dot(Rnow.y), 0)
+    if a:length() > SWAY_ACC_MAX then a = a:normalized() * SWAY_ACC_MAX end
     local w = 2 * math.pi * SWAY_HZ
     local steps = math.max(1, math.ceil(dtSim / 0.01))
     local h = dtSim / steps
@@ -505,12 +514,31 @@ local function place(o, pos, R, axes)
   o:setTransform(m)
 end
 
+-- A joint target that moves smoothly: a low-pass that never moves faster than maxSpeed (m/s), and
+-- snaps straight there after a jump (respawn, reset) so the driver never trails off.
+local function follow(c, key, target, dt, maxSpeed)
+  c.smooth = c.smooth or {}
+  local p = c.smooth[key]
+  if not p or p:distance(target) > 0.5 or dt <= 0 then c.smooth[key] = target return target end
+  local step = (target - p) * math.min(1, dt * 30)
+  if step:length() > maxSpeed * dt then step = step:normalized() * (maxSpeed * dt) end
+  p = p + step
+  c.smooth[key] = p
+  return p
+end
+
 -- Feet on the pedals: the right foot works the throttle and moves to the brake when braking, the left
 -- works the clutch (or rests left of the pedals). Each pad is pressed in as far as its pedal, the foot
 -- pivots at the ankle to the pedal angle, and two-bone IK places hip -> knee -> ankle.
 local function updateLegs(c, wheel, world, R, dt)
   local rig, e = c.rig, c.e
-  local press = {throttle = e.throttle or 0, brake = e.brake or 0, clutch = e.clutch or 0, rest = 0}
+  -- pedal travel as the feet see it: keyboard pedals jump 0 -> 1 in a frame, a foot takes about 0.12 s
+  c.press = c.press or {throttle = 0, brake = 0, clutch = 0, rest = 0}
+  local press = c.press
+  for _, k in ipairs({'throttle', 'brake', 'clutch'}) do
+    local want = animated and (e[k] or 0) or 0
+    press[k] = press[k] + clamp(want - press[k], -dt * 8, dt * 8)
+  end
   local right = c.feet.r
   local wantR = (press.brake > 0.02 and press.brake >= press.throttle) and 'brake' or 'throttle'
   if wantR ~= right.pedal and not right.t then right.from, right.pedal, right.t = right.pedal, wantR, 0 end
@@ -535,6 +563,7 @@ local function updateLegs(c, wheel, world, R, dt)
     end
     -- the ball of the foot goes on the pad; the foot pivots toes-down with the pedal
     local footRot = rotX(-angle)
+    target = follow(c, side .. 'Foot', target, dt, 3)
     local ankleTarget = target - rotate(footRot, leg.foot0)
     -- legs that cannot reach pull the pedals in toward the seat
     local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
@@ -553,32 +582,33 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if not veh then removeCar(vid) return end
   local vpos = veh:getPosition()
   local eye = vec3(vpos) + vec3(veh:getNodePositionXYZ(c.camNode))
-  local far = eye:distance(camPos) > CULL_DIST
-  if far ~= c.hidden then
-    for _, o in pairs(c.parts) do o:setHidden(far) end
-    c.hidden = far
+  local mode = carMode[vid] or displayMode
+  animated = mode == 'full' or mode == 'hideFirstPerson'
+  local fpView = vid == fpVid
+  local off = eye:distance(camPos) > CULL_DIST or mode == 'hidden' or (mode == 'hideFirstPerson' and fpView)
+  if off ~= c.hidden then
+    for _, o in pairs(c.parts) do o:setHidden(off) end
+    c.hidden, c.headHidden = off, off
   end
-  if far then return end
+  if off then return end
   local fwd = vec3(veh:getDirectionVector()):normalized()
   local up = vec3(veh:getDirectionVectorUp())
   local eyeNow, Rnow = eye, basis(fwd, up)   -- for measuring the car's own nodes
   -- TSStatic transforms show up one frame late, so the driver is placed where the car will be
   -- when this frame is drawn: one step of its velocity and turn rate ahead
   if dtSim > 0 then
-    eye = eye + vec3(veh:getVelocity()) * dtSim * LEAD_FRAMES
-    if c.prevFwd then
-      local f2, u2 = fwd + (fwd - c.prevFwd) * LEAD_FRAMES, up + (up - c.prevUp) * LEAD_FRAMES
-      c.prevFwd, c.prevUp = fwd, up
-      fwd, up = f2:normalized(), u2:normalized()
-    else
-      c.prevFwd, c.prevUp = fwd, up
-    end
+    -- the frame time is averaged (a jumpy dt made the driver jitter at speed); rotation isn't led, the
+    -- car's direction vectors are too noisy for it
+    c.dtAvg = c.dtAvg and lerp(c.dtAvg, dtSim, 0.05) or dtSim
+    local lead = vec3(veh:getVelocity()) * (c.dtAvg * LEAD_FRAMES)
+    if lead:length() < 1.5 then eye = eye + lead end
   end
   local R = basis(fwd, up)   -- seat frame -> world
   local function world(p) return eye + rotate(R, p) end
   local rig, e = c.rig, c.e
 
-  local L = bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
+  local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos) or IDENT
+  if c.reachLean then L = compose(L, c.reachLean) end
   local function lean(p) return rig.pelvis + rotate(L, p - rig.pelvis) end
 
   -- shifting hand: reach for the lever at high revs, run the H pattern while a shift is on
@@ -604,7 +634,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   -- no reaching for the lever while the wheel is turned well over (both hands are busy steering)
   local revsHigh = e.maxrpm > 0 and e.rpm / e.maxrpm > REACH_RPM and e.gear > 0 and math.abs(e.steer) < 70
-  local want = (c.shiftT or revsHigh) and 1 or 0
+  local want = (animated and (c.shiftT or revsHigh)) and 1 or 0
   c.reach = c.reach + clamp(want - c.reach, -dt * 3, dt * (c.shiftT and 12 or 4))
   local leverTarget = lever + knob + vec3(0, -0.03, 0.07)
 
@@ -613,13 +643,25 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local l = toSeat(c.wheelNode)
     if math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1 then wheel = l + WHEEL_HUB_TO_RIM end
   end
-  local turn = math.rad(e.steer)
+  -- a wheel beyond arm's reach: lean forward from the hips (a fixed lean, worked out once) instead of
+  -- the arms locking straight and the hands sliding off the rim
+  if not c.reachLean then
+    local need = 0
+    for side, arm in pairs(rig.arms) do
+      local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * 0.95
+      need = math.max(need, d)
+    end
+    local lever = (rig.parts.head - rig.pelvis):length()
+    c.reachLean = need > 0 and rotX(-clamp(need / lever, 0, 0.35)) or IDENT
+  end
+  local turn = animated and math.rad(e.steer) or 0
   local grips = updateHands(c, turn, dt)
   for side, arm in pairs(rig.arms) do
     local grip = grips[side]
     local target = rimPoint(wheel, grip.a, grip.lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
     local shoulder = lean(arm.shoulder)
+    target = follow(c, side .. 'Hand', target, dt, 4)
     local elbow, wrist = ik(shoulder, target, arm.la, arm.lb, arm.pole)
     local n = (elbow - shoulder):cross(wrist - shoulder)
     local Du = delta(basis(elbow - shoulder, n), arm.F0u)
@@ -637,7 +679,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   -- hidden when the camera leaves the head (leaning out to look back).
   local yaw, pitch = clamp(turn * 0.12, -0.4, 0.4), 0
   local fp = vid == fpVid
-  if fp then
+  if fp and animated then
     local q = core_camera.getQuat()
     local look = q and (q * vec3(0, 1, 0)) or R.y
     local lx, ly, lz = look:dot(R.x), look:dot(R.y), look:dot(R.z)
@@ -647,6 +689,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local hideHead = fp and core_camera.getPosition():distance(eye) > 0.1
   if hideHead ~= c.headHidden then c.parts.head:setHidden(hideHead) c.headHidden = hideHead end
   if not hideHead then
+    c.headYaw = c.headYaw and (c.headYaw + clamp(yaw - c.headYaw, -dt * 6, dt * 6)) or yaw   -- no snapping
+    c.headPitch = c.headPitch and (c.headPitch + clamp(pitch - c.headPitch, -dt * 4, dt * 4)) or pitch
+    yaw, pitch = c.headYaw, c.headPitch
     local cy, sy = math.cos(yaw), math.sin(yaw)
     local turnHead = compose({x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}, rotX(pitch))
     place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
@@ -673,7 +718,7 @@ local function feed(vid, steer, rpm, maxrpm, gear, throttle, brake, clutch)
   e.brake, e.clutch = brake or 0, clutch or 0
 end
 
-local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver}, true) end
+local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver, displayMode = displayMode}, true) end
 
 M.getDrivers = function()
   local out = {}
@@ -697,6 +742,19 @@ M.setDefaultDriver = function(id)
   markAll()
 end
 M.getDefaultDriver = function() return defaultDriver end
+M.setDisplayMode = function(mode, vid)
+  if mode == 'static' then mode = 'still' end
+  if mode ~= nil and not MODES[mode] then log('W', 'slrrDrivers', 'unknown display mode ' .. tostring(mode)) return end
+  if vid then carMode[vid] = mode else displayMode = mode or 'full' saveSettings() end
+  -- start the animation state fresh, so switching never leaves a half-finished move behind
+  for id, c in pairs(cars) do
+    if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch = nil, nil, nil, nil, 0, nil, nil end
+  end
+end
+M.getDisplayMode = function(vid) return (vid and carMode[vid]) or displayMode end
+-- shortcut kept from 1.2: true = "full", false = "still"
+M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
+M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end
@@ -711,7 +769,7 @@ M.onVehicleSwitched = function(old, new)   -- a parked car the player gets into 
     if vid and vid ~= -1 and wantedDriver(vid) ~= M.getDriver(vid) then pending[vid] = 0 end
   end
 end
-M.onVehicleDestroyed = function(vid) removeCar(vid) pending[vid] = nil choice[vid] = nil end
+M.onVehicleDestroyed = function(vid) removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil end
 M.onClientStartMission = function() group = nil cars = {} markAll() end
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 

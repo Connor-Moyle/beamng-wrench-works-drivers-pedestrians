@@ -55,6 +55,17 @@ slrrDrivers.setDriver(be:getPlayerVehicleID(0), 'slrr_opponent1')  -- just this 
 slrrDrivers.setDriver(be:getPlayerVehicleID(0), nil)      -- no driver in this car
 ```
 
+### Display modes
+
+Wrench Works' garage has a **Driver** setting for this. Without the garage, use the console:
+
+```lua
+slrrDrivers.setDisplayMode('full')             -- animated driver everywhere (default)
+slrrDrivers.setDisplayMode('still')            -- seated, no animation
+slrrDrivers.setDisplayMode('hideFirstPerson')  -- animated, but not drawn in your own driver camera
+slrrDrivers.setDisplayMode('hidden')           -- no driver at all
+```
+
 ## Pedestrians
 
 They appear around the camera on maps that have a sidewalk file. Valo City has one; it's converted

@@ -4,7 +4,7 @@ import math
 import os
 import re
 
-from lupa import LuaRuntime
+from lupa.luajit21 import LuaRuntime
 
 src = open(os.path.join(os.path.dirname(__file__), "..", "mod", "lua", "ge", "extensions", "slrrDrivers.lua")).read()
 consts = "\n".join(l for l in src.splitlines() if re.match(r"local (GRIP_ANGLE|HAND_RANGE|REGRIP_\w+) =", l))

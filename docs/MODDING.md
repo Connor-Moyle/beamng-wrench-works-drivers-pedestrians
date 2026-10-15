@@ -218,7 +218,7 @@ The numbers at the top of `slrrDrivers.lua` are meant to be tweaked:
 | `REACH_RPM` | 0.82 | share of max rpm at which the hand goes to the lever |
 | `DRIVER_MASS` | 90 kg | default added weight |
 | `SWAY_GAIN`, `SWAY_HZ`, `SWAY_DAMP` | 0.7, 1.6, 0.45 | how much and how fast the body leans |
-| `SEATBELT` | 0.35 m | how far the head can travel |
+| `SEATBELT` | 0.07 m | hard limit on how far the head can travel from its seated place |
 | `CULL_DIST` | 150 m | drivers farther from the camera are hidden |
 
 In `slrrPedestrians.lua`: spawn and despawn distances, `LINK_DIST` (how far apart sidewalk ends can
@@ -235,6 +235,9 @@ slrrDrivers.setDriver(vehId, id)     -- id nil or "none": no driver in that car
 slrrDrivers.getDriver(vehId)         -- id or nil
 slrrDrivers.setDefaultDriver(id)     -- for cars with no choice of their own (saved)
 slrrDrivers.getDefaultDriver()
+slrrDrivers.setDisplayMode(mode [, vehId])   -- "full" (default), "still", "hideFirstPerson", "hidden"
+slrrDrivers.getDisplayMode([vehId])          -- without vehId: the global mode (saved); with it: that car
+slrrDrivers.setAnimated(on)          -- shortcut: true = "full", false = "still"
 slrrDrivers.reload()                 -- rescan driver folders
 slrrDrivers.getState(vehId)          -- internal state, for debugging
 
