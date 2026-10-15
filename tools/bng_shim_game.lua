@@ -105,6 +105,13 @@ addNode(32, CAM.x - 0.5, -0.1, CAM.z - 0.1)
 addNode(33, CAM.x, -0.4, CAM.z + 0.25)              -- roof / windscreen top
 for k = 0, 3 do addNode(40 + k, CAM.x - 0.2 + k * 0.12, -0.75, CAM.z - 1.25) end   -- footwell floor
 addNode(50, CAM.x - 0.32, -0.30, CAM.z - 0.50)     -- H-pattern lever knob (car's right of the driver)
+-- footwell collision triangles: the floor 1.2 m below the eye and a firewall 1.05 m ahead of it
+addNode(60, CAM.x + 0.8, -0.1, CAM.z - 1.2) addNode(61, CAM.x - 0.8, -0.1, CAM.z - 1.2)
+addNode(62, CAM.x + 0.8, -1.05, CAM.z - 1.2) addNode(63, CAM.x - 0.8, -1.05, CAM.z - 1.2)
+addNode(64, CAM.x + 0.8, -1.05, CAM.z - 0.5) addNode(65, CAM.x - 0.8, -1.05, CAM.z - 0.5)
+local triangles = {{id1 = 60, id2 = 61, id3 = 62}, {id1 = 61, id2 = 63, id3 = 62},
+                   {id1 = 62, id2 = 63, id3 = 64}, {id1 = 63, id2 = 65, id3 = 64}}
+if SHIM_NO_TRIANGLES then triangles = nil end
 local torsionHydros = {}
 if SHIM_HPATTERN then torsionHydros = {{id1 = 41, id2 = 42, id3 = 43, id4 = 50, inputSource = 'hPatternAxisY'}} end
 local props = {
@@ -150,7 +157,7 @@ core_camera = {
   getQuat = function() return nil end,
 }
 local powertrain = {{type = SHIM_HPATTERN and 'manualGearbox' or 'automaticGearbox', name = 'gearbox'}}
-core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props, torsionHydros = torsionHydros, powertrain = powertrain}} end}
+core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props, torsionHydros = torsionHydros, powertrain = powertrain, triangles = triangles}} end}
 function shim_node_seat(cid)   -- a car node in the seat frame (x right, y forward, z up)
   local fwd, up, left = axes()
   local d = vec3(veh:getNodePositionXYZ(cid)) - vec3(veh:getNodePositionXYZ(1))

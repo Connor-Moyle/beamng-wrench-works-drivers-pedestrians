@@ -11,8 +11,12 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
   seatbelt. He stops against the wheel, doors, pillars and roof (visually: he never pushes on the car,
   so he can't knock a door open).
 - **Feet on the pedals.** His right foot works the throttle and moves across to the brake, and his
-  left works the clutch in manual cars. The pedals are found on every car, and each foot pivots to
-  match its pedal.
+  left works the clutch in manual cars. Each car's footwell is measured from its own collision
+  surfaces (floor, toe board, firewall), so the feet sit on the pedals, above the floor, on every car,
+  and follow a footwell crushed in a crash. Each foot pivots to match its pedal.
+- **Crash damage.** The wheel is followed live, so a steering column pushed in by a crash brings his
+  hands closer. After a hard crash, once the car has slowed down, he holds his head and shakes it for a
+  few seconds (never at speed, and not in your own first-person view).
 - **Visible in first person and in the mirrors.** Look down and you see your arms, chest and legs
   working. The camera sits inside his head, so the head never blocks your view, but it shows in the
   mirrors and turns with your view.

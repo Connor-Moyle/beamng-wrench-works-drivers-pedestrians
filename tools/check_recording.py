@@ -6,6 +6,7 @@ Per recording, from every frame:
   J1 rim    each fist's distance from the steering-wheel rim (not while that hand is re-gripping or on
             the gear lever): over 5 cm counts as off the rim
   J1 clip   arms through each other, through the torso or thighs, or through the wheel's disc
+  J2 feet   a foot below the measured floor or past the firewall (recorded "feet" clearances)
             (capsule tests with the parts' joints; 2 cm of overlap is allowed for skin and sleeves)
   J1 pops   any joint moving more than 5 cm in one frame
   J2 seat   the body more than 7.5 cm from where it sat in the first frame (recordings start at rest)
@@ -88,7 +89,7 @@ def check(rec):
         fist[side] = pos.mean(0)
     pelvis = np.array(rig["pelvis"])
     frames = rec["frames"]
-    out = {"frames": len(frames), "rim_off": 0, "rim_checked": 0, "rim_worst": 0.0, "clips": 0, "clip_kinds": {},
+    out = {"feet": [], "frames": len(frames), "rim_off": 0, "rim_checked": 0, "rim_worst": 0.0, "clips": 0, "clip_kinds": {},
            "pops": [], "seat_worst": 0.0, "cost_ms": 0.0}
     prev, base = None, []
     for i, fr in enumerate(frames):
@@ -108,12 +109,19 @@ def check(rec):
         for side in "rl":
             on_lever = fr.get("shiftSide") == side and fr.get("reach", 0) > 0.05
             on_lever = on_lever or fr.get("revK", 0) > 0.05     # reversing: hands deliberately moved (seat back, top of rim)
+            on_lever = on_lever or (fr.get("shiftSide") == side and fr.get("daze", 0) > 0.01)   # holding his head after a crash
             regrip = (fr.get("regrip") or {}).get(side, 0)
             if not on_lever and not regrip:
                 d = rim_dist(j[side + "_fist"], c)
                 out["rim_checked"] += 1
                 out["rim_worst"] = max(out["rim_worst"], d)
                 out["rim_off"] += d > RIM_OFF
+        # J2 feet: above the measured floor and behind the firewall in every frame
+        for side, f in (fr.get("feet") or {}).items():
+            if f.get("floor") is not None and f["floor"] < -0.01:
+                out["feet"].append("J2 %s foot %.3f m through the floor" % (side, -f["floor"]))
+            if f.get("wall") is not None and f["wall"] < -0.01:
+                out["feet"].append("J2 %s foot %.3f m through the firewall" % (side, -f["wall"]))
         # J1 clipping
         caps = {"r_upper": (j["r_shoulder"], j["r_elbow"], R_ARM), "l_upper": (j["l_shoulder"], j["l_elbow"], R_ARM),
                 "r_fore": (j["r_elbow"], j["r_fist"], R_HAND), "l_fore": (j["l_elbow"], j["l_fist"], R_HAND),
@@ -152,6 +160,8 @@ def check(rec):
         high.append("J1 %d pops (worst %s)" % (len(out["pops"]), max(out["pops"], key=lambda p: p[2])))
     if out["seat_worst"] > SEAT:
         high.append("J2 body %.3f m from the seat" % out["seat_worst"])
+    if out["feet"]:
+        high.append("%s (%d frames)" % (out["feet"][0], len(out["feet"])))
     if out["clips"] > 3:
         high.append("J1 clipping in %d frames %s" % (out["clips"], out["clip_kinds"]))
     elif out["clips"]:

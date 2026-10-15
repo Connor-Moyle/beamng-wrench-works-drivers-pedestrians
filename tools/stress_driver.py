@@ -11,6 +11,7 @@ Checks every frame:
 and repeats the run with animation off, where nothing may move at all relative to the seat.
 """
 import json
+import numpy as np
 import math
 import os
 import sys
@@ -47,7 +48,7 @@ def run(animated, record_to=None, look=None):
     t = 0.0
     speed, steer, prev_steer = 0.0, 0.0, 0.0
     base = None
-    for frame in range(int(44 / DT)):
+    for frame in range(int(49 / DT)):
         t += DT
         # driving script: launch, top speed with kerb hits, hard braking, lock-to-lock at speed, a spin
         if t < 8:
@@ -75,11 +76,14 @@ def run(animated, record_to=None, look=None):
         kerb = 25.0 if (10 < t < 14 and frame % 37 == 0) else 0.0   # sharp vertical/lateral hits
         rpm = 1000 + (speed % 15) * 400
         gear = 1 + int(speed // 15)
-        if t >= 40:                                       # backing up at walking pace: he looks out of the back
+        if 38 <= t < 44:                                  # a crash: stopped dead, he holds his head
+            speed, steer, acc = 0.0, 0.0, 0.0
+        if t >= 44:                                       # backing up at walking pace: he looks out of the back
             speed, gear, steer, acc = 2.0, -1, 0.0, 0.0
         g.shim_step(DT, speed, acc, steer, kerb, rpm, gear,
                     1.0 if acc > 0 else 0.0, min(1.0, -acc / 11) if acc < 0 else 0.0, 0.0)
         worst["reach"] = max(worst["reach"], M.getState(7).reach or 0)
+        worst["daze"] = max(worst.get("daze", 0), M.getState(7).dazeK or 0)
         parts = g.shim_parts_local()          # part -> {x, y, z} in the seat frame
         for name in parts:
             p = parts[name]
@@ -178,6 +182,37 @@ def check_presence():
     M.onAiModeChange(7, "disabled")
     assert not driver(), "a car whose AI was turned off kept its driver"
     print("presence ok")
+
+
+def check_damage():
+    """A steering column pushed in by a crash brings the rim, and the hands, closer: live, without a pop."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+
+    def hands(frames):
+        prev, jump = None, 0.0
+        for _ in range(frames):
+            g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+            p = g.shim_parts_local()
+            h = np.array([[p[k].x, p[k].y, p[k].z] for k in ("r_hand", "l_hand")])
+            if prev is not None:
+                jump = max(jump, float(np.abs(h - prev).max()))
+            prev = h
+        return h, jump
+    before, _ = hands(120)
+    # the hub (node 2) 15 cm toward the driver: jbeam cars face -y, so +y
+    lua.execute("local n = core_vehicle_manager.getVehicleData().vdata.nodes[2] n.pos = n.pos + vec3(0, 0.15, 0)")
+    after, jump = hands(120)
+    moved = before[:, 1].mean() - after[:, 1].mean()
+    assert 0.08 < moved < 0.2, "hands moved %.3f m toward him for a hub pushed 0.15 m" % moved
+    assert jump < 0.05, "a hand popped %.3f m in a frame" % jump
+    print("damage ok: hub pushed 0.15 m, hands came %.3f m closer, largest step %.3f m" % (moved, jump))
 
 
 def check_shift():
@@ -281,6 +316,7 @@ if __name__ == "__main__":
         print("recorded"); sys.exit()
     check_modes()
     check_presence()
+    check_damage()
     check_tints()
     check_bake()
     check_sizes()

@@ -48,6 +48,17 @@ local PEDAL_Y = 0.95                    -- forward of the eyes; pulled in when t
 local PEDAL_ABOVE_FLOOR = 0.13
 local PEDAL_TRAVEL = vec3(0, 0.07, -0.025)   -- how the pad moves when pressed fully
 local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttle and brake
+local PAD_FROM_WALL = 0.10              -- the pedal pads sit this far behind the firewall / toe board
+local SOLE = 0.05                       -- the ankle and the ball of the foot stay this far above the floor
+local WELL_REFRESH = 0.25               -- s between re-measuring the footwell (it can be crushed)
+local HUB_MOVE = 0.3                    -- m the steering hub may be pushed from where it started (crash damage)
+local CRASH_DV = 5                      -- m/s the car's horizontal velocity leaves its 0.15 s average by in a crash
+local CRASH_LAG = 0.15                  -- (kerb taps change it ~1 m/s, 11 m/s^2 braking 1.7 m/s: no crash)
+local DAZE_WAIT = 5                     -- s after a crash the car has to slow down for him to hold his head
+local DAZE_SPEED = 4                    -- m/s: only when stopped or slow, never at speed
+local DAZE_TIME, DAZE_IN, DAZE_OUT = 3.5, 0.5, 0.7
+local DAZE_SHAKE = 0.22                 -- rad: the slow, sore head shake
+local DAZE_HAND = vec3(0.08, 0.18, 0.0)  -- the wrist at the forehead, to the hand's own side (x: inward)
 local MAX_TINTS = 8                    -- clothing colours kept loaded at once (video memory)
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
@@ -168,9 +179,27 @@ local function ik(S, T, la, lb, pole)
   return S + (d * math.cos(a) + bend * math.sin(a)) * la, S + d * dist
 end
 
-local wheelX = vec3(1, 0, 0)
-local wheelN = vec3(0, -math.cos(WHEEL_TILT), math.sin(WHEEL_TILT))
-local wheelUp = wheelN:cross(wheelX):normalized()
+local WHEEL_X0 = vec3(1, 0, 0)
+local WHEEL_N0 = vec3(0, -math.cos(WHEEL_TILT), math.sin(WHEEL_TILT))
+local WHEEL_UP0 = WHEEL_N0:cross(WHEEL_X0):normalized()
+-- the rim's frame for the car being updated (set per car each frame: a damaged column tilts it)
+local wheelX, wheelN, wheelUp = WHEEL_X0, WHEEL_N0, WHEEL_UP0
+
+-- distance along o + d*t to triangle a b c (Moller-Trumbore), or nil
+local function rayTri(o, d, a, b, c)
+  local e1, e2 = b - a, c - a
+  local pv = d:cross(e2)
+  local det = e1:dot(pv)
+  if math.abs(det) < 1e-9 then return nil end
+  local tv = o - a
+  local u = tv:dot(pv) / det
+  if u < 0 or u > 1 then return nil end
+  local qv = tv:cross(e1)
+  local v = d:dot(qv) / det
+  if v < 0 or u + v > 1 then return nil end
+  local t = e2:dot(qv) / det
+  return t >= 0 and t or nil
+end
 local HOME = {r = GRIP_ANGLE, l = math.pi - GRIP_ANGLE}
 local function wrapAngle(a) return (a + math.pi) % (2 * math.pi) - math.pi end
 local function rimPoint(center, a, lift)
@@ -661,7 +690,10 @@ local function attach(vid)
   -- steering wheel hub: the anchor node of the steering prop
   if vdata and vdata.vdata and vdata.vdata.props then
     for _, p in pairs(vdata.vdata.props) do
-      if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) then c.wheelNode = tonumber(p.idRef) break end
+      if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) then
+        c.wheelNode, c.wheelNodeX, c.wheelNodeY = tonumber(p.idRef), tonumber(p.idX), tonumber(p.idY)
+        break
+      end
     end
   end
   -- pedals: which ones the car animates (props driven by throttle / brake / clutch) and how far they swing;
@@ -705,7 +737,26 @@ local function attach(vid)
   local refs = vdata and vdata.vdata and vdata.vdata.refNodes and vdata.vdata.refNodes[0]
   local centre = refs and nodes and nodes[refs.ref] and nodes[refs.ref].pos
   if cam0 and centre and math.abs(cam0.x - centre.x) > 0.05 then c.seatLeft = cam0.x > centre.x else c.seatLeft = not c.rhd end
-  c.pedalZ = clamp(floorZ and (floorZ + PEDAL_ABOVE_FLOOR) or -0.97, -1.08, -0.85)
+  c.pedalZ = clamp(floorZ and (floorZ + PEDAL_ABOVE_FLOOR) or -0.97, -1.08, -0.85)   -- when nothing is measured
+  -- the footwell's surfaces: the car's collision triangles in front of the seat (floor, toe board,
+  -- firewall), which the feet measure with rays (the lowest node is often chassis under the floor)
+  c.well = {}
+  local tris = vdata and vdata.vdata and vdata.vdata.triangles
+  if cam0 and tris then
+    local function inWell(n)
+      if not (n and n.pos) then return false end
+      local l = vec3(cam0.x - n.pos.x, cam0.y - n.pos.y, n.pos.z - cam0.z)
+      return math.abs(l.x) < 0.9 and l.y > 0.1 and l.y < 1.9 and l.z > -1.8 and l.z < -0.3
+    end
+    for _, t in pairs(tris) do
+      if type(t) == 'table' then
+        local a, b, cc = tonumber(t.id1), tonumber(t.id2), tonumber(t.id3)
+        if a and b and cc and (inWell(nodes[a]) or inWell(nodes[b]) or inWell(nodes[cc])) then
+          table.insert(c.well, {a, b, cc})
+        end
+      end
+    end
+  end
   for side, leg in pairs(rig.legs or {}) do
     local sx = side == 'r' and 1 or -1
     leg.pole = vec3(0.15 * sx, 0.5, 1)   -- knees bend up and a little out
@@ -779,7 +830,8 @@ local function updateLegs(c, wheel, world, R, dt)
   if wantR ~= right.pedal and not right.t then right.from, right.pedal, right.t = right.pedal, wantR, 0 end
   c.feet.l.pedal = c.hasClutch and 'clutch' or 'rest'
   local function pad(name)
-    local p = vec3(wheel.x + PEDAL_X[name], PEDAL_Y - (c.seat and c.seat.y or 0), c.pedalZ)   -- in the driver's moved seat
+    local p = c.pads and c.pads[name] or vec3(wheel.x + PEDAL_X[name], PEDAL_Y, c.pedalZ)
+    p = p - (c.seat or vec3(0, 0, 0))   -- in the driver's moved seat
     if name == 'rest' then p = p + vec3(0, -0.08, 0.02) end
     return p + PEDAL_TRAVEL * press[name]
   end
@@ -804,7 +856,12 @@ local function updateLegs(c, wheel, world, R, dt)
     local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
     local d = ankleTarget - leg.hip
     if d:length() > reach then ankleTarget = leg.hip + d:normalized() * reach end
+    -- never through the floor: the ankle stays above it (the heel sits below the ankle)
+    local fl = c.ankleFloor and math.max(c.ankleFloor[f.pedal] or -9, f.from and c.ankleFloor[f.from] or -9)
+    if fl and fl > -9 and ankleTarget.z < fl + SOLE then ankleTarget.z = fl + SOLE end
     local knee, ankle = ik(leg.hip, ankleTarget, leg.lt, leg.lc, leg.pole)
+    c.feetAt = c.feetAt or {}
+    c.feetAt[side] = {ankle = ankle + (c.seat or vec3(0, 0, 0)), ball = target + (c.seat or vec3(0, 0, 0)), knee = knee + (c.seat or vec3(0, 0, 0))}
     local n = (knee - leg.hip):cross(ankle - leg.hip)
     place(c.parts[side .. '_thigh'], world(leg.hip), R, delta(basis(knee - leg.hip, n), leg.F0t))
     place(c.parts[side .. '_calf'], world(knee), R, delta(basis(ankle - knee, n), leg.F0c))
@@ -820,8 +877,17 @@ local function record(c, eye, R, dt, veh, wheel)
               brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {},
               reach = c.reach or 0, shiftSide = c.shiftSide, perfMs = perfMs,
               regrip = {r = c.hands and c.hands.r.t and 1 or 0, l = c.hands and c.hands.l.t and 1 or 0},
-              revK = c.revK or 0, revHand = (c.seatLeft and 'r' or 'l'),
+              revK = c.revK or 0, revHand = (c.seatLeft and 'r' or 'l'), daze = c.dazeK or 0,
               grip = c.lastGrips and {r = math.deg(c.lastGrips.r.a), l = math.deg(c.lastGrips.l.a)} or nil}
+  -- the feet against the measured footwell (gate: above the floor, behind the firewall)
+  if c.feetAt and c.ankleFloor then
+    fr.feet = {}
+    for side, f in pairs(c.feetAt) do
+      local pedal = c.feet[side].pedal
+      local fl, w = c.ankleFloor[pedal], c.wall[pedal]
+      fr.feet[side] = {floor = fl and (math.min(f.ankle.z, f.ball.z) - fl) or nil, wall = w and (w - f.ball.y) or nil}
+    end
+  end
   for name, o in pairs(c.parts) do
     local m = o:getTransform()
     local p = loc(m:getPosition() - eye)
@@ -830,6 +896,110 @@ local function record(c, eye, R, dt, veh, wheel)
   end
   table.insert(c.rec, fr)
   if #c.rec > 60 * 120 then table.remove(c.rec, 1) end   -- keep the last two minutes
+end
+
+-- The steering wheel, live (sets the rim frame for this car; see liveWheel's caller)
+local function liveWheel(c, toSeat)
+  -- the wheel, live: the hub must look like a wheel on the first frame; after that it is followed, so a
+  -- column pushed in by a crash brings the rim (and the hands) closer and tilts it with the prop's nodes
+  local wheel = WHEEL_CENTER
+  wheelX, wheelN, wheelUp = WHEEL_X0, WHEEL_N0, WHEEL_UP0
+  if c.wheelNode then
+    local l = toSeat(c.wheelNode)
+    local function frame()
+      if not (c.wheelNodeX and c.wheelNodeY) then return nil end
+      local ax, ay = toSeat(c.wheelNodeX) - l, toSeat(c.wheelNodeY) - l
+      if ax:length() < 1e-3 or ay:length() < 1e-3 or ax:cross(ay):length() < 1e-4 * ax:length() * ay:length() then return nil end
+      return basis(ay, ax)
+    end
+    if c.hub0 == nil then
+      c.hub0 = (math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1) and l or false
+      c.hubF0 = c.hub0 and frame() or nil
+    end
+    if c.hub0 then
+      local off = l - c.hub0
+      if off:length() > HUB_MOVE then l = c.hub0 + off:normalized() * HUB_MOVE end
+      wheel = l + WHEEL_HUB_TO_RIM
+      local F = c.hubF0 and frame()
+      if F then
+        local D = delta(F, c.hubF0)
+        if D.x.x + D.y.y + D.z.z > 1 + 2 * math.cos(0.6) then   -- bent less than ~35 degrees: believe it
+          wheelX, wheelN, wheelUp = rotate(D, WHEEL_X0), rotate(D, WHEEL_N0), rotate(D, WHEEL_UP0)
+        end
+      end
+    end
+  end
+  return wheel
+end
+
+local function measureWell(c, wheel, toSeat, dt)
+  -- the footwell, measured with rays against the car's own triangles every WELL_REFRESH s (live: a crushed
+  -- floor or firewall moves the pedals with it). The pads go a little behind the firewall / toe board and
+  -- PEDAL_ABOVE_FLOOR over the floor under them; nothing measured keeps the fixed layout.
+  if c.well and #c.well > 0 then
+    c.wellT = (c.wellT or WELL_REFRESH) + dt
+    if c.wellT >= WELL_REFRESH then
+      c.wellT = 0
+      local pts, tri = {}, {}
+      local function P(cid) local q = pts[cid] if not q then q = toSeat(cid) pts[cid] = q end return q end
+      for i, t in ipairs(c.well) do tri[i] = {P(t[1]), P(t[2]), P(t[3])} end
+      local function cast(o, d, maxT)
+        local best
+        for _, t in ipairs(tri) do
+          local h = rayTri(o, d, t[1], t[2], t[3])
+          if h and h <= maxT and (not best or h < best) then best = h end
+        end
+        return best
+      end
+      -- the floor: the first surface below hip height (the dash is above it, the chassis below)
+      local function floorAt(x, y)
+        local h = cast(vec3(x, y, -0.75), vec3(0, 0, -1), 0.8)
+        return h and -0.75 - h or nil
+      end
+      c.pads, c.ankleFloor, c.wall = {}, {}, {}
+      for name, px in pairs(PEDAL_X) do
+        local x = wheel.x + px
+        local f = floorAt(x, PEDAL_Y) or floorAt(x, PEDAL_Y - 0.2)
+        if f then
+          local w = cast(vec3(x, 0.2, f + SOLE + 0.04), vec3(0, 1, 0), 1.6)
+          local y = w and math.min(PEDAL_Y, 0.2 + w - PAD_FROM_WALL) or PEDAL_Y
+          local fp = floorAt(x, y) or f
+          c.pads[name] = vec3(x, y, fp + PEDAL_ABOVE_FLOOR)
+          c.ankleFloor[name] = (floorAt(x, y - 0.15) or fp) - (c.seat and c.seat.z or 0)
+          c.wall[name] = w and 0.2 + w or nil
+        end
+      end
+      if not next(c.pads) then c.pads, c.ankleFloor, c.wall = nil, nil, nil end
+    end
+  end
+end
+
+local function updateDaze(c, veh, R, dt, dtSim, fp)
+  -- after a crash (a hard horizontal jolt) he holds his head for a moment, once the car has slowed down;
+  -- never at speed, and not in the player's own first-person view
+  local vel = vec3(veh:getVelocity())
+  if c.lastVel and dtSim > 0 then
+    local dv = vel - c.lastVel
+    dv = dv - R.z * dv:dot(R.z)                 -- kerbs and landings jolt vertically: not a crash
+    if dv:length() > CRASH_DV then c.sinceCrash = 0 end
+    c.lastVel = c.lastVel + (vel - c.lastVel) * math.min(1, dtSim / CRASH_LAG)
+  else
+    c.lastVel = vel
+  end
+  if c.sinceCrash then
+    c.sinceCrash = c.sinceCrash + dt
+    if c.sinceCrash > DAZE_WAIT then c.sinceCrash = nil end
+  end
+  local slow = vel:length() < DAZE_SPEED
+  local reversing = (c.e.gear or 0) < 0
+  if c.sinceCrash and slow and not c.daze and animated and not fp and not reversing then c.daze, c.sinceCrash = 0, nil end
+  if c.daze then
+    c.daze = c.daze + dt
+    if not slow or fp or not animated or reversing then c.daze = math.max(c.daze, DAZE_TIME - DAZE_OUT) end   -- back to the wheel now
+    if c.daze >= DAZE_TIME then c.daze = nil end
+  end
+  c.dazeK = c.daze and clamp(math.min(c.daze / DAZE_IN, (DAZE_TIME - c.daze) / DAZE_OUT), 0, 1) or 0
+
 end
 
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
@@ -908,11 +1078,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
   end
 
-  local wheel = WHEEL_CENTER
-  if c.wheelNode then
-    local l = toSeat(c.wheelNode)
-    if math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1 then wheel = l + WHEEL_HUB_TO_RIM end
-  end
+  local wheel = liveWheel(c, toSeat)
   -- Reach (worked out once per car): drivers sit with the elbows bent, at about REACH of full arm length.
   -- A wheel further away moves the seat forward (up to SEAT_SLIDE), then the rest is a lean from the
   -- hips, instead of the arms locking straight. Everything the driver reaches for is then measured from
@@ -928,8 +1094,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local lever = (rig.parts.head - rig.pelvis):length()
     c.reachLean = need > slide and rotX(-clamp((need - slide) / lever, 0, 0.3)) or IDENT
   end
+  measureWell(c, wheel, toSeat, dt)
   wheel = wheel - c.seat
   leverTarget = leverTarget - c.seat
+  updateDaze(c, veh, R, dt, dtSim, vid == fpVid)
   local turn = animated and math.rad(e.steer) or 0
   local grips = updateHands(c, turn, dt)
   c.lastGrips = grips
@@ -943,6 +1111,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local passenger = back > 0 and 'l' or 'r'
       if side == passenger then target = lerp(target, vec3(-back * SEAT_BACK_REACH.x, SEAT_BACK_REACH.y, SEAT_BACK_REACH.z), k)
       else target = lerp(target, rimPoint(wheel, math.pi / 2, 0) - wheelN * WRIST_BACK, k) end
+    end
+    if c.dazeK > 0 and side == c.shiftSide then
+      target = lerp(target, lean(c.head0 + vec3(DAZE_HAND.x * c.inward, DAZE_HAND.y, DAZE_HAND.z)), smootheststep(c.dazeK))
     end
     local shoulder = lean(arm.shoulder)
     local d = target - shoulder
@@ -968,7 +1139,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
     -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
-    local holding = grip.lift == 0 and not (side == c.shiftSide and c.reach > 0.01) and c.revK < 0.01
+    local holding = grip.lift == 0 and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and c.revK < 0.01
     if holding and rig.fist and rig.fist[side] then
       -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
       local _, _, _, _, handR = solve(target)
@@ -1012,6 +1183,11 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       yaw, pitch = yaw + c.glance.yaw * k, pitch + c.glance.pitch * k
       if c.glance.t >= GLANCE_TIME then c.glance = nil end
     end
+  end
+  if c.dazeK > 0 then
+    local k = smootheststep(c.dazeK)
+    yaw = yaw + k * DAZE_SHAKE * math.sin(2 * math.pi * 0.8 * c.daze)
+    pitch = pitch - k * 0.18
   end
   if c.revK and c.revK > 0 then
     local k = smootheststep(c.revK)
@@ -1159,7 +1335,11 @@ M.onExtensionLoaded = function() loadDrivers() markAll() end
 M.onExtensionUnloaded = function() for vid in pairs(cars) do removeCar(vid) end end
 M.onPreRender = onPreRender
 M.onVehicleSpawned = function(vid) pending[vid] = 0 end   -- also fires after a part change rebuilds the car
-M.onVehicleResetted = function(vid) if not cars[vid] then pending[vid] = 0 end end
+M.onVehicleResetted = function(vid)
+  if not cars[vid] then pending[vid] = 0 return end
+  local c = cars[vid]
+  c.lastVel, c.sinceCrash, c.daze, c.hub0 = nil, nil, nil, nil   -- a reset is no crash; a repaired column is the new start
+end
 M.onVehicleSwitched = function(old, new)   -- a car the player gets into gains a driver; one he leaves loses it
   for _, vid in ipairs({old, new}) do
     if vid and vid ~= -1 and wantedDriver(vid) ~= M.getDriver(vid) then pending[vid] = 0 end
