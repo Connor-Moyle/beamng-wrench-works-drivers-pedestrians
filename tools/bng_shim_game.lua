@@ -138,7 +138,8 @@ local veh = {}
 function veh:getPosition() return vec3(car.pos) end
 function veh:getId() return car.id end
 function veh:getJBeamFilename() return 'testcar' end
-function veh:queueLuaCommand() end
+SHIM_CMDS = {}
+function veh:queueLuaCommand(cmd) SHIM_CMDS[#SHIM_CMDS + 1] = cmd end
 function veh:getVelocity() return vec3(car.vel) end
 function veh:getDirectionVector() local f = axes() return f end
 function veh:getDirectionVectorUp() local _, u = axes() return u end

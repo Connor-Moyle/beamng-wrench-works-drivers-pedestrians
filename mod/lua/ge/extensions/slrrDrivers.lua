@@ -102,6 +102,7 @@ local displayMode = 'full'
 local carMode = {}       -- vehId -> mode
 local animated = true    -- set per car each frame from its mode
 local perfMs = 0         -- smoothed ms per frame spent placing all drivers (getPerf)
+local stopAsk = 0        -- seconds since cars in 'stop' mode were last asked for their AI mode
 local group
 
 local loadedMaterials = {}
@@ -473,13 +474,16 @@ end
 -- a car has a driver only while it's driven: the player is in it, or its AI is on (traffic, racers,
 -- police). Parked, lot, garage and waiting cars and wrecks have AI off and stay empty.
 local aiModes = {}      -- vehId -> AI mode, from the onAiModeChange hook (asked once for cars it predates)
+local function askMode(vid)
+  local veh = be:getObjectByID(vid)
+  if veh then veh:queueLuaCommand('if ai then obj:queueGameEngineLua("slrrDrivers.onAiModeChange(" .. objectId .. ", \\"" .. tostring(ai.mode) .. "\\")") end') end
+end
 local function isDriven(vid)
   if vid == be:getPlayerVehicleID(0) then return true end
   local mode = aiModes[vid]
   if mode == nil then
-    local veh = be:getObjectByID(vid)
     aiModes[vid] = false     -- asked: off until the car answers
-    if veh then veh:queueLuaCommand('if ai then obj:queueGameEngineLua("slrrDrivers.onAiModeChange(" .. objectId .. ", \\"" .. tostring(ai.mode) .. "\\")") end') end
+    askMode(vid)
     return false
   end
   return mode ~= false and mode ~= 'disabled'
@@ -1345,6 +1349,13 @@ local function onPreRender(dt, dtSim)
   if not next(cars) then return end
   local camPos = core_camera.getPosition()
   local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
+  -- a car told to 'stop' (traffic parked by the pool) brakes, then ai.lua sets itself 'disabled' without the
+  -- hook: stopped cars are asked again every 2 s, so the driver leaves once it stands (B14)
+  stopAsk = stopAsk + dt
+  if stopAsk > 2 then
+    stopAsk = 0
+    for vid in pairs(cars) do if aiModes[vid] == 'stop' then askMode(vid) end end
+  end
   local t0 = os.clock()
   for vid, c in pairs(cars) do
     local ok, err = pcall(updateCar, vid, c, dt, dtSim or dt, camPos, fpVid)

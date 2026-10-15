@@ -189,6 +189,16 @@ def check_presence():
     assert driver(), "a traffic car has no driver"
     M.onAiModeChange(7, "disabled")
     assert not driver(), "a car whose AI was turned off kept its driver"
+    # 'stop': he stays while the car brakes; the car is asked again (ai.lua flips to 'disabled' silently)
+    M.onAiModeChange(7, "stop")
+    assert driver(), "a car braking to a stop lost its driver"
+    asks = lambda: sum("ai.mode" in c for c in g.SHIM_CMDS.values())   # noqa: E731
+    n = asks()
+    for _ in range(int(2.5 / DT)):
+        g.shim_step(DT, 1, 0, 0, 0, 1000, 1, 0, 0, 0)
+    assert asks() == n + 1, "a stopping car was asked %d times in 2.5 s, want 1" % (asks() - n)
+    M.onAiModeChange(7, "disabled")
+    assert not driver(), "a car that came to a stop kept its driver"
     print("presence ok")
 
 

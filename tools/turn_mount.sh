@@ -3,9 +3,11 @@
 # the criteria in C:/Dev/SLRR BeamNG Graph/qa_reports/2026-10-16_driver.md.
 #   bash tools/turn_mount.sh calib        # restart the game (so vehicles/common loads), props on, x-ray both
 #                                         # pose conventions: pick the one with the driver seated, hands on the wheel
-#   bash tools/turn_mount.sh run [conv]   # speed runs with 6-shot bursts at 30/50/70 m/s (chase + first person),
-#                                         # a pose recording, then J6 with 14 traffic cars; ends with the flags off
-#   bash tools/turn_mount.sh off          # flags off (if a run was cut short: a saved props=true spawns props for everyone)
+#   bash tools/turn_mount.sh run [conv]   # props on, speed runs with 6-shot bursts at 30/50/70 m/s (chase + first
+#                                         # person), a pose recording, then J6 with 14 traffic cars
+#   bash tools/turn_mount.sh off          # flags off
+# Every phase ends with the flags off (game and settings file), however it ends: a saved props=true spawns
+# the props for everyone's turn.
 set -e
 cd "$(dirname "$0")"
 REVIEW="C:/Dev/SLRR BeamNG Graph/review"
@@ -18,12 +20,18 @@ spawn() {   # model, y: on Valo City's long straight, facing -y, player in it
   lua "local q=quatFromDir(vec3(0,-1,0), vec3(0,0,1)) local v=core_vehicles.spawnNewVehicle('$1', {pos=vec3(2336.88,${2:-330},6.6), rot=q, autoEnterVehicle=true, cling=true}) return v:getId()"
 }
 speed() { lua "return string.format('%.1f', vec3(be:getObjectByID($1):getVelocity()):length())"; }
-xray() {    # screenshot the driver from the car's left, car see-through
-  lua "local v=be:getObjectByID($1) v:setMeshAlpha(0.15,'',false) local c=slrrDrivers.getState($1) local eye=v:getPosition()+vec3(v:getNodePositionXYZ(c.camNode)) local f=v:getDirectionVector():normalized() local r=f:cross(vec3(0,0,1)) local t=eye+f*0.35-vec3(0,0,0.45) local cam=t-r*1.6+vec3(0,0,0.15) commands.setFreeCamera() core_camera.setPosition(0,cam) core_camera.setRotation(0, quatFromDir((t-cam):normalized(), vec3(0,0,1))) return 1" >/dev/null
+xray() {    # the driver seen from the passenger's head, wide angle (no mesh alpha: the props are car meshes too)
+  lua "local v=be:getObjectByID($1) local c=slrrDrivers.getState($1) local eye=v:getPosition()+vec3(v:getNodePositionXYZ(c.camNode)) local f=v:getDirectionVector():normalized() local r=f:cross(vec3(0,0,1)) local cam=eye+r*0.8-f*0.05 local t=eye+f*0.15-vec3(0,0,0.35) commands.setFreeCamera() core_camera.setPosition(0,cam) core_camera.setRotation(0, quatFromDir((t-cam):normalized(), vec3(0,0,1))) core_camera.setFOV(0,110) return 1" >/dev/null
   sleep 2; shot "$2"; sleep 3; shot "$2"
-  lua "be:getObjectByID($1):setMeshAlpha(1,'',false) commands.setGameCamera() return 1" >/dev/null
+  lua "core_camera.setFOV(0,65) commands.setGameCamera() return 1" >/dev/null
 }
 errors() { grep -c "driver update failed\|injection failed\|unable to prop" "$LOG" || true; }
+# whatever happens, the slot ends with the flags off: in the game if it answers, and in its settings file
+flagsoff() {
+  lua "slrrDriverMount.setFlags({props=false, ragdoll=false}) slrrDrivers.setPropConvention(1) return 'flags off'" || true
+  printf '{"props":false,"ragdoll":false,"selfCollision":false}' > "$LOCALAPPDATA/BeamNG/BeamNG.drive/current/settings/slrr_drivers_mount.json"
+}
+trap flagsoff EXIT
 
 case "${1:-}" in
 calib)
@@ -35,9 +43,8 @@ calib)
     sleep 1; xray "$V" "mount_calib_conv$conv.jpg"
     lua "be:getObjectByID($V):delete() return 1" >/dev/null
   done
-  lua "slrrDrivers.setPropConvention(1) return 1" >/dev/null
   echo "errors in the log so far: $(errors)"
-  echo "look at $REVIEW/mount_calib_conv1.jpg and conv2.jpg, then: bash tools/turn_mount.sh run <conv>   (props stay ON until run or off)"
+  echo "look at $REVIEW/mount_calib_conv1.jpg and conv2.jpg, then: bash tools/turn_mount.sh run <conv>"
   ;;
 run)
   CONV=${2:-1}
@@ -64,13 +71,12 @@ run)
   echo "== J6: 14 traffic cars"
   lua "gameplay_traffic.setupTraffic(14) return 1" >/dev/null; sleep 25
   lua "local perf, n = slrrDrivers.getPerf() local drawn = 0 for _, v in ipairs(getAllVehicles()) do local c = slrrDrivers.getState(v:getId()) if c and c.drawnByCar then drawn = drawn + 1 end end return string.format('J6: %d drivers (%d drawn by the car) cost %.2f ms per frame', n, drawn, perf)" | tee -a "$RUNLOG"
-  lua "gameplay_traffic.deleteVehicles() slrrDriverMount.setFlags({props=false, ragdoll=false}) slrrDrivers.setPropConvention(1) return 'flags off'"
+  lua "gameplay_traffic.deleteVehicles() return 1" >/dev/null
   echo "errors in the log: $(errors)" | tee -a "$RUNLOG"
   python check_recording.py "$USER_TEMP/slrr_rec_mount.json" | tee -a "$RUNLOG"
   echo "shots and GIFs: $REVIEW/mount_*; log: $RUNLOG"
   ;;
 off)
-  lua "slrrDriverMount.setFlags({props=false, ragdoll=false}) slrrDrivers.setPropConvention(1) return 'flags off'"
   ;;
 *)
   sed -n '2,9p' "$0"; exit 1
