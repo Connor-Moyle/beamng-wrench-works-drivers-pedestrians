@@ -14,6 +14,9 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
   left works the clutch in manual cars. Each car's footwell is measured from its own collision
   surfaces (floor, toe board, firewall), so the feet sit on the pedals, above the floor, on every car,
   and follow a footwell crushed in a crash. Each foot pivots to match its pedal.
+- **Looks where you look.** In third person your driver turns his head (and a little of his body)
+  toward where the camera looks, up to about 95 degrees, smoothly; he faces forward again when you
+  look behind him, and keeps his eyes mostly on the road at speed, steering hard or braking.
 - **Crash damage.** The wheel is followed live, so a steering column pushed in by a crash brings his
   hands closer. After a hard crash, once the car has slowed down, he holds his head and shakes it for a
   few seconds (never at speed, and not in your own first-person view).

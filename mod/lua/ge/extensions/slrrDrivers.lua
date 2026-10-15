@@ -74,6 +74,12 @@ local SEAT_BACK_REACH = vec3(0.5, -0.05, -0.12)   -- the hand on the passenger s
 local REVERSE_TWIST = math.rad(17)      -- torso twist when looking back
 local REVERSE_HEAD = math.rad(80)       -- head turn on top of it (relative to the torso)
 local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
+-- third person: the player's driver looks where the camera looks
+local LOOK_HEAD, LOOK_TORSO = math.rad(80), math.rad(15)   -- the turn, split between head and torso
+local LOOK_GIVE_UP = math.rad(120)      -- a camera further round than this: he faces forward again
+local LOOK_PITCH_UP, LOOK_PITCH_DOWN = math.rad(20), math.rad(30)
+local LOOK_W = 13                       -- rad/s: critically damped spring, settles in about 0.3 s
+local LOOK_SPEED = 3                    -- rad/s at most (a fast camera swing doesn't snap him round)
 local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undoes
 local SWAY_DAMP = 0.45
 local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
@@ -878,6 +884,7 @@ local function record(c, eye, R, dt, veh, wheel)
               reach = c.reach or 0, shiftSide = c.shiftSide, perfMs = perfMs,
               regrip = {r = c.hands and c.hands.r.t and 1 or 0, l = c.hands and c.hands.l.t and 1 or 0},
               revK = c.revK or 0, revHand = (c.seatLeft and 'r' or 'l'), daze = c.dazeK or 0,
+              look = {w = c.lookW or 0, yaw = c.lookYaw or 0, pitch = c.lookPitch or 0},
               grip = c.lastGrips and {r = math.deg(c.lastGrips.r.a), l = math.deg(c.lastGrips.l.a)} or nil}
   -- the feet against the measured footwell (gate: above the floor, behind the firewall)
   if c.feetAt and c.ankleFloor then
@@ -1002,6 +1009,34 @@ local function updateDaze(c, veh, R, dt, dtSim, fp)
 
 end
 
+-- Third-person look: in the player's car, outside first person, the head (and a little of the torso)
+-- turns toward where the camera looks; weighted down at speed, hard steering and braking (eyes on the
+-- road). Sets c.lookYaw / c.lookPitch (total turn) and c.lookW (blend).
+local function updateLook(c, vid, R, dt, fp, speed)
+  local e = c.e
+  local on = animated and not fp and vid == be:getPlayerVehicleID(0)
+  c.lookW = (c.lookW or 0) + clamp((on and 1 or 0) - (c.lookW or 0), -dt * 2, dt * 2)
+  local wantYaw, wantPitch = 0, 0
+  local q = on and core_camera.getQuat()
+  if q then
+    local look = q * vec3(0, 1, 0)
+    local lx, ly, lz = look:dot(R.x), look:dot(R.y), look:dot(R.z)
+    local yaw = math.atan2(-lx, ly)
+    local limit = LOOK_HEAD + LOOK_TORSO
+    if math.abs(yaw) > LOOK_GIVE_UP then yaw = 0 else yaw = clamp(yaw, -limit, limit) end
+    local w = clamp(1 - (speed - 10) / 15 * 0.7, 0.3, 1)                  -- 30 % above 25 m/s
+    w = w * (1 - clamp(math.abs(e.steer or 0) / 270, 0, 0.7)) * (1 - 0.6 * clamp(e.brake or 0, 0, 1))
+    wantYaw = yaw * w
+    wantPitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)) * 0.6, -LOOK_PITCH_DOWN, LOOK_PITCH_UP) * w
+  end
+  -- critically damped, speed limited
+  c.lookYaw, c.lookPitch = c.lookYaw or 0, c.lookPitch or 0
+  c.lookVy, c.lookVp = c.lookVy or 0, c.lookVp or 0
+  c.lookVy = clamp(c.lookVy + (LOOK_W * LOOK_W * (wantYaw - c.lookYaw) - 2 * LOOK_W * c.lookVy) * dt, -LOOK_SPEED, LOOK_SPEED)
+  c.lookVp = clamp(c.lookVp + (LOOK_W * LOOK_W * (wantPitch - c.lookPitch) - 2 * LOOK_W * c.lookVp) * dt, -LOOK_SPEED, LOOK_SPEED)
+  c.lookYaw, c.lookPitch = c.lookYaw + c.lookVy * dt, c.lookPitch + c.lookVp * dt
+end
+
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local veh = be:getObjectByID(vid)
   if not veh then removeCar(vid) return end
@@ -1039,6 +1074,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
   local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
   if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
+  updateLook(c, vid, R, dt, vid == fpVid, vec3(veh:getVelocity()):length())
+  local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (LOOK_HEAD + LOOK_TORSO) * (1 - (c.revK or 0))
+  if math.abs(lookTorso) > 1e-4 then L = compose(L, rotZ(lookTorso)) end
   if c.reachLean then L = compose(L, c.reachLean) end
   -- idle: slow breathing in the chest (and so the shoulders), always on when animated
   c.clock = (c.clock or math.random() * 10) + dt
@@ -1188,6 +1226,13 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local k = smootheststep(c.dazeK)
     yaw = yaw + k * DAZE_SHAKE * math.sin(2 * math.pi * 0.8 * c.daze)
     pitch = pitch - k * 0.18
+  end
+  if c.lookW and c.lookW > 0 and not fp then
+    -- the camera's look overrides the idle glances; the head turns its share on top of the torso
+    local k = smootheststep(c.lookW)
+    if k > 0.5 then c.glance = nil end
+    yaw = lerp(yaw, clamp(turn * 0.12, -0.4, 0.4) + c.lookYaw * LOOK_HEAD / (LOOK_HEAD + LOOK_TORSO), k)
+    pitch = lerp(pitch, c.lookPitch, k)
   end
   if c.revK and c.revK > 0 then
     local k = smootheststep(c.revK)

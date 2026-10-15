@@ -215,6 +215,40 @@ def check_damage():
     print("damage ok: hub pushed 0.15 m, hands came %.3f m closer, largest step %.3f m" % (moved, jump))
 
 
+def check_look():
+    """Third person: the player's driver turns toward the camera's look, within limits, smoothly; eases
+    back to forward when the camera looks behind him; weighted down at speed."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+
+    def look(x, y, z, speed, secs):
+        # the camera's view direction: x to the car's left, y forward, z up (in the car's frame)
+        lua.execute("core_camera.getQuat = function() return setmetatable({}, {__mul = function() "
+                    "local f = be:getObjectByID(7):getDirectionVector() local u = vec3(0, 0, 1) "
+                    "return u:cross(f) * %g + f * %g + u * %g end}) end" % (x, y, z))
+        prev, step = None, 0.0
+        for _ in range(int(secs / DT)):
+            g.shim_step(DT, speed, 0, 0, 0, 1000, 1, 0, 0, 0)
+            p = g.shim_parts_local()["head"]
+            if prev is not None:
+                step = max(step, math.dist(prev, (p.x, p.y, p.z)))
+            prev = (p.x, p.y, p.z)
+        return math.degrees(M.getState(7).lookYaw), step
+    yaw, step = look(1, 0, 0, 0, 1.5)        # camera looks to his left
+    assert 85 < yaw < 95 and step < 0.05, ("left", yaw, step)
+    yaw, step = look(0.05, -1, 0, 0, 1.5)    # camera looks back past him: forward again, no flip
+    assert abs(yaw) < 5 and step < 0.05, ("behind", yaw, step)
+    yaw, step = look(1, 0, 0, 30, 1.5)       # at speed: mostly on the road
+    assert 20 < yaw < 35 and step < 0.05, ("speed", yaw, step)
+    print("look ok: left 90 deg, behind -> forward, 30 m/s -> %.0f deg, head step %.3f m" % (yaw, step))
+
+
 def check_shift():
     """An H-pattern car: on a gear change the shifting hand ends on the lever knob and the clutch goes down."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -317,6 +351,7 @@ if __name__ == "__main__":
     check_modes()
     check_presence()
     check_damage()
+    check_look()
     check_tints()
     check_bake()
     check_sizes()
