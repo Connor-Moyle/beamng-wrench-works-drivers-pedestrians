@@ -1341,6 +1341,16 @@ M.onVehicleResetted = function(vid)
   c.lastVel, c.sinceCrash, c.daze, c.hub0 = nil, nil, nil, nil   -- a reset is no crash; a repaired column is the new start
 end
 M.onVehicleSwitched = function(old, new)   -- a car the player gets into gains a driver; one he leaves loses it
+  -- on foot (the unicycle) the driver who got out walks: slrrPedestrians draws his walker shapes
+  local nv = new and new ~= -1 and be:getObjectByID(new)
+  if slrrPedestrians and slrrPedestrians.followPlayer then
+    if nv and nv:getJBeamFilename() == 'unicycle' then
+      local id = (old and old ~= -1 and M.getDriver(old)) or defaultDriver
+      if drivers[id] and FS:directoryExists(ROOT .. id .. '/walker/') then slrrPedestrians.followPlayer(new, ROOT .. id .. '/walker/') end
+    else
+      slrrPedestrians.followPlayer(nil)
+    end
+  end
   for _, vid in ipairs({old, new}) do
     if vid and vid ~= -1 and wantedDriver(vid) ~= M.getDriver(vid) then pending[vid] = 0 end
   end
