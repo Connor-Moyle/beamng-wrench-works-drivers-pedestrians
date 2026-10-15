@@ -50,7 +50,7 @@ local PEDAL_TRAVEL = vec3(0, 0.07, -0.025)   -- how the pad moves when pressed f
 local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttle and brake
 local PAD_FROM_WALL = 0.10              -- the pedal pads sit this far behind the firewall / toe board
 local SOLE = 0.05                       -- the ankle and the ball of the foot stay this far above the floor
-local WELL_REFRESH = 0.25               -- s between re-measuring the footwell (it can be crushed)
+local WELL_REFRESH = 1.0                -- s between re-measuring the footwell (it can be crushed; rays cost)
 local HUB_MOVE = 0.3                    -- m the steering hub may be pushed from where it started (crash damage)
 local CRASH_DV = 5                      -- m/s the car's horizontal velocity leaves its 0.15 s average by in a crash
 local CRASH_LAG = 0.15                  -- (kerb taps change it ~1 m/s, 11 m/s^2 braking 1.7 m/s: no crash)
@@ -839,7 +839,11 @@ local function updateLegs(c, wheel, world, R, dt)
     local p = c.pads and c.pads[name] or vec3(wheel.x + PEDAL_X[name], PEDAL_Y, c.pedalZ)
     p = p - (c.seat or vec3(0, 0, 0))   -- in the driver's moved seat
     if name == 'rest' then p = p + vec3(0, -0.08, 0.02) end
-    return p + PEDAL_TRAVEL * press[name]
+    p = p + PEDAL_TRAVEL * press[name]
+    -- a pressed pad never takes the foot through its measured firewall
+    local w = c.wall and c.wall[name]
+    if w then p.y = math.min(p.y, w - (c.seat and c.seat.y or 0) - 0.03) end
+    return p
   end
   for side, leg in pairs(rig.legs) do
     local f = c.feet[side]
@@ -890,8 +894,9 @@ local function record(c, eye, R, dt, veh, wheel)
   if c.feetAt and c.ankleFloor then
     fr.feet = {}
     for side, f in pairs(c.feetAt) do
-      local pedal = c.feet[side].pedal
+      local pedal, from = c.feet[side].pedal, c.feet[side].t and c.feet[side].from
       local fl, w = c.ankleFloor[pedal], c.wall[pedal]
+      if from and c.wall[from] and (not w or c.wall[from] < w) then w = c.wall[from] end   -- moving between pedals
       fr.feet[side] = {floor = fl and (math.min(f.ankle.z, f.ball.z) - fl) or nil, wall = w and (w - f.ball.y) or nil}
     end
   end
@@ -949,11 +954,18 @@ local function measureWell(c, wheel, toSeat, dt)
       c.wellT = 0
       local pts, tri = {}, {}
       local function P(cid) local q = pts[cid] if not q then q = toSeat(cid) pts[cid] = q end return q end
-      for i, t in ipairs(c.well) do tri[i] = {P(t[1]), P(t[2]), P(t[3])} end
+      for i, t in ipairs(c.well) do
+        local a, b, cc = P(t[1]), P(t[2]), P(t[3])
+        tri[i] = {a, b, cc, math.min(a.x, b.x, cc.x), math.max(a.x, b.x, cc.x), math.min(a.y, b.y, cc.y),
+                  math.max(a.y, b.y, cc.y), math.min(a.z, b.z, cc.z), math.max(a.z, b.z, cc.z)}
+      end
+      -- the rays run along an axis (down or forward): a triangle whose box misses the ray's line is skipped
       local function cast(o, d, maxT)
         local best
         for _, t in ipairs(tri) do
-          local h = rayTri(o, d, t[1], t[2], t[3])
+          local h = o.x >= t[4] and o.x <= t[5]
+            and (d.z ~= 0 and o.y >= t[6] and o.y <= t[7] or d.y ~= 0 and o.z >= t[8] and o.z <= t[9])
+            and rayTri(o, d, t[1], t[2], t[3])
           if h and h <= maxT and (not best or h < best) then best = h end
         end
         return best

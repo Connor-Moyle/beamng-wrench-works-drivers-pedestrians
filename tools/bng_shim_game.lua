@@ -112,6 +112,12 @@ addNode(64, CAM.x + 0.8, -1.05, CAM.z - 0.5) addNode(65, CAM.x - 0.8, -1.05, CAM
 local triangles = {{id1 = 60, id2 = 61, id3 = 62}, {id1 = 61, id2 = 63, id3 = 62},
                    {id1 = 62, id2 = 63, id3 = 64}, {id1 = 63, id2 = 65, id3 = 64}}
 if SHIM_NO_TRIANGLES then triangles = nil end
+-- a realistic footwell has a few hundred triangles (224 in the etk800): pad it out for timing
+for k = 1, (SHIM_EXTRA_TRIS or 0) do
+  local x, y, z = CAM.x + (k % 15) * 0.1 - 0.7, -0.2 - (k % 9) * 0.12, CAM.z - 1.3 + (k % 7) * 0.02
+  addNode(1000 + 3 * k, x, y, z) addNode(1001 + 3 * k, x + 0.1, y, z) addNode(1002 + 3 * k, x, y - 0.1, z)
+  table.insert(triangles, {id1 = 1000 + 3 * k, id2 = 1001 + 3 * k, id3 = 1002 + 3 * k})
+end
 local torsionHydros = {}
 if SHIM_HPATTERN then torsionHydros = {{id1 = 41, id2 = 42, id3 = 43, id4 = 50, inputSource = 'hPatternAxisY'}} end
 local props = {
