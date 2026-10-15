@@ -319,13 +319,18 @@ if __name__ == "__main__":
         for tag, tempo in TEMPOS.items():
             write_skinned_dae(os.path.join(d, "%s_%s.dae" % (name, tag)), name, bones, subs, retimed(tracks, tempo), mat)
             walks["%s_%s.dae" % (name, tag)] = round(speed * tempo, 3)
-        # idle: SLRR's <name>_jitter, standing in place
-        ibones = read_skl(find(pdir, name + "_jitter.skl"))
-        itracks = read_anim(find(pdir, name + "_jitter.matrixdata"), ibones)
-        write_skinned_dae(os.path.join(d, name + "_idle.dae"), name, ibones,
-                          read_skinned_scx(find(pdir, name + "_jitter.SCX")), itracks, mat)
+        # idle: a calm stand made from the walk (convert_driver_walk.stand); SLRR's own <name>_jitter is a
+        # race-crowd cheer, kept as the cheer shape for spectators
+        from convert_driver_walk import stand
+        idle = stand(bones, tracks)
+        write_skinned_dae(os.path.join(d, name + "_idle.dae"), name, bones, subs, idle, mat)
+        cbones = read_skl(find(pdir, name + "_jitter.skl"))
+        ctracks = read_anim(find(pdir, name + "_jitter.matrixdata"), cbones)
+        write_skinned_dae(os.path.join(d, name + "_cheer.dae"), name, cbones,
+                          read_skinned_scx(find(pdir, name + "_jitter.SCX")), ctracks, mat)
         json.dump({"cycle": round(cycle, 3), "walks": walks, "idle": name + "_idle.dae",
-                   "idleCycle": round(cycle_time(itracks), 3)}, open(os.path.join(d, "ped.json"), "w"), indent=1)
+                   "idleCycle": round(cycle_time(idle), 3), "cheer": name + "_cheer.dae",
+                   "cheerCycle": round(cycle_time(ctracks), 3)}, open(os.path.join(d, "ped.json"), "w"), indent=1)
         print(name, "walk %.2f m/s (stride %.2f m per %.1f s)," % (speed, speed * cycle, cycle), end=" ")
         shutil.copyfile(os.path.join(pdir, skin), os.path.join(d, skin))
         json.dump({mat: {"name": mat, "mapTo": mat, "class": "Material", "version": 1.5, "materialTag0": "beamng",

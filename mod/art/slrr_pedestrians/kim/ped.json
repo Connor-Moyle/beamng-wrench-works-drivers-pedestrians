@@ -6,5 +6,7 @@
   "kim_fast.dae": 0.935
  },
  "idle": "kim_idle.dae",
- "idleCycle": 1.5
+ "idleCycle": 3.0,
+ "cheer": "kim_cheer.dae",
+ "cheerCycle": 1.5
 }

@@ -6,5 +6,7 @@
   "gambler_fast.dae": 1.221
  },
  "idle": "gambler_idle.dae",
- "idleCycle": 2.2
+ "idleCycle": 3.0,
+ "cheer": "gambler_cheer.dae",
+ "cheerCycle": 2.2
 }

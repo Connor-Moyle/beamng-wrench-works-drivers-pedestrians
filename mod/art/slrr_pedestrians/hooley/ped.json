@@ -6,5 +6,7 @@
   "hooley_fast.dae": 1.034
  },
  "idle": "hooley_idle.dae",
- "idleCycle": 2.1
+ "idleCycle": 3.0,
+ "cheer": "hooley_cheer.dae",
+ "cheerCycle": 2.1
 }

@@ -6,5 +6,7 @@
   "kilos_fast.dae": 0.88
  },
  "idle": "kilos_idle.dae",
- "idleCycle": 0.5
+ "idleCycle": 3.0,
+ "cheer": "kilos_cheer.dae",
+ "cheerCycle": 0.5
 }

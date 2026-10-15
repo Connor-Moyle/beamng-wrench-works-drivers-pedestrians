@@ -2,7 +2,7 @@
 view, with the ground scrolling back at the walking speed Lua uses. Planted feet (filled dots) must stay still on
 the grid; if they slide, the speed in ped.json is wrong.
 
-    python walk_review.py <name> <skin.dds> <out.mp4> [speed m/s] [walk|jitter]
+    python walk_review.py <name> <skin.dds> <out.mp4> [speed m/s] [walk|idle|jitter]
 
 speed defaults to ped.json's speed for <name>.dae (0 for jitter). Needs ffmpeg on PATH.
 """
@@ -35,9 +35,13 @@ else:
     speed = 0.0
 
 d = os.path.join(SLRR, "humans", "pedestrians")
-B = read_skl(find(d, "%s_%s.skl" % (name, kind)))
-S = read_skinned_scx(find(d, "%s_%s.SCX" % (name, kind)))
-T = read_anim(find(d, "%s_%s.matrixdata" % (name, kind)), B)
+src = "walk" if kind == "idle" else kind      # idle: the calm stand convert_peds makes from the walk
+B = read_skl(find(d, "%s_%s.skl" % (name, src)))
+S = read_skinned_scx(find(d, "%s_%s.SCX" % (name, src)))
+T = read_anim(find(d, "%s_%s.matrixdata" % (name, src)), B)
+if kind == "idle":
+    from convert_driver_walk import stand
+    T = stand(B, T)
 n, cycle = len(B), cycle_time(T)
 rest = [local_matrix(b["rot"].T, b["pos"]) for b in B]
 
