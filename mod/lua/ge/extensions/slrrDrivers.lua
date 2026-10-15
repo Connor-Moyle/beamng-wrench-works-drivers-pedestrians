@@ -857,9 +857,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if dtSim > 0 then
     -- the frame time is averaged (a jumpy dt made the driver jitter at speed); rotation isn't led, the
     -- car's direction vectors are too noisy for it
-    c.dtAvg = c.dtAvg and lerp(c.dtAvg, dtSim, 0.05) or dtSim
-    local lead = vec3(veh:getVelocity()) * (c.dtAvg * LEAD_FRAMES)
-    if lead:length() < 1.5 then eye = eye + lead end
+    -- the guard is on the frame time, not the distance: a distance cap dropped the lead at speed (50 m/s
+    -- at 30 fps is 1.7 m a frame) and the driver jumped a frame back and forth around the cap
+    c.dtAvg = c.dtAvg and lerp(c.dtAvg, math.min(dtSim, 0.1), 0.05) or math.min(dtSim, 0.1)
+    eye = eye + vec3(veh:getVelocity()) * (c.dtAvg * LEAD_FRAMES)
   end
   local R = basis(fwd, up)   -- seat frame -> world
   local function world(p) return eye + rotate(R, c.seat and (p + c.seat) or p) end
