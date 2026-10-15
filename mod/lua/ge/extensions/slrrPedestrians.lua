@@ -590,7 +590,46 @@ local function target(dtReal)
   return cap
 end
 
+-- the on-foot player: a walker that follows a vehicle (BeamNG's invisible walking unicycle), with the shapes of a
+-- folder in the pedestrian format (<dir>/ped.json: walks {shape: speed}, idle). slrrDrivers' walker shapes use it.
+local player              -- {veh, walks, idle, obj, shape, switch}
+local PLAYER_STAND = 0.3  -- m/s: slower than this the walker stands (idle)
+
+local function followPlayer(vehId, dir)
+  if player and player.obj and simObjectExists(player.obj) then player.obj:delete() end
+  player = nil
+  if not vehId then return end
+  dir = dir:gsub('/*$', '/')
+  local info = jsonReadFile(dir .. 'ped.json')
+  if not info or not info.walks then log('E', 'slrrPedestrians', 'followPlayer: no ped.json in ' .. dir) return end
+  local walks = {}
+  for shape, speed in pairs(info.walks) do table.insert(walks, {shape = dir .. shape, speed = speed}) end
+  table.sort(walks, function(a, b) return a.speed < b.speed end)
+  player = {veh = vehId, walks = walks, idle = info.idle and dir .. info.idle or walks[1].shape, switch = 0}
+end
+
+local function updatePlayer(dt)
+  local v = be:getObjectByID(player.veh)
+  if not v then followPlayer(nil) return end
+  local pos, fwd, sp = vec3(v:getPosition()), vec3(v:getDirectionVector()), vec3(v:getVelocity()):length()
+  -- the walk whose speed is nearest (feet planted), or idle; changed at most twice a second
+  local want = player.idle
+  if sp >= PLAYER_STAND then
+    local best = player.walks[1]
+    for _, w in ipairs(player.walks) do if math.abs(w.speed - sp) < math.abs(best.speed - sp) then best = w end end
+    want = best.shape
+  end
+  player.switch = player.switch - dt
+  if want ~= player.shape and player.switch <= 0 then
+    local m = player.obj and simObjectExists(player.obj) and player.obj:getTransform()
+    if player.obj and simObjectExists(player.obj) then player.obj:delete() end
+    player.obj, player.shape, player.switch = makeObj(want, m), want, 0.5
+  end
+  place(player.obj, vec3(pos.x, pos.y, groundZ(pos)), fwd)
+end
+
 local function onUpdate(dtReal, dtSim)
+  if player then updatePlayer(dtSim or dtReal) end
   if not lines then return end
   if wanted() <= 0 then
     if #peds > 0 then clear() end
@@ -690,8 +729,10 @@ M.getState = function()   -- internal state, for debugging
 end
 M.onUpdate = onUpdate
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
-M.onExtensionUnloaded = clear
+M.onExtensionUnloaded = function() clear() followPlayer(nil) end
+-- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
+M.followPlayer = followPlayer
 M.onClientStartMission = function() group = nil peds = {} loadWalks() end
-M.onClientEndMission = function() group = nil peds = {} lines = nil junctions = nil end
+M.onClientEndMission = function() group = nil peds = {} lines = nil junctions = nil player = nil end
 
 return M

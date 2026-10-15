@@ -191,6 +191,38 @@ def main():
     print("ok")
 
 
+def player():
+    """X31b: the on-foot walker follows a vehicle, picks the walk nearest its speed, stands when slow, and goes."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/")))))         if os.path.exists(os.path.join(MOD, p.lstrip("/"))) else None
+    g.py_find = lambda root, pat: lua.table()
+    g.py_signals = lambda: lua.table()
+    lua.execute(FAKE)
+    lua.execute("""
+      uni = {speed = 0, gone = false}
+      function uni:getPosition() return vec3(10, 20, 5) end
+      function uni:getDirectionVector() return vec3(0, 1, 0) end
+      function uni:getVelocity() return vec3(0, self.speed, 0) end
+      be.getObjectByID = function(self, id) if id == 7 and not uni.gone then return uni end end
+      function log() end""")
+    M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
+    M.followPlayer(7, "/art/slrr_drivers/slrr_mitch/walker")
+    seen = []
+    for speed in (0, 1.06, 1.2, 0.1):
+        g.uni.speed = speed
+        for _ in range(40):
+            M.onUpdate(1 / 30, 1 / 30)
+        live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
+        seen.append((speed, live[-1].shapeName.rsplit("/", 1)[-1], len(live)))
+    print("player walker:", seen)
+    assert [x[1] for x in seen] == ["idle.dae", "walk.dae", "walk_fast.dae", "idle.dae"] and all(x[2] == 1 for x in seen), seen
+    g.uni.gone = True
+    M.onUpdate(1 / 30, 1 / 30)
+    assert not [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"], "walker left behind"
+
+
 def footpaths():
     """K1: every sidewalk sample on pavement (tools/ped_paths.py classifies against the map's collision meshes)."""
     if not os.path.isdir(MAP):
@@ -206,5 +238,6 @@ def footpaths():
 
 if __name__ == "__main__":
     main()
+    player()
     footpaths()
     print("all ok")
