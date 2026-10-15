@@ -10,8 +10,12 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
 - **He moves with the car.** His upper body leans into braking, acceleration and corners, held by a
   seatbelt. He bumps into the wheel, doors, pillars and roof, and a hard hit pushes on the part he
   hits.
-- **First person stays clear.** In your own driver camera his head and upper arms are hidden, so
-  you only see forearms and hands on the wheel.
+- **Feet on the pedals.** His right foot works the throttle and moves across to the brake, and his
+  left works the clutch in manual cars. The pedals are found on every car, and each foot pivots to
+  match its pedal.
+- **Visible in first person and in the mirrors.** Look down and you see your arms, chest and legs
+  working. The camera sits inside his head, so the head never blocks your view, but it shows in the
+  mirrors and turns with your view.
 - **Pedestrians walk the city.** On the Valo City map (SLRR's city rebuilt for BeamNG) SLRR's six
   pedestrians walk SLRR's own sidewalks with SLRR's walk animation. They go round corners, cross
   streets, step round parked cars and jump out of the way of fast ones.
@@ -69,9 +73,14 @@ Other maps can get pedestrians too: see *Sidewalks for other maps* in [docs/MODD
 seated so his eyes are there. The steering wheel is found from the car's steering-wheel prop, and
 the gear lever from its shifter, when they're within reach. Otherwise sensible defaults are used.
 
-**The driver model** is split into eight pieces: body, head, and upper arm, forearm and hand on each
-side. The converter bakes a seated pose from SLRR's skeleton and skin weights. In the game a two-bone
+**The driver model** is split into fourteen pieces: body, head, and upper arm, forearm, hand, thigh,
+calf and foot on each side. The converter bakes a seated pose from SLRR's skeleton and skin weights. In the game a two-bone
 arm solver puts the hands on the wheel or the lever every frame.
+
+**Pedals.** The car's pedal props tell which pedals it has (throttle, brake, clutch) and how far
+each one swings. The pedal height comes from the car's cabin floor, and the pedals line up with
+the steering column. The leg solver puts the ball of each foot on its pedal, presses the pad in as
+far as the pedal moves, and turns the foot at the ankle to the pedal's angle.
 
 **Steering.** Each hand holds the rim and turns with it. After about 90° it lets go and grabs
 again further round, while the other hand keeps hold. The hand climbing over the top lets go first,

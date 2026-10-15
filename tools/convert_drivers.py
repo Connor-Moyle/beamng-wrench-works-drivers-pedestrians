@@ -42,10 +42,13 @@ PARTS = {  # part -> skeleton bones whose triangles it takes; everything else is
     "head": ["Bip01 Head", "Bip01 Neck"],
     "r_upperarm": ["Bip01 R UpperArm"], "r_forearm": ["Bip01 R Forearm"], "r_hand": ["Bip01 R Hand"],
     "l_upperarm": ["Bip01 L UpperArm"], "l_forearm": ["Bip01 L Forearm"], "l_hand": ["Bip01 L Hand"],
+    "r_thigh": ["Bip01 R Thigh"], "r_calf": ["Bip01 R Calf"], "r_foot": ["Bip01 R Foot", "Bip01 R Toe0"],
+    "l_thigh": ["Bip01 L Thigh"], "l_calf": ["Bip01 L Calf"], "l_foot": ["Bip01 L Foot", "Bip01 L Toe0"],
 }
 JOINT = {"head": "Bip01 Neck", "r_upperarm": "Bip01 R UpperArm", "r_forearm": "Bip01 R Forearm",
          "r_hand": "Bip01 R Hand", "l_upperarm": "Bip01 L UpperArm", "l_forearm": "Bip01 L Forearm",
-         "l_hand": "Bip01 L Hand", "body": None}
+         "l_hand": "Bip01 L Hand", "r_thigh": "Bip01 R Thigh", "r_calf": "Bip01 R Calf", "r_foot": "Bip01 R Foot",
+         "l_thigh": "Bip01 L Thigh", "l_calf": "Bip01 L Calf", "l_foot": "Bip01 L Foot", "body": None}
 
 # Base pose targets in the seat frame relative to the eye; the Lua uses the same numbers (slrrDrivers.lua WHEEL_*).
 WHEEL_CENTER = np.array([0.0, 0.56, -0.30])
@@ -174,7 +177,8 @@ def bake(model):
     part_of_bone = {}
     for part, bl in PARTS.items():
         for bn in bl:
-            part_of_bone[names.index(bn)] = part
+            if bn in names:
+                part_of_bone[names.index(bn)] = part
     joints = {p: (P[names.index(j)] if j else np.zeros(3)) for p, j in JOINT.items()}
     geo = {p: {"pos": [], "nrm": [], "uv": [], "tris": []} for p in JOINT}
     for s in subs:
@@ -221,10 +225,18 @@ def bake(model):
     ix = {n: i for i, n in enumerate(names)}
     rig = {"model": model, "parts": {p: [round(float(c), 5) for c in joints[p]] for p in JOINT},
            "pelvis": [round(float(c), 5) for c in P[names.index("Bip01 Pelvis")]],
-           "arms": {}}
+           "arms": {}, "legs": {}}
     for s in ("R", "L"):
         rig["arms"][s.lower()] = {k: [round(float(c), 5) for c in P[ix["Bip01 %s %s" % (s, b)]]]
                                   for k, b in (("shoulder", "UpperArm"), ("elbow", "Forearm"), ("wrist", "Hand"))}
+    for s in ("R", "L"):
+        hip, knee, ankle = (P[ix["Bip01 %s %s" % (s, b)]] for b in ("Thigh", "Calf", "Foot"))
+        # ball of the foot (where it presses a pedal): the front, lower part of the foot piece
+        fp = np.array(geo[s.lower() + "_foot"]["pos"]) + ankle
+        front = fp[fp[:, 1] > fp[:, 1].max() - 0.06]
+        ball = np.array([front[:, 0].mean(), front[:, 1].mean(), front[:, 2].min() + 0.02])
+        rig["legs"][s.lower()] = {k: [round(float(c), 5) for c in v]
+                                  for k, v in (("hip", hip), ("knee", knee), ("ankle", ankle), ("ball", ball))}
     json.dump(rig, open(os.path.join(mdir, "rig.json"), "w"), indent=1)
     # self-check: the arms keep their rest lengths and reach toward the wheel (short arms may fall short)
     for s in ("r", "l"):

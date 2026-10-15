@@ -20,7 +20,8 @@ local M = {}
 
 local ROOT = '/art/slrr_drivers/'
 local SETTINGS = '/settings/slrr_drivers.json'
-local PARTS = {'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand'}
+local PARTS = {'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
+               'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}
 
 -- seat-frame wheel and shifter guesses; the same numbers as tools/convert_drivers.py
 local WHEEL_CENTER = vec3(0, 0.56, -0.30)   -- used when the car has no steering prop
@@ -37,6 +38,12 @@ local HAND_ROLL = 0.7                   -- share of the rim rotation the fist ro
 local SHIFT_TIME = 0.45
 local REACH_RPM = 0.82                  -- fraction of max rpm where the hand goes to the lever
 local CULL_DIST = 150
+-- pedals, seat frame, relative to the steering column (x) and the cabin floor (z)
+local PEDAL_X = {throttle = 0.13, brake = -0.06, clutch = -0.24, rest = -0.33}
+local PEDAL_Y = 0.95                    -- forward of the eyes; pulled in when the legs can't reach
+local PEDAL_ABOVE_FLOOR = 0.13
+local PEDAL_TRAVEL = vec3(0, 0.07, -0.025)   -- how the pad moves when pressed fully
+local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttle and brake
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
@@ -86,6 +93,12 @@ local function getRig(model)
       local function v(t) return vec3(t[1], t[2], t[3]) end
       for k, p in pairs(r.parts) do r.parts[k] = v(p) end
       r.pelvis = r.pelvis and v(r.pelvis) or vec3(0, -0.1, -0.6)
+      for _, leg in pairs(r.legs or {}) do
+        for k, p in pairs(leg) do leg[k] = v(p) end
+        leg.lt = (leg.knee - leg.hip):length()
+        leg.lc = (leg.ankle - leg.knee):length()
+        leg.foot0 = leg.ball - leg.ankle
+      end
       for _, arm in pairs(r.arms) do
         for k, p in pairs(arm) do arm[k] = v(p) end
         arm.la = (arm.elbow - arm.shoulder):length()
@@ -385,7 +398,7 @@ local function attach(vid)
     end
   end
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
-             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0}, reach = 0}
+             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0}
   for _, p in ipairs(PARTS) do
     local o = createObject('TSStatic')
     o:setField('shapeName', 0, skinnedShape(d, p))
@@ -420,6 +433,43 @@ local function attach(vid)
       if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) then c.wheelNode = tonumber(p.idRef) break end
     end
   end
+  -- pedals: which ones the car animates (props driven by throttle / brake / clutch) and how far they swing;
+  -- their height from the cabin floor in front of the seat
+  c.pedalAngle = {throttle = math.rad(20), brake = math.rad(20)}
+  if vdata and vdata.vdata and vdata.vdata.props then
+    for _, p in pairs(vdata.vdata.props) do
+      local f = type(p) == 'table' and tostring(p.func or '') or ''
+      if (f == 'throttle' or f == 'brake' or f == 'clutch') and type(p.rotation) == 'table' then
+        local r = p.rotation
+        local a = math.max(math.abs(r.x or 0), math.abs(r.y or 0), math.abs(r.z or 0))
+        c.pedalAngle[f] = clamp(a > math.pi and math.rad(a) or a, math.rad(5), math.rad(35))
+      end
+    end
+  end
+  c.hasClutch = c.pedalAngle.clutch ~= nil
+  local floorZ
+  local nodes = vdata and vdata.vdata and vdata.vdata.nodes
+  local cam0 = nodes and nodes[camNode] and nodes[camNode].pos
+  if cam0 then
+    for cid, n in pairs(nodes) do
+      if type(cid) == 'number' and n.pos then
+        local l = vec3(cam0.x - n.pos.x, cam0.y - n.pos.y, n.pos.z - cam0.z)   -- jbeam: car faces -y, +x is left
+        if math.abs(l.x) < 0.45 and l.y > 0.6 and l.y < 1.3 and l.z > -1.5 and l.z < -0.6 then
+          floorZ = math.min(floorZ or l.z, l.z)
+        end
+      end
+    end
+  end
+  -- the lowest node in the footwell can be chassis under the floor: keep pedals where cars have them
+  c.pedalZ = clamp(floorZ and (floorZ + PEDAL_ABOVE_FLOOR) or -0.97, -1.08, -0.85)
+  for side, leg in pairs(rig.legs or {}) do
+    local sx = side == 'r' and 1 or -1
+    leg.pole = vec3(0.15 * sx, 0.5, 1)   -- knees bend up and a little out
+    local n = (leg.knee - leg.hip):cross(leg.ankle - leg.hip)
+    leg.F0t = basis(leg.knee - leg.hip, n)
+    leg.F0c = basis(leg.ankle - leg.knee, n)
+  end
+  c.feet = {r = {pedal = 'throttle'}, l = {pedal = c.hasClutch and 'clutch' or 'rest'}}
   -- the hand nearest the middle of the car shifts
   c.shiftSide = c.rhd and 'l' or 'r'
   c.inward = c.rhd and -1 or 1
@@ -451,6 +501,49 @@ local function place(o, pos, R, axes)
   m:setColumn(2, rotate(R, axes.z))
   m:setPosition(pos)
   o:setTransform(m)
+end
+
+-- Feet on the pedals: the right foot works the throttle and moves to the brake when braking, the left
+-- works the clutch (or rests left of the pedals). Each pad is pressed in as far as its pedal, the foot
+-- pivots at the ankle to the pedal angle, and two-bone IK places hip -> knee -> ankle.
+local function updateLegs(c, wheel, world, R, dt)
+  local rig, e = c.rig, c.e
+  local press = {throttle = e.throttle or 0, brake = e.brake or 0, clutch = e.clutch or 0, rest = 0}
+  local right = c.feet.r
+  local wantR = (press.brake > 0.02 and press.brake >= press.throttle) and 'brake' or 'throttle'
+  if wantR ~= right.pedal and not right.t then right.from, right.pedal, right.t = right.pedal, wantR, 0 end
+  c.feet.l.pedal = c.hasClutch and 'clutch' or 'rest'
+  local function pad(name)
+    local p = vec3(wheel.x + PEDAL_X[name], PEDAL_Y, c.pedalZ)
+    if name == 'rest' then p = p + vec3(0, -0.08, 0.02) end
+    return p + PEDAL_TRAVEL * press[name]
+  end
+  for side, leg in pairs(rig.legs) do
+    local f = c.feet[side]
+    local target, angle
+    if f.t then
+      f.t = f.t + dt / FOOT_MOVE_TIME
+      local k = smootheststep(math.min(1, f.t))
+      target = lerp(pad(f.from), pad(f.pedal), k) + vec3(0, -0.03, 0.05) * math.sin(math.pi * math.min(1, f.t))
+      angle = lerp((c.pedalAngle[f.from] or 0) * press[f.from], (c.pedalAngle[f.pedal] or 0) * press[f.pedal], k)
+      if f.t >= 1 then f.t = nil end
+    else
+      target = pad(f.pedal)
+      angle = (c.pedalAngle[f.pedal] or 0) * press[f.pedal]
+    end
+    -- the ball of the foot goes on the pad; the foot pivots toes-down with the pedal
+    local footRot = rotX(-angle)
+    local ankleTarget = target - rotate(footRot, leg.foot0)
+    -- legs that cannot reach pull the pedals in toward the seat
+    local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
+    local d = ankleTarget - leg.hip
+    if d:length() > reach then ankleTarget = leg.hip + d:normalized() * reach end
+    local knee, ankle = ik(leg.hip, ankleTarget, leg.lt, leg.lc, leg.pole)
+    local n = (knee - leg.hip):cross(ankle - leg.hip)
+    place(c.parts[side .. '_thigh'], world(leg.hip), R, delta(basis(knee - leg.hip, n), leg.F0t))
+    place(c.parts[side .. '_calf'], world(knee), R, delta(basis(ankle - knee, n), leg.F0c))
+    place(c.parts[side .. '_foot'], world(ankle), R, footRot)
+  end
 end
 
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
@@ -535,18 +628,26 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     place(c.parts[side .. '_hand'], world(wrist), R, rotAbout(Df, wheelN, roll))
   end
   place(c.parts.body, world(lean(vec3(0, 0, 0))), R, L)
+  if rig.legs and rig.legs.r then updateLegs(c, wheel, world, R, dt) end
 
-  -- head: looks a little into the turn
-  local hideHead = vid == fpVid
-  if hideHead ~= c.headHidden then
-    -- in the player's own driver camera the head and upper arms sit right at the lens: only forearms and hands show
-    for _, part in ipairs({'head', 'r_upperarm', 'l_upperarm'}) do c.parts[part]:setHidden(hideHead) end
-    c.headHidden = hideHead
+  -- head: in the player's own driver camera it turns with the view and the camera sits inside it, so it
+  -- never draws into the view (the inside of a model is not drawn) yet shows in the mirrors. It is only
+  -- hidden when the camera leaves the head (leaning out to look back).
+  local yaw, pitch = clamp(turn * 0.12, -0.4, 0.4), 0
+  local fp = vid == fpVid
+  if fp then
+    local q = core_camera.getQuat()
+    local look = q and (q * vec3(0, 1, 0)) or R.y
+    local lx, ly, lz = look:dot(R.x), look:dot(R.y), look:dot(R.z)
+    yaw = clamp(math.atan2(-lx, ly), -1.4, 1.4)
+    pitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)), -0.6, 0.5)
   end
+  local hideHead = fp and core_camera.getPosition():distance(eye) > 0.1
+  if hideHead ~= c.headHidden then c.parts.head:setHidden(hideHead) c.headHidden = hideHead end
   if not hideHead then
-    local yaw = clamp(turn * 0.12, -0.4, 0.4)
     local cy, sy = math.cos(yaw), math.sin(yaw)
-    place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, {x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}))
+    local turnHead = compose({x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}, rotX(pitch))
+    place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
   end
 end
 
@@ -561,12 +662,13 @@ local function onPreRender(dt, dtSim)
 end
 
 -- called by slrrDriverFeed (vehicle Lua) every frame
-local function feed(vid, steer, rpm, maxrpm, gear, throttle)
+local function feed(vid, steer, rpm, maxrpm, gear, throttle, brake, clutch)
   local c = cars[vid]
   if not c then return end
   local e = c.e
   if gear ~= e.gear and e.maxrpm > 0 then c.shiftT, c.fromGear = 0, e.gear end
   e.steer, e.rpm, e.maxrpm, e.gear, e.throttle = steer, rpm, maxrpm, gear, throttle
+  e.brake, e.clutch = brake or 0, clutch or 0
 end
 
 local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver}, true) end

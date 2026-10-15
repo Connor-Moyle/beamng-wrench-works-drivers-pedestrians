@@ -10,6 +10,7 @@ need to edit this mod.
 art/slrr_drivers/
   models/<body>/            one folder per driver body
     body.dae head.dae r_upperarm.dae r_forearm.dae r_hand.dae l_upperarm.dae l_forearm.dae l_hand.dae
+    r_thigh.dae r_calf.dae r_foot.dae l_thigh.dae l_calf.dae l_foot.dae
     rig.json
   models/main.materials.json   the shared placeholder material "base_driver"
   <driverId>/               one folder per driver
@@ -95,24 +96,27 @@ writes `rig.json`. Any biped with 3ds Max "Bip01" bone names works, at least:
 `Bip01 Pelvis, Spine, Neck, Head, R/L Clavicle, R/L UpperArm, R/L Forearm, R/L Hand,
 R/L Thigh, R/L Calf, R/L Foot`
 
-### Option B: build the eight pieces yourself (any 3D package)
+### Option B: build the fourteen pieces yourself (any 3D package)
 
-Make a folder `art/slrr_drivers/models/<body>/` with the eight Collada shapes and a `rig.json`.
+Make a folder `art/slrr_drivers/models/<body>/` with the fourteen Collada shapes and a `rig.json`.
 
 **Coordinates.** The driver's seat frame, in metres: **x right, y forward, z up**. The origin is
 the driver's **eyes**. The body sits in a normal driving pose with both hands on a wheel centred at
 about (0, 0.56, -0.30): a 0.185 m radius, its face tilted back 25°, hands at a quarter past nine.
 
-**Pieces.** Cut the model at the neck, shoulders, elbows and wrists. Each piece goes in its own
+**Pieces.** Cut the model at the neck, shoulders, elbows, wrists, hips, knees and ankles. Each piece goes in its own
 `.dae`, with **its pivot at the joint it turns around**:
 
 | file | contains | origin at |
 |---|---|---|
-| `body.dae` | torso, hips, legs | the eye point (0, 0, 0) |
+| `body.dae` | torso and hips | the eye point (0, 0, 0) |
 | `head.dae` | head and neck | the base of the neck |
 | `r_upperarm.dae`, `l_upperarm.dae` | upper arm | the shoulder joint |
 | `r_forearm.dae`, `l_forearm.dae` | forearm | the elbow |
 | `r_hand.dae`, `l_hand.dae` | hand | the wrist |
+| `r_thigh.dae`, `l_thigh.dae` | thigh | the hip joint |
+| `r_calf.dae`, `l_calf.dae` | lower leg | the knee |
+| `r_foot.dae`, `l_foot.dae` | foot | the ankle |
 
 Keep each piece in the seat frame's orientation; just move its origin to the joint. Let the
 geometry overlap a little at each joint, which hides gaps when the joint bends. Use the material
@@ -132,13 +136,19 @@ name `base_driver` for everything. Export Collada with Z up, in metres.
   "arms": {
     "r": {"shoulder": [0.18, -0.05, -0.19], "elbow": [0.29, 0.17, -0.43], "wrist": [0.18, 0.37, -0.28]},
     "l": {"shoulder": [-0.18, -0.05, -0.19], "elbow": [-0.29, 0.17, -0.43], "wrist": [-0.18, 0.37, -0.28]}
+  },
+  "legs": {
+    "r": {"hip": [0.12, 0.08, -0.70], "knee": [0.16, 0.50, -0.66], "ankle": [0.18, 0.76, -1.03], "ball": [0.16, 0.96, -0.97]},
+    "l": {"hip": [-0.12, 0.08, -0.70], "knee": [-0.16, 0.50, -0.66], "ankle": [-0.18, 0.75, -1.02], "ball": [-0.16, 0.96, -0.97]}
   }
 }
 ```
 
 The arm lengths are worked out from shoulder→elbow and elbow→wrist, and the solver keeps them. The
 pose you model is the "rest" pose, and in the game each piece turns away from it. `pelvis` is the
-pivot the upper body leans about.
+pivot the upper body leans about. `ball` is the ball of the foot, the point that presses a pedal.
+The head must enclose the eye point (0, 0, 0). In first person the camera sits there, so the head
+can't be seen from inside but still shows in the mirrors.
 
 Then make a driver folder that uses it (`"model": "mybody"`), as in section 1.
 
