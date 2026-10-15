@@ -32,7 +32,7 @@ local GRIP_ANGLE = math.rad(10)
 local WRIST_BACK = 0.07
 local HAND_LENGTH = 0.07                -- wrist to the middle of the fist
 local HAND_DOWN = math.rad(50)         -- how far below home a hand is carried before it grips again
-local HAND_RANGE = math.rad(80)         -- how far a hand turns with the rim before it lets go (hand over hand)
+local HAND_RANGE = math.rad(60)         -- how far a hand turns with the rim before it lets go (hand over hand)
 local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this far past its home spot
 local REGRIP_TIME = 0.22
 local REGRIP_LIFT = 0.07                -- the hand comes off the rim toward the driver while it moves
@@ -51,6 +51,8 @@ local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttl
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
+local ROLL_SPEED = 6                    -- rad/s the wrist may turn
+local JOINT_SPEED = 2.4                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
 local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
 local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
@@ -58,7 +60,7 @@ local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(0.9)
 local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
 local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undoes
 local SWAY_DAMP = 0.45
-local SEATBELT = 0.07                   -- hard limit: the head never travels more than this from where it sits
+local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
 local UPPER_BODY_SHARE = 0.5            -- share of the driver's mass that hits things
 local HIT_MIN_SPEED = 1.0               -- m/s; slower contacts don't push on the car
@@ -181,7 +183,7 @@ local function updateHands(c, turn, dt)
     local home = HOME[side]
     if s.t then
       s.t = s.t + dt / REGRIP_TIME
-      if s.t >= 1 then s.g, s.t = s.g1, nil end
+      if s.t >= 1 then s.g, s.t = wrapAngle(s.a1 - turn), nil end   -- lands on whatever part of the rim is there now
     elseif side == c.shiftSide and c.reach > 0.3 then
       s.g = wrapAngle(home - turn)   -- off at the lever: comes back to its home spot
     else
@@ -191,15 +193,18 @@ local function updateHands(c, turn, dt)
       local up = side == 'r' and 1 or -1
       local off = wrapAngle(s.g + turn - home) * up
       local over = off > HAND_RANGE or off < -HAND_DOWN
-      if over and (not busy or off > HAND_RANGE + math.rad(30) or off < -HAND_DOWN - math.rad(30)) then
-        -- (a hand dragged far past its limit lets go even while the other is still off the rim)
-        s.g0, s.t = s.g, 0
+      if over and busy then
+        -- the other hand is off the rim: this one holds its place and lets the rim slide through the palm
+        -- (both letting go at once would swing both arms across the wheel)
+        s.g = wrapAngle(home + up * clamp(off, -HAND_DOWN, HAND_RANGE) - turn)
+      elseif over then
+        -- a re-grip aims at a place in front of the driver, not at a point on the turning rim (which can
+        -- travel 100+ degrees during a fast turn and drag the hand out of its zone)
         local land = off > 0 and -REGRIP_AHEAD * 0.6 or REGRIP_AHEAD   -- from the top: a little below home; from below: above it
-        s.g1 = s.g + wrapAngle(home + up * land - turn - s.g)   -- the short way round
+        s.a0, s.a1, s.t = s.g + turn, home + up * land, 0
         busy = true
       elseif not busy and math.abs(speed) < math.rad(20) and math.abs(wrapAngle(turn)) < math.rad(30) and math.abs(off) > math.rad(30) then
-        s.g0, s.t = s.g, 0
-        s.g1 = s.g + wrapAngle(home - turn - s.g)
+        s.a0, s.a1, s.t = s.g + turn, home, 0
         busy = true
       end
     end
@@ -208,7 +213,7 @@ local function updateHands(c, turn, dt)
   for side, s in pairs(h) do
     if s.t then
       local k = smootheststep(s.t)
-      out[side] = {a = s.g0 + (s.g1 - s.g0) * k + turn, lift = REGRIP_LIFT * math.sin(math.pi * s.t)}
+      out[side] = {a = s.a0 + wrapAngle(s.a1 - s.a0) * k, lift = REGRIP_LIFT * math.sin(math.pi * s.t)}
     else
       out[side] = {a = s.g + turn, lift = 0}
     end
@@ -600,7 +605,7 @@ local function updateLegs(c, wheel, world, R, dt)
     end
     -- the ball of the foot goes on the pad; the foot pivots toes-down with the pedal
     local footRot = rotX(-angle)
-    target = follow(c, side .. 'Foot', target, dt, 3)
+    target = follow(c, side .. 'Foot', target, dt, JOINT_SPEED)
     local ankleTarget = target - rotate(footRot, leg.foot0)
     -- legs that cannot reach pull the pedals in toward the seat
     local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
@@ -619,7 +624,10 @@ end
 local function record(c, eye, R, dt, veh, wheel)
   local function loc(v) return {v:dot(R.x), v:dot(R.y), v:dot(R.z)} end
   local fr = {dt = dt, speed = vec3(veh:getVelocity()):length(), steer = c.e.steer, throttle = c.e.throttle,
-              brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {}}
+              brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {},
+              reach = c.reach or 0, shiftSide = c.shiftSide, perfMs = perfMs,
+              regrip = {r = c.hands and c.hands.r.t and 1 or 0, l = c.hands and c.hands.l.t and 1 or 0},
+              grip = c.lastGrips and {r = math.deg(c.lastGrips.r.a), l = math.deg(c.lastGrips.l.a)} or nil}
   for name, o in pairs(c.parts) do
     local m = o:getTransform()
     local p = loc(m:getPosition() - eye)
@@ -724,6 +732,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   leverTarget = leverTarget - c.seat
   local turn = animated and math.rad(e.steer) or 0
   local grips = updateHands(c, turn, dt)
+  c.lastGrips = grips
   for side, arm in pairs(rig.arms) do
     local grip = grips[side]
     local target = rimPoint(wheel, grip.a, grip.lift) - wheelN * WRIST_BACK   -- the rim itself (+ the re-grip lift)
@@ -736,7 +745,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local back = (shoulder - target):normalized() * HAND_LENGTH   -- fist on the rim, wrist behind it along the arm
       target = side == c.shiftSide and lerp(target + back, target, c.reach) or target + back
     end
-    target = follow(c, side .. 'Hand', target, dt, 4)
+    target = follow(c, side .. 'Hand', target, dt, JOINT_SPEED)
     local elbow, wrist = ik(shoulder, target, arm.la, arm.lb, arm.pole)
     local n = (elbow - shoulder):cross(wrist - shoulder)
     local Du = delta(basis(elbow - shoulder, n), arm.F0u)
@@ -744,7 +753,13 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     place(c.parts[side .. '_upperarm'], world(shoulder), R, Du)
     place(c.parts[side .. '_forearm'], world(elbow), R, Df)
     local roll = wrapAngle(grip.a - HOME[side]) * HAND_ROLL * (1 - c.reach * (side == c.shiftSide and 1 or 0))
-    place(c.parts[side .. '_hand'], world(wrist), R, rotAbout(Df, wheelN, roll))
+    -- the wrist turns at most ROLL_SPEED (a fast re-grip or keyboard steering doesn't snap the fist round)
+    c.roll = c.roll or {}
+    local was = c.roll[side] or roll
+    roll = was + clamp(wrapAngle(roll - was), -ROLL_SPEED * dt, ROLL_SPEED * dt)
+    c.roll[side] = roll
+    -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
+    place(c.parts[side .. '_hand'], world(wrist), R, rotAbout(Df, (wrist - elbow):normalized(), roll))
   end
   place(c.parts.body, world(lean(vec3(0, 0, 0))), R, L)
   if rig.legs and rig.legs.r then updateLegs(c, wheel, world, R, dt) end

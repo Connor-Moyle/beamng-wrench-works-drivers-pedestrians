@@ -19,8 +19,8 @@ from lupa.luajit21 import LuaRuntime   # BeamNG runs LuaJIT 2.1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MOD = os.path.join(HERE, "..", "mod")
-BODY_LIMIT = 0.09        # m the body may move from its seated place (seatbelt 7 cm at the head)
-HAND_JUMP = 0.08         # m a hand or foot may move in one 60 Hz frame
+BODY_LIMIT = 0.075       # m the body may move from its seated place (QA gate J2)
+HAND_JUMP = 0.05         # m a hand or foot may move in one 60 Hz frame (QA gate J1)
 DT = 1 / 60
 
 
@@ -42,7 +42,7 @@ def run(animated, record_to=None):
     worst = {"body": 0.0, "jump": 0.0, "reach": 0.0}
     prev = {}
     t = 0.0
-    speed, steer = 0.0, 0.0
+    speed, steer, prev_steer = 0.0, 0.0, 0.0
     base = None
     for frame in range(int(40 / DT)):
         t += DT
@@ -66,6 +66,9 @@ def run(animated, record_to=None):
             steer = (cap if int(t) % 2 else -cap) * min(1, (t % 1) * 3)   # quick turns, built up over 0.3 s
         else:
             steer = 0.0
+        # the wheel turns at most 600 deg/s (BeamNG's own steering filter is slower than that)
+        steer = prev_steer + max(-600 * DT, min(600 * DT, steer - prev_steer))
+        prev_steer = steer
         kerb = 25.0 if (10 < t < 14 and frame % 37 == 0) else 0.0   # sharp vertical/lateral hits
         rpm = 1000 + (speed % 15) * 400
         gear = 1 + int(speed // 15)

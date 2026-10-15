@@ -13,6 +13,7 @@ fn = re.sub(r"local function rimPoint.*?\nend\n", "", fn, flags=re.S)
 lua = LuaRuntime()
 lua.execute("""
 function sign(x) return x > 0 and 1 or (x < 0 and -1 or 0) end
+function clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
 function smootheststep(x) return x*x*x*(x*(x*6-15)+10) end
 """ + consts + "\n" + fn + "\nM_updateHands = updateHands")
 update = lua.globals().M_updateHands
