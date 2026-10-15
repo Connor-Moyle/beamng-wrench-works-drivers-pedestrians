@@ -85,6 +85,7 @@ local SWAY_DAMP = 0.45
 local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
 local COLLIDE_DIST = 40                 -- only drivers this close to the camera collide (it costs node reads)
+local ANIM_DIST = 40                    -- drivers drawn by the car animate only this close to the camera
 local LEAD_FRAMES = 0                   -- render lead (frames of velocity); 0 until the driver is drawn by the car itself (overshot in play)
 
 local drivers = {}      -- id -> {id, name, model, skin, preview}
@@ -1126,6 +1127,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     c.hidden, c.headHidden = off, off
   end
   if off then return end
+  -- drawn by the car and still, or further than ANIM_DIST from the camera: his last pose rides with the car
+  -- at no cost (the props keep their base transforms), which is what pays for 14 traffic drivers (J6)
+  if c.drawnByCar and c.posed and (not animated or eye:distance(camPos) > ANIM_DIST) then return end
   local fwd = vec3(veh:getDirectionVector()):normalized()
   local up = vec3(veh:getDirectionVectorUp())
   local eyeNow, Rnow = eye, basis(fwd, up)   -- for measuring the car's own nodes
@@ -1338,6 +1342,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
     if c.parts.helmet then place(c.parts.helmet, world(lean(rig.parts.head)), R, compose(L, turnHead)) end
   end
+  c.posed = true
   if c.rec then record(c, eye, R, dt, veh, wheel + c.seat) end
 end
 
@@ -1442,7 +1447,7 @@ M.setDisplayMode = function(mode, vid)
   if vid then carMode[vid] = mode else displayMode = mode or 'full' saveSettings() end
   -- start the animation state fresh, so switching never leaves a half-finished move behind
   for id, c in pairs(cars) do
-    if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch = nil, nil, nil, nil, 0, nil, nil end
+    if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch, c.posed = nil, nil, nil, nil, 0, nil, nil, nil end
   end
 end
 M.getDisplayMode = function(vid) return (vid and carMode[vid]) or displayMode end

@@ -119,6 +119,40 @@ def run(animated, record_to=None, look=None, props=False):
     return worst
 
 
+def check_far():
+    """Drawn by the car: beyond ANIM_DIST, or in 'still' mode, the props keep their base transforms and the
+    update costs nothing; back in range he animates again."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.SHIM_PROPS = True
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+
+    def drive(frames, steer):
+        hand = M.getState(7).parts.r_hand.prop
+        moved, t0 = 0.0, (hand.t.x, hand.t.y, hand.t.z)
+        for _ in range(frames):
+            g.shim_step(DT, 20, 0, steer, 0, 3000, 3, 0.5, 0, 0)
+            moved = max(moved, math.dist(t0, (hand.t.x, hand.t.y, hand.t.z)))
+        return moved
+    assert drive(60, 0) >= 0, "warm up"
+    lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 60 + vec3(0, 0, 2) end")
+    lua.execute("shim_step(1 / 60, 20, 0, 0, 0, 3000, 3, 0.5, 0, 0)")
+    assert drive(120, 300) == 0, "a driver 60 m away kept animating"
+    assert M.getPerf()[0] < 0.02, "a driver 60 m away still costs %.3f ms" % M.getPerf()[0]
+    lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 5 + vec3(0, 0, 2) end")
+    assert drive(60, 300) > 0.05, "back in range, the hands did not turn the wheel"
+    M.setDisplayMode("still")
+    drive(5, 0)
+    assert drive(60, 300) == 0, "a still driver drawn by the car was updated"
+    M.setDisplayMode("full")
+    print("far ok: props untouched beyond 40 m and when still, animated again in range")
+
+
 def lua_to_py(t):
     """A Lua table from lupa as plain Python lists / dicts."""
     if not hasattr(t, "keys"):
@@ -368,6 +402,7 @@ if __name__ == "__main__":
         print("recorded"); sys.exit()
     check_modes()
     check_presence()
+    check_far()
     check_damage()
     check_look()
     check_tints()
