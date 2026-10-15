@@ -115,12 +115,9 @@ def check_modes():
     M.setDisplayMode(None, 7)
     assert hidden() == (False, False)
     # setting the same mode again must not reset the animation (callers set it on every spawn)
-    st = M.getState(7)
-    st.hands = None
-    hidden()
-    marker = st.hands
+    M.getState(7).hands.marker = True
     M.setDisplayMode("full")
-    assert M.getState(7).hands == marker, "same mode reset the animation"
+    assert M.getState(7).hands is not None and M.getState(7).hands.marker, "same mode reset the animation"
     print("display modes ok")
 
 
