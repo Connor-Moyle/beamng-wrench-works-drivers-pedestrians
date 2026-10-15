@@ -1,9 +1,9 @@
 {
  "cycle": 1.2,
  "walks": {
-  "kim.dae": 0.936,
-  "kim_slow.dae": 0.843,
-  "kim_fast.dae": 1.03
+  "kim.dae": 0.85,
+  "kim_slow.dae": 0.765,
+  "kim_fast.dae": 0.935
  },
  "idle": "kim_idle.dae",
  "idleCycle": 1.5

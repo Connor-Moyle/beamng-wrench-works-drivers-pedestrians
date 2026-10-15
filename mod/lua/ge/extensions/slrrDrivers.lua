@@ -30,11 +30,11 @@ local WHEEL_TILT = math.rad(25)
 local WHEEL_RADIUS = 0.185
 local GRIP_ANGLE = math.rad(10)
 local WRIST_BACK = 0.07
-local HAND_RANGE = math.rad(90)         -- how far a hand turns with the rim before it lets go (hand over hand)
+local HAND_RANGE = math.rad(80)         -- how far a hand turns with the rim before it lets go (hand over hand)
 local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this far past its home spot
 local REGRIP_TIME = 0.22
 local REGRIP_LIFT = 0.07                -- the hand comes off the rim toward the driver while it moves
-local HAND_ROLL = 0.7                   -- share of the rim rotation the fist rolls with
+local HAND_ROLL = 1.0                   -- share of the rim rotation the fist rolls with
 local SHIFT_TIME = 0.45
 local KNOB_GRIP = vec3(0, -0.02, 0.05)  -- the wrist relative to an H-pattern knob node (palm on top)
 local REACH_RPM = 0.82                  -- fraction of max rpm where the hand goes to the lever
@@ -49,6 +49,7 @@ local DRIVER_MASS = 90                  -- kg added to the car at the seat (driv
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
 local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
+local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
 local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(0.9)
 local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
@@ -179,7 +180,8 @@ local function updateHands(c, turn, dt)
       if s.t >= 1 then s.g, s.t = s.g1, nil end
     elseif side == c.shiftSide and c.reach > 0.3 then
       s.g = wrapAngle(home - turn)   -- off at the lever: comes back to its home spot
-    elseif not busy then
+    elseif not busy or math.abs(wrapAngle(s.g + turn - home)) > HAND_RANGE + math.rad(30) then
+      -- (a hand dragged far past its range lets go even while the other is still off the rim)
       local off = wrapAngle(s.g + turn - home)
       -- the hand climbing toward the top of the rim lets go sooner, so the two never run out together
       local climbing = math.cos(s.g + turn) * speed > 0
@@ -536,7 +538,7 @@ local function follow(c, key, target, dt, maxSpeed)
   c.smooth = c.smooth or {}
   local p = c.smooth[key]
   if not p or p:distance(target) > 0.5 or dt <= 0 then c.smooth[key] = target return target end
-  local step = (target - p) * math.min(1, dt * 30)
+  local step = (target - p) * math.min(1, dt * 45)
   if step:length() > maxSpeed * dt then step = step:normalized() * (maxSpeed * dt) end
   p = p + step
   c.smooth[key] = p
@@ -710,6 +712,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local target = rimPoint(wheel, grip.a, grip.lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
     local shoulder = lean(arm.shoulder)
+    local d = target - shoulder
+    local over = d:length() - (arm.la + arm.lb) * REACH
+    if over > 0 then shoulder = shoulder + d:normalized() * math.min(over * 0.6, SHOULDER_REACH) end
     target = follow(c, side .. 'Hand', target, dt, 4)
     local elbow, wrist = ik(shoulder, target, arm.la, arm.lb, arm.pole)
     local n = (elbow - shoulder):cross(wrist - shoulder)
@@ -717,7 +722,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local Df = delta(basis(wrist - elbow, n), arm.F0f)
     place(c.parts[side .. '_upperarm'], world(shoulder), R, Du)
     place(c.parts[side .. '_forearm'], world(elbow), R, Df)
-    local roll = clamp(wrapAngle(grip.a - HOME[side]) * HAND_ROLL, -math.rad(60), math.rad(60)) * (1 - c.reach * (side == c.shiftSide and 1 or 0))
+    local roll = wrapAngle(grip.a - HOME[side]) * HAND_ROLL * (1 - c.reach * (side == c.shiftSide and 1 or 0))
     place(c.parts[side .. '_hand'], world(wrist), R, rotAbout(Df, wheelN, roll))
   end
   place(c.parts.body, world(lean(vec3(0, 0, 0))), R, L)
@@ -764,7 +769,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local turnHead = compose({x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}, rotX(pitch))
     place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
   end
-  if c.rec then record(c, eye, R, dt, veh, wheel) end
+  if c.rec then record(c, eye, R, dt, veh, wheel + c.seat) end
 end
 
 local function onPreRender(dt, dtSim)

@@ -1,9 +1,9 @@
 {
  "cycle": 1.2,
  "walks": {
-  "kilos.dae": 0.861,
-  "kilos_slow.dae": 0.775,
-  "kilos_fast.dae": 0.948
+  "kilos.dae": 0.8,
+  "kilos_slow.dae": 0.72,
+  "kilos_fast.dae": 0.88
  },
  "idle": "kilos_idle.dae",
  "idleCycle": 0.5

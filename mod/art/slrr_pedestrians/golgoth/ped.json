@@ -1,9 +1,9 @@
 {
  "cycle": 1.2,
  "walks": {
-  "golgoth.dae": 1.015,
-  "golgoth_slow.dae": 0.914,
-  "golgoth_fast.dae": 1.117
+  "golgoth.dae": 0.97,
+  "golgoth_slow.dae": 0.873,
+  "golgoth_fast.dae": 1.067
  },
  "idle": "golgoth_idle.dae",
  "idleCycle": 0.6

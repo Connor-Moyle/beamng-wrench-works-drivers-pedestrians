@@ -222,22 +222,27 @@ def sidewalks():
     return out
 
 
-def joint_paths(bones, tracks, names):
-    """Positions (m, z up, facing +y) of the named joints at every key."""
-    idx = {b["name"]: i for i, b in enumerate(bones)}
-    out = {n: [] for n in names}
-    for j in range(len(tracks[0])):
-        world = {}
+def pose_at(bones, tracks, t):
+    """World matrices (SLRR units) of every bone at time t of the looped cycle, keys blended as Torque plays them."""
+    nk, step = len(tracks[0]), tracks[0][1][0] - tracks[0][0][0]
+    phase = (t % (nk * step)) / step
+    k0 = int(phase) % nk
+    k1, a = (k0 + 1) % nk, phase - int(phase)
+    world = [None] * len(bones)
 
-        def fk(i):
-            if i not in world:
-                b, k = bones[i], tracks[i][j]
-                m = local_matrix(q2m(*k[1]), np.array(k[2]) * np.linalg.norm(b["pos"]))
-                world[i] = m if b["parent"] < 0 else fk(b["parent"]) @ m
-            return world[i]
-        for n in names:
-            out[n].append((CONV @ fk(idx[n]))[:3, 3])
-    return {n: np.array(v) for n, v in out.items()}
+    def fk(i):
+        if world[i] is None:
+            q0, q1 = np.array(tracks[i][k0][1]), np.array(tracks[i][k1][1])
+            if q0 @ q1 < 0:
+                q1 = -q1
+            q = q0 * (1 - a) + q1 * a
+            dr = np.array(tracks[i][k0][2]) * (1 - a) + np.array(tracks[i][k1][2]) * a
+            m = local_matrix(q2m(*(q / np.linalg.norm(q))), dr * np.linalg.norm(bones[i]["pos"]))
+            world[i] = m if bones[i]["parent"] < 0 else fk(bones[i]["parent"]) @ m
+        return world[i]
+    for i in range(len(bones)):
+        fk(i)
+    return world
 
 
 def cycle_time(tracks):
@@ -245,24 +250,43 @@ def cycle_time(tracks):
     return len(t) * (t[1] - t[0])      # including the closing key write_skinned_dae adds
 
 
+FEET = ("Bip01 L Foot", "Bip01 R Foot")
+PLANTED = 0.015     # an ankle within this of its lowest point counts as on the ground (m)
+
+
+def ankle_paths(bones, tracks, hz=120):
+    """Sample times over one cycle, and each ankle's (x, y, z) in metres, facing +y."""
+    ts = np.arange(0, cycle_time(tracks), 1 / hz)
+    feet = [i for i, b in enumerate(bones) if b["name"] in FEET]
+    poses = [pose_at(bones, tracks, t) for t in ts]
+    return ts, [np.array([(CONV @ w[i])[:3, 3] for w in poses]) for i in feet]
+
+
+def slide(ts, ankles, cycle, speed):
+    """Mean distance (m) a planted foot slides over the ground during one stance, walking at speed."""
+    runs = []
+    for p in ankles:
+        on, y = p[:, 2] < p[:, 2].min() + PLANTED, p[:, 1] + speed * ts
+        r = int(np.argmin(on))          # start the loop on a lifted sample so no stance is split
+        on, y = np.roll(on, -r), np.roll(y, -r)
+        y[len(y) - r:] += speed * cycle
+        cur = []
+        for o, v in zip(on, y):
+            if o:
+                cur.append(v)
+            elif cur:
+                runs.append(max(cur) - min(cur))
+                cur = []
+        if cur:
+            runs.append(max(cur) - min(cur))
+    return float(np.mean(runs))
+
+
 def gait(bones, tracks):
-    """Walking speed that keeps the feet planted: how fast each ankle moves backward while it is on the
-    ground (its lowest keys), averaged over both feet. Returns (cycle s, speed m/s)."""
-    step = tracks[0][1][0] - tracks[0][0][0]
-    speeds = []
-    for p in joint_paths(bones, tracks, ["Bip01 L Foot", "Bip01 R Foot"]).values():
-        n, on = len(p), p[:, 2] < p[:, 2].min() + 0.015
-        keys = []          # the longest run of grounded keys, wrapping round the loop
-        for s in range(n):
-            if on[s] and not on[s - 1]:
-                run = [s]
-                while len(run) < n and on[(run[-1] + 1) % n]:
-                    run.append((run[-1] + 1) % n)
-                keys = max(keys, run, key=len)
-        run = len(keys)
-        assert run >= 3, ("stance too short to measure", run)
-        speeds.append(-np.polyfit(np.arange(run) * step, p[keys, 1], 1)[0])
-    return cycle_time(tracks), float(np.mean(speeds))
+    """(cycle s, speed m/s): the walking speed at which the planted feet slide least."""
+    ts, ankles = ankle_paths(bones, tracks)
+    cycle = cycle_time(tracks)
+    return cycle, min(np.arange(0.5, 1.6, 0.01), key=lambda v: slide(ts, ankles, cycle, v))
 
 
 def find(folder, fname):
