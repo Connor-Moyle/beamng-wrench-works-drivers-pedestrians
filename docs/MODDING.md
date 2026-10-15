@@ -24,6 +24,7 @@ art/slrr_drivers/
 
 art/slrr_pedestrians/
   <name>/<name>.dae         one folder per pedestrian; the folder and file names must match
+  <name>/ped.json           optional: walk shapes with their speeds, and an idle shape
   <name>/main.materials.json
   <name>/<texture>.color.png, .normal.png, _r.data.png, _ao.data.png
   walk_<levelName>.json     sidewalks for one map
@@ -184,6 +185,18 @@ The shape must:
 Add a `main.materials.json` for its textures, the same as for a driver skin (any material name). The
 remaster tool works on pedestrian folders too.
 
+Optionally add a `ped.json` next to the shape:
+
+```json
+{ "walks": {"kim.dae": 0.85, "kim_slow.dae": 0.765, "kim_fast.dae": 0.935}, "idle": "kim_idle.dae" }
+```
+
+`walks` lists the walk shapes in the folder with the speed (m/s) at which each one's feet stay planted;
+each pedestrian picks one. `idle` is a shape that stands in place, played while it waits or stands
+about. Without `ped.json` the folder's shape walks at 1.3 m/s and never stops. The converter measures
+the speeds for SLRR's pedestrians; to check one, `python tools/walk_review.py <name> <skin.dds> out.mp4`
+renders the cycle over a scrolling grid and prints how far a planted foot slides.
+
 To convert more SLRR pedestrians, add them to `PEDS` in `tools/convert_peds.py`. The converter
 writes the skeleton, skin weights and walk animation into the Collada file.
 
@@ -202,7 +215,9 @@ in world coordinates:
 
 Run one line along each sidewalk, a metre or so in from the kerb. Where two lines end within 14 m of
 each other, pedestrians walk from one to the other: around corners, and across the street at
-junctions. Heights are snapped to the ground, so they don't have to be exact.
+junctions. Heights are snapped to the ground, so they don't have to be exact. If the map has traffic
+signals (`core_trafficSignals`, the level's `signals.json`), a crossing of 5 m or more within 35 m of a
+signal group's centre waits for the green of the approach running alongside it.
 
 You can get the points from the World Editor: place a decal road or a path along the sidewalk and
 copy its node positions.
@@ -222,7 +237,9 @@ The numbers at the top of `slrrDrivers.lua` are meant to be tweaked:
 | `CULL_DIST` | 150 m | drivers farther from the camera are hidden |
 
 In `slrrPedestrians.lua`: spawn and despawn distances, `LINK_DIST` (how far apart sidewalk ends can
-be and still connect), and `CAR_MARGIN` (room left around parked cars).
+be and still connect), `CAR_MARGIN` (room left around parked cars), `PERSONAL` (room kept from other
+pedestrians), `IDLE_MIN`/`IDLE_MAX` (how long they stand), `CROSS_MIN` and `JUNCTION_REACH` (which
+crossings obey signals) and `FRAME_BUDGET` (the frame time above which pedestrians are thinned out).
 
 If you change the wheel defaults, change them in `tools/convert_drivers.py` too and run it again,
 because the seated pose is baked around them.

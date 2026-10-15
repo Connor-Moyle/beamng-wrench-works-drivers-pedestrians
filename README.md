@@ -17,8 +17,9 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
   working. The camera sits inside his head, so the head never blocks your view, but it shows in the
   mirrors and turns with your view.
 - **Pedestrians walk the city.** On the Valo City map (SLRR's city rebuilt for BeamNG) SLRR's six
-  pedestrians walk SLRR's own sidewalks with SLRR's walk animation. They go round corners, cross
-  streets, step round parked cars and jump out of the way of fast ones.
+  pedestrians walk SLRR's own sidewalks with SLRR's walk and idle animations, their feet planted.
+  They go round corners, stand about on corners, wait for green to cross at traffic lights, keep out of
+  each other's way, step round parked cars and jump out of the way of fast ones.
 - **Remastered PBR textures.** Every skin is upscaled 4x and has normal, roughness and AO maps.
 - **Easy to extend.** New skins and new bodies drop in as folders. See [docs/MODDING.md](docs/MODDING.md).
 
@@ -69,7 +70,7 @@ slrrDrivers.setDisplayMode('hidden')           -- no driver at all
 ## Pedestrians
 
 They appear around the camera on maps that have a sidewalk file. Valo City has one; it's converted
-from SLRR's own pedestrian paths. 30 walk at a time by default:
+from SLRR's own pedestrian paths. 30 walk at a time by default, fewer while the frame rate is low:
 
 ```lua
 slrrPedestrians.setCount(50)   -- more (saved)
@@ -108,8 +109,12 @@ pedestrians), with normal, roughness and ambient-occlusion maps added, so they w
 materials under BeamNG's lighting.
 
 **Pedestrians** are skinned models with SLRR's walk cycle built in, so the game animates them by
-itself. The mod moves them along the sidewalks, keeps about 30 near the camera and removes the ones
-you leave behind.
+itself. The mod moves them along the sidewalks at the speed measured from each walk cycle, so the feet
+stay planted, keeps about 30 near the camera and removes the ones you leave behind. Each has its own
+pace (three tempos per type) and its own habit of stopping; standing ones switch to SLRR's idle
+animation. At a signalled junction they cross only when the light for their direction will stay green
+until they're over. When the frame time goes over 18 ms (55 fps), they thin out, and they come back
+once it drops again.
 
 ## Limits
 
