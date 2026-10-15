@@ -96,9 +96,11 @@ def remaster_folder(folder, size, upscaler):
     rgb = np.asarray(img, float) / 255
     normal, rough, ao = pbr_maps(rgb)
     img.save(os.path.join(folder, stem + ".color.png"))
-    Image.fromarray(normal).save(os.path.join(folder, stem + ".normal.png"))
-    Image.fromarray(rough).save(os.path.join(folder, stem + "_r.data.png"))
-    Image.fromarray(ao).save(os.path.join(folder, stem + "_ao.data.png"))
+    # the series' video-memory budget (6 GB): normals at most 1024, roughness and AO at most 256
+    side = lambda a, n: Image.fromarray(a).resize((min(size, n), min(size, n)), Image.LANCZOS)   # noqa: E731
+    side(normal, 1024).save(os.path.join(folder, stem + ".normal.png"))
+    side(rough, 256).save(os.path.join(folder, stem + "_r.data.png"))
+    side(ao, 256).save(os.path.join(folder, stem + "_ao.data.png"))
     os.remove(src)
     rel = "/art/" + os.path.relpath(folder, ART).replace(os.sep, "/") + "/" + stem
     replaced["/art/" + os.path.relpath(src, ART).replace(os.sep, "/")] = rel + ".color.png"

@@ -78,6 +78,7 @@ local MODES = {full = true, still = true, hideFirstPerson = true, hidden = true}
 local displayMode = 'full'
 local carMode = {}       -- vehId -> mode
 local animated = true    -- set per car each frame from its mode
+local perfMs = 0         -- smoothed ms per frame spent placing all drivers (getPerf)
 local group
 
 local loadedMaterials = {}
@@ -799,7 +800,9 @@ local function onPreRender(dt, dtSim)
   if not next(cars) then return end
   local camPos = core_camera.getPosition()
   local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
+  local t0 = os.clock()
   for vid, c in pairs(cars) do updateCar(vid, c, dt, dtSim or dt, camPos, fpVid) end
+  perfMs = perfMs + ((os.clock() - t0) * 1000 - perfMs) * 0.02   -- smoothed cost of all drivers per frame
 end
 
 -- called by slrrDriverFeed (vehicle Lua) every frame
@@ -857,6 +860,7 @@ M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
 M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
+M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n end   -- ms per frame, drivers
 M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
 -- pose recording for tools/render_pose.py
 M.startRecording = function(vid) if cars[vid] then cars[vid].rec = {} end end
