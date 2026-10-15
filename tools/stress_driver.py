@@ -24,7 +24,7 @@ HAND_JUMP = 0.05         # m a hand or foot may move in one 60 Hz frame (QA gate
 DT = 1 / 60
 
 
-def run(animated, record_to=None):
+def run(animated, record_to=None, look=None):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
@@ -37,6 +37,9 @@ def run(animated, record_to=None):
     g.M = M
     lua.execute("shim_start(M)")
     M.setAnimated(animated)
+    if look:
+        M.setAppearance(None, lua.table_from(look, recursive=True))
+        g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)      # the driver is rebuilt with the new look
     if record_to:
         M.startRecording(7)
     worst = {"body": 0.0, "jump": 0.0, "reach": 0.0}
@@ -181,12 +184,46 @@ def check_shift():
     print("shift ok: hand within %.3f m of the knob, clutch %.2f" % (best, clutch))
 
 
+def check_tints():
+    """Twelve different clothing colours in a row: never more than 8 tinted materials kept."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+    most = 0
+    for k in range(12):
+        M.setAppearance(7, lua.table_from({"shirt": [k / 12, 0.5, 0.2]}, recursive=True))
+        g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+        most = max(most, M.getTintCount())
+    assert most <= 8, most
+    print("tints ok: at most %d clothing colours loaded" % most)
+
+
+def check_sizes():
+    """The hard drive at both ends of the size range, with tinted clothes and a helmet: J1/J2 must pass."""
+    import tempfile
+    import check_recording
+    for size in (0.9, 1.1):
+        path = os.path.join(tempfile.gettempdir(), "slrr_size_%s.json" % size)
+        run(True, path, {"scale": size, "shirt": [0.8, 0.1, 0.1], "trousers": [0.1, 0.1, 0.3], "helmet": True})
+        r = check_recording.check(json.load(open(path)))
+        assert not r["high"], ("size %s" % size, r["high"])
+        print("size %.1f: body %.3f m, rim worst %.3f m, pops %d, clips %d, MED %d" % (
+            size, r["seat_worst"], r["rim_worst"], len(r["pops"]), r["clips"], len(r["med"])))
+
+
 if __name__ == "__main__":
     check_shift()
     if "--record" in sys.argv:
         run(True, sys.argv[sys.argv.index("--record") + 1])
         print("recorded"); sys.exit()
     check_modes()
+    check_tints()
+    check_sizes()
     for animated in (True, False):
         w = run(animated)
         print("animated=%s  body moved at most %.3f m  largest hand/foot step %.3f m per frame"

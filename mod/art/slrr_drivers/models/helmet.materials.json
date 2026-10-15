@@ -1,0 +1,25 @@
+{
+ "base_helmet": {
+  "name": "base_helmet",
+  "mapTo": "base_helmet",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorFactor": [
+     0.9,
+     0.9,
+     0.9,
+     1
+    ],
+    "roughnessFactor": 0.25,
+    "metallicFactor": 0,
+    "clearCoatFactor": 1
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

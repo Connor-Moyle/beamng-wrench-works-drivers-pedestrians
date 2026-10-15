@@ -67,6 +67,13 @@ slrrDrivers.setDisplayMode('hideFirstPerson')  -- animated, but not drawn in you
 slrrDrivers.setDisplayMode('hidden')           -- no driver at all
 ```
 
+### Clothing colours, size and a helmet
+
+```lua
+slrrDrivers.setAppearance(nil, {shirt = {0.8, 0.1, 0.1}, trousers = {0.1, 0.1, 0.3}})   -- everyone (saved)
+slrrDrivers.setAppearance(be:getPlayerVehicleID(0), {helmet = true, helmetColor = {1, 0.8, 0}, scale = 1.05})
+```
+
 ## Pedestrians
 
 They appear around the camera on maps that have a sidewalk file. Valo City has one; it's converted

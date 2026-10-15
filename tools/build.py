@@ -29,6 +29,7 @@ def main():
     run("convert_peds.py", slrr, MOD)
     up = sys.argv[sys.argv.index("--upscaler") + 1] if "--upscaler" in sys.argv else None
     run("remaster_textures.py", *(["--upscaler", up] if up else []))
+    run("make_tint_layers.py")       # clothing tint masks and the helmet, for setAppearance
     run("preview.py")
     out = os.path.join(ROOT, "dist", "slrr_drivers_and_pedestrians.zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)

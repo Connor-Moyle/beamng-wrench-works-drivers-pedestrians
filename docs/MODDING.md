@@ -169,6 +169,15 @@ to a plain sharpened resize. The roughness comes from colour: skin about 0.55, c
 dark hair, shoes and belts 0.6. Edit `*_r.data.png` (darker = shinier) if your outfit needs
 something else, such as a leather jacket.
 
+### Clothing colours, size and a helmet
+
+`slrrDrivers.setAppearance` recolours a driver's shirt and trousers, changes his size (0.9 to 1.1;
+the seat, reach and pedals follow) and puts a helmet on (hidden in your own first-person view like the
+head). For the colours, each skin needs `<stem>_shirt.data.png` and `<stem>_trousers.data.png` masks
+and a `<stem>_shade.color.png` grey shading map next to its colour map; `tools/make_tint_layers.py`
+makes them from the body's UV layout, leaving bare skin out. A tint draws the shading times the colour
+over the garment, so folds and prints stay. At most 8 colour combinations are loaded at once.
+
 ## 3. Pedestrians
 
 Every `art/slrr_pedestrians/<name>/<name>.dae` is a pedestrian type. Add a folder and it joins the
@@ -255,6 +264,9 @@ slrrDrivers.getDefaultDriver()
 slrrDrivers.setDisplayMode(mode [, vehId])   -- "full" (default), "still", "hideFirstPerson", "hidden"
 slrrDrivers.getDisplayMode([vehId])          -- without vehId: the global mode (saved); with it: that car
 slrrDrivers.setAnimated(on)          -- shortcut: true = "full", false = "still"
+slrrDrivers.setAppearance(vehId|nil, {skin=, shirt={r,g,b}, trousers={r,g,b}, scale=0.9..1.1,
+                          helmet=true|false, helmetColor={r,g,b}})   -- nil: everyone (saved); colours 0..1
+slrrDrivers.getAppearance([vehId])
 slrrDrivers.reload()                 -- rescan driver folders
 slrrDrivers.getState(vehId)          -- internal state, for debugging
 

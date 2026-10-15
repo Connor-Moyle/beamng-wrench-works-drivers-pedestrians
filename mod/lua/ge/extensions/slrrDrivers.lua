@@ -48,11 +48,12 @@ local PEDAL_Y = 0.95                    -- forward of the eyes; pulled in when t
 local PEDAL_ABOVE_FLOOR = 0.13
 local PEDAL_TRAVEL = vec3(0, 0.07, -0.025)   -- how the pad moves when pressed fully
 local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttle and brake
+local MAX_TINTS = 8                    -- clothing colours kept loaded at once (video memory)
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
 local ROLL_SPEED = 4                    -- rad/s the wrist may turn
-local JOINT_SPEED = 2.2                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
+local JOINT_SPEED = 2.1                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
 local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
 local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
@@ -78,6 +79,8 @@ local rigs = {}         -- model -> rig.json
 local cars = {}         -- vehId -> state
 local choice = {}       -- vehId -> id or false (none)
 local defaultDriver = 'slrr_mitch'
+local appearance = {}          -- setAppearance, global (saved)
+local carAppearance = {}       -- setAppearance, vehId -> table
 -- display mode, global and per car: "full" (animated), "still" (seated pose, no animation),
 -- "hideFirstPerson" (animated, but not drawn in the player's own driver camera), "hidden" (never drawn)
 local MODES = {full = true, still = true, hideFirstPerson = true, hidden = true}
@@ -91,6 +94,10 @@ local loadedMaterials = {}
 
 local function loadDrivers()
   drivers, driverList = {}, {}
+  -- tinted materials from an earlier session are rebuilt on demand: drop their files
+  for _, f in ipairs(FS:findFiles('/temp/slrr_drivers/', '*_driver.materials.json', 0, false, false) or {}) do
+    if f:find('_t') and FS.removeFile then FS:removeFile(f) end
+  end
   -- /art is not scanned for materials, so the skins are loaded here (driver mods included)
   for _, f in ipairs(FS:findFiles(ROOT, '*.materials.json', -1, true, false)) do
     if not loadedMaterials[f] then loadJsonMaterialsFile(f) loadedMaterials[f] = true end
@@ -109,6 +116,7 @@ local function loadDrivers()
   local s = jsonReadFile(SETTINGS)
   if s and s.default then defaultDriver = s.default end
   if s and MODES[s.displayMode] then displayMode = s.displayMode end
+  if s and type(s.appearance) == 'table' then appearance = s.appearance end
 end
 
 local function getRig(model)
@@ -251,19 +259,99 @@ end
 
 -- TSStatic ignores the "skin" field, so each driver gets its own copy of the part shapes with the
 -- material renamed from base_driver to <skin>_driver, written once to /temp/.
-local function skinnedShape(d, part)
-  local src = ROOT .. 'models/' .. d.model .. '/' .. part .. '.dae'
+local function skinnedShape(model, part, material, base)
+  local src = ROOT .. 'models/' .. model .. '/' .. part .. '.dae'
   local text = readFile(src)
   if not text then return src end
   -- the size in the name makes a re-converted mesh a new shape instead of the cached old one
-  local dst = '/temp/slrr_drivers/' .. d.skin .. '/' .. d.model .. '_' .. part .. '_' .. #text .. '.dae'
-  if not FS:fileExists(dst) then writeFile(dst, (text:gsub('base_driver', d.skin .. '_driver'))) end
+  local dst = '/temp/slrr_drivers/' .. material .. '/' .. model .. '_' .. part .. '_' .. #text .. '.dae'
+  if not FS:fileExists(dst) then writeFile(dst, (text:gsub(base or 'base_driver', material))) end
   return dst
+end
+
+-- Appearance (setAppearance): clothing tints, size and a helmet, global or per car.
+local tints = {}               -- material name -> {users = n, order = k}: at most MAX_TINTS kept loaded
+local tintOrder = 0
+
+local function hex(c) return c and string.format('%02x%02x%02x', clamp(c[1] or c.r or 0, 0, 1) * 255, clamp(c[2] or c.g or 0, 0, 1) * 255, clamp(c[3] or c.b or 0, 0, 1) * 255) or nil end
+local function rgb(c) return {clamp(c[1] or c.r or 0, 0, 1), clamp(c[2] or c.g or 0, 0, 1), clamp(c[3] or c.b or 0, 0, 1), 1} end
+
+local function appearanceFor(vid)
+  local a, o = {}, carAppearance[vid] or {}
+  for k, v in pairs(appearance) do a[k] = v end
+  for k, v in pairs(o) do a[k] = v end
+  return a
+end
+
+-- A material for a driver with tinted shirt / trousers: the skin's own maps, then per garment a layer of
+-- its grey shading times the colour, through the garment's mask. Written to /temp and loaded; identical
+-- colours share one; at most MAX_TINTS are kept (an unused one is dropped for a new one).
+local function tintMaterial(d, a)
+  if not a.shirt and not a.trousers then return d.skin .. '_driver' end
+  local name = d.skin .. '_t' .. (hex(a.shirt) or 'x') .. (hex(a.trousers) or 'x') .. '_driver'
+  if tints[name] then tintOrder = tintOrder + 1 tints[name].order = tintOrder return name end
+  local n, oldest = 0, nil
+  for k, t in pairs(tints) do
+    n = n + 1
+    if t.users == 0 and (not oldest or t.order < tints[oldest].order) then oldest = k end
+  end
+  if n >= MAX_TINTS then
+    if not oldest then log('W', 'slrrDrivers', 'too many clothing colours in use; this driver keeps his own') return d.skin .. '_driver' end
+    local m = scenetree.findObject(oldest)
+    if m then m:delete() end
+    tints[oldest] = nil
+  end
+  local mats = jsonReadFile(ROOT .. d.id .. '/main.materials.json') or {}
+  local _, base = next(mats)
+  local stage0 = base and base.Stages and base.Stages[1] or {}
+  local function file(pattern) local f = FS:findFiles(ROOT .. d.id .. '/', pattern, 0, false, false) return f and f[1] end
+  local shade = file('*_shade.color.png')
+  local stages = {stage0, {}, {}, {}}
+  for i, g in ipairs({'shirt', 'trousers'}) do
+    local mask = file('*_' .. g .. '.data.png')
+    if a[g] and shade and mask then
+      stages[i + 1] = {baseColorMap = shade, baseColorFactor = rgb(a[g]), opacityMap = mask, roughnessFactor = 0.85, metallicFactor = 0}
+    end
+  end
+  local path = '/temp/slrr_drivers/' .. name .. '.materials.json'
+  jsonWriteFile(path, {[name] = {name = name, mapTo = name, class = 'Material', version = 1.5, materialTag0 = 'beamng', Stages = stages}}, true)
+  loadJsonMaterialsFile(path)
+  tintOrder = tintOrder + 1
+  tints[name] = {users = 0, order = tintOrder}
+  return name
+end
+
+local function helmetMaterial(a)
+  local name = 'slrr_helmet_' .. (hex(a.helmetColor) or 'e6e6e6')
+  if not scenetree.findObject(name) then
+    local path = '/temp/slrr_drivers/' .. name .. '.materials.json'
+    jsonWriteFile(path, {[name] = {name = name, mapTo = name, class = 'Material', version = 1.5, materialTag0 = 'beamng',
+      Stages = {{baseColorFactor = a.helmetColor and rgb(a.helmetColor) or {0.9, 0.9, 0.9, 1}, roughnessFactor = 0.25, metallicFactor = 0, clearCoatFactor = 1}, {}, {}, {}}}}, true)
+    loadJsonMaterialsFile(path)
+  end
+  return name
+end
+
+-- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
+local function scaledRig(rig, k)
+  local function sc(v) return v * k end
+  local r = {model = rig.model, parts = {}, arms = {}, legs = {}, fist = {}, pelvis = sc(rig.pelvis)}
+  for n, p in pairs(rig.parts) do r.parts[n] = sc(p) end
+  for side, arm in pairs(rig.arms) do
+    r.arms[side] = {shoulder = sc(arm.shoulder), elbow = sc(arm.elbow), wrist = sc(arm.wrist), la = arm.la * k, lb = arm.lb * k}
+  end
+  for side, leg in pairs(rig.legs or {}) do
+    r.legs[side] = {hip = sc(leg.hip), knee = sc(leg.knee), ankle = sc(leg.ankle), ball = sc(leg.ball),
+                    lt = leg.lt * k, lc = leg.lc * k, foot0 = sc(leg.foot0)}
+  end
+  for side, f in pairs(rig.fist or {}) do r.fist[side] = sc(f) end
+  return r
 end
 
 local function removeCar(vid)
   local c = cars[vid]
   if not c then return end
+  if c.material and tints[c.material] then tints[c.material].users = math.max(0, tints[c.material].users - 1) end
   for _, o in pairs(c.parts) do if o and simObjectExists and simObjectExists(o) then o:delete() end end
   cars[vid] = nil
   local veh = be:getObjectByID(vid)
@@ -422,6 +510,9 @@ local function attach(vid)
   local d = drivers[id]
   local rig = getRig(d.model)
   if not rig then log('E', 'slrrDrivers', 'missing rig for model ' .. tostring(d.model)) return true end
+  local look = appearanceFor(vid)
+  local size = clamp(tonumber(look.scale) or 1, 0.9, 1.1)
+  if math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) end
   removeCar(vid)
 
   if not group or not simObjectExists(group) then
@@ -435,9 +526,19 @@ local function attach(vid)
   end
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
              e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0}
-  for _, p in ipairs(PARTS) do
+  c.material = tintMaterial(d, look)
+  if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
+  local partList = {}
+  for _, p in ipairs(PARTS) do table.insert(partList, p) end
+  if look.helmet then table.insert(partList, 'helmet') end
+  for _, p in ipairs(partList) do
     local o = createObject('TSStatic')
-    o:setField('shapeName', 0, skinnedShape(d, p))
+    if p == 'helmet' then
+      o:setField('shapeName', 0, skinnedShape(d.model, 'helmet', helmetMaterial(look), 'base_helmet'))
+    else
+      o:setField('shapeName', 0, skinnedShape(d.model, p, c.material))
+    end
+    if math.abs(size - 1) > 1e-3 then o.scale = vec3(size, size, size) end
     o:setField('collisionType', 0, 'None')
     o:setField('decalType', 0, 'None')
     o.canSave = false
@@ -850,7 +951,11 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     pitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)), -0.6, 0.5)
   end
   local hideHead = fp and core_camera.getPosition():distance(eyeNow) > 0.1   -- the camera sits on the unled eye
-  if hideHead ~= c.headHidden then c.parts.head:setHidden(hideHead) c.headHidden = hideHead end
+  if hideHead ~= c.headHidden then
+    c.parts.head:setHidden(hideHead)
+    if c.parts.helmet then c.parts.helmet:setHidden(hideHead) end
+    c.headHidden = hideHead
+  end
   if not hideHead then
     c.headYaw = c.headYaw and (c.headYaw + clamp(yaw - c.headYaw, -dt * 6, dt * 6)) or yaw   -- no snapping
     c.headPitch = c.headPitch and (c.headPitch + clamp(pitch - c.headPitch, -dt * 4, dt * 4)) or pitch
@@ -858,6 +963,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local cy, sy = math.cos(yaw), math.sin(yaw)
     local turnHead = compose({x = vec3(cy, sy, 0), y = vec3(-sy, cy, 0), z = vec3(0, 0, 1)}, rotX(pitch))
     place(c.parts.head, world(lean(rig.parts.head)), R, compose(L, turnHead))
+    if c.parts.helmet then place(c.parts.helmet, world(lean(rig.parts.head)), R, compose(L, turnHead)) end
   end
   if c.rec then record(c, eye, R, dt, veh, wheel + c.seat) end
 end
@@ -888,7 +994,7 @@ local function feed(vid, steer, rpm, maxrpm, gear, throttle, brake, clutch)
   e.brake, e.clutch = brake or 0, clutch or 0
 end
 
-local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver, displayMode = displayMode}, true) end
+local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver, displayMode = displayMode, appearance = appearance}, true) end
 
 M.getDrivers = function()
   local out = {}
@@ -912,6 +1018,26 @@ M.setDefaultDriver = function(id)
   markAll()
 end
 M.getDefaultDriver = function() return defaultDriver end
+-- Appearance, global (vid nil, saved) or per car: {skin = driverId, shirt = {r,g,b}, trousers = {r,g,b},
+-- scale = 0.9..1.1, helmet = true/false, helmetColor = {r,g,b}} (colours 0..1). Fields left out keep their
+-- current value; pass false to clear one. Applies at once (the driver is rebuilt).
+M.setAppearance = function(vid, look)
+  look = look or {}
+  if look.skin ~= nil then
+    if vid then M.setDriver(vid, look.skin or nil) else M.setDefaultDriver(look.skin) end
+  end
+  local t = vid and (carAppearance[vid] or {}) or appearance
+  for _, k in ipairs({'shirt', 'trousers', 'scale', 'helmet', 'helmetColor'}) do
+    if look[k] ~= nil then t[k] = look[k] ~= false and look[k] or nil end
+  end
+  if vid then carAppearance[vid] = t pending[vid] = 0 else saveSettings() markAll() end
+end
+M.getTintCount = function() local n = 0 for _ in pairs(tints) do n = n + 1 end return n end   -- loaded clothing colours
+M.getAppearance = function(vid)
+  local a = vid and appearanceFor(vid) or appearance
+  a.skin = vid and M.getDriver(vid) or defaultDriver
+  return a
+end
 M.setDisplayMode = function(mode, vid)
   if mode == 'static' then mode = 'still' end
   if mode ~= nil and not MODES[mode] then log('W', 'slrrDrivers', 'unknown display mode ' .. tostring(mode)) return end
@@ -953,7 +1079,7 @@ M.onVehicleSwitched = function(old, new)   -- a parked car the player gets into 
     if vid and vid ~= -1 and wantedDriver(vid) ~= M.getDriver(vid) then pending[vid] = 0 end
   end
 end
-M.onVehicleDestroyed = function(vid) removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil end
+M.onVehicleDestroyed = function(vid) removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
 M.onClientStartMission = function() group = nil cars = {} markAll() end
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 

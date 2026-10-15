@@ -11,6 +11,7 @@ function simObjectExists(o) return o ~= nil and not o.deleted end
 FS = {
   findFiles = function(_, root, pattern)
     if pattern == 'driver.json' then return {'/art/slrr_drivers/slrr_mitch/driver.json'} end
+    if pattern:find('_shade') or pattern:find('_shirt') or pattern:find('_trousers') then return {root .. pattern:gsub('%*', 'mitch_whole')} end
     return {}
   end,
   fileExists = function() return true end,
