@@ -461,7 +461,10 @@ local function removeCar(vid)
   local c = cars[vid]
   if not c then return end
   if c.material and tints[c.material] then tints[c.material].users = math.max(0, tints[c.material].users - 1) end
-  for _, o in pairs(c.parts) do if o and simObjectExists and simObjectExists(o) then o:delete() end end
+  for _, o in pairs(c.parts) do
+    if type(o) == 'table' and o.isProp then o:delete()
+    elseif o and simObjectExists and simObjectExists(o) then o:delete() end
+  end
   cars[vid] = nil
   local veh = be:getObjectByID(vid)
   if veh then veh:queueLuaCommand('extensions.unload("slrrDriverFeed")') end
@@ -609,6 +612,45 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
   return L
 end
 
+-- The driver drawn by the car itself: slrrDriverMount adds his parts as vehicle props at spawn (meshes
+-- slrr_<model>_<part>). Each becomes an object with the calls slrrDrivers makes on a TSStatic; a pose is
+-- turned into the car's own jbeam frame, so the car renders it with the seat, with no lag and no blur.
+local propConvention = 1   -- how a pose maps onto the prop's base transform (setPropConvention, for calibration)
+local function propPart(c, p)
+  local o = {isProp = true, prop = p, hidden = false, m = MatrixF(true)}
+  function o:setTransform(m)
+    self.m = m
+    local R, eye, cam = c.frameR, c.frameEye, c.cam0
+    if not (R and eye and cam) then return end
+    local d = m:getPosition() - eye
+    local function jb(v) return vec3(-v:dot(R.x), -v:dot(R.y), v:dot(R.z)) end   -- world -> seat -> jbeam axes
+    local mj = MatrixF(true)
+    mj:setColumn(0, jb(m:getColumn(0)))
+    mj:setColumn(1, jb(m:getColumn(1)))
+    mj:setColumn(2, jb(m:getColumn(2)))
+    if propConvention == 2 then mj:inverse() end
+    p:setBaseTranslationGlobal(vec3(cam) + jb(d))
+    p:setBaseRotationGlobalQuat(quat(mj:toQuatF()))
+  end
+  function o:getTransform() return self.m end
+  function o:setHidden(h) self.hidden = h p:setVisible(not h) end
+  function o:isHidden() return self.hidden end
+  function o:delete() p:setVisible(false) end
+  return o
+end
+
+-- the props slrrDriverMount gave this car for a model, part -> prop (nil unless all are there)
+local function driverProps(veh, model)
+  local found, n = {}, 0
+  local prefix = 'slrr_' .. model .. '_'
+  for pid = 0, (veh.getPropCount and veh:getPropCount() or 0) - 1 do
+    local p = veh:getProp(pid)
+    local mesh = p and p:getMeshName() or ''
+    if mesh:sub(1, #prefix) == prefix then found[mesh:sub(#prefix + 1)] = p n = n + 1 end
+  end
+  return n >= #PARTS and found or nil
+end
+
 local function attach(vid)
   local id = wantedDriver(vid)
   if not id then removeCar(vid) return true end
@@ -641,7 +683,22 @@ local function attach(vid)
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
   if look.helmet then table.insert(partList, 'helmet') end
+  -- drawn by the car when slrrDriverMount gave it this model's parts (props can't be scaled)
+  local props = math.abs(size - 1) < 1e-3 and driverProps(veh, d.model)
+  if props then
+    local vd = core_vehicle_manager.getVehicleData(vid)
+    local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
+    c.cam0 = n and vec3(n.pos)
+    if not c.cam0 then props = nil end
+  end
   for _, p in ipairs(partList) do
+    if props and props[p] then
+      local o = propPart(c, props[p])
+      props[p]:setMaterialOverride('base_driver', c.material)
+      o:setHidden(false)
+      c.parts[p] = o
+      goto continue
+    end
     local o = createObject('TSStatic')
     if p == 'helmet' then
       o:setField('shapeName', 0, skinnedShape(d.model, 'helmet', helmetMaterial(look), 'base_helmet'))
@@ -655,7 +712,9 @@ local function attach(vid)
     o:registerObject('')
     group:addObject(o)
     c.parts[p] = o
+    ::continue::
   end
+  c.drawnByCar = props and true or false
   -- gear lever: the highest node of any "shifter" group, if the car has one
   local vdata = core_vehicle_manager.getVehicleData(vid)
   local best
@@ -1077,6 +1136,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     eye = eye + vec3(veh:getVelocity()) * (c.dtAvg * LEAD_FRAMES)
   end
   local R = basis(fwd, up)   -- seat frame -> world
+  c.frameR, c.frameEye = R, eye   -- parts drawn by the car are posed relative to these
   local function world(p) return eye + rotate(R, c.seat and (p + c.seat) or p) end
   local rig, e = c.rig, c.e
 
@@ -1376,6 +1436,7 @@ M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
 M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n end   -- ms per frame, drivers
 M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
+M.setPropConvention = function(k) propConvention = k end   -- calibrating parts drawn by the car
 -- pose recording for tools/render_pose.py
 M.startRecording = function(vid) if cars[vid] then cars[vid].rec = {} end end
 M.stopRecording = function(vid, path)
