@@ -12,6 +12,7 @@ so the root's sway is turned round, and the shapes use the drivers' own axis con
 
 Output per driver, in the pedestrian type format slrrPedestrians.followPlayer reads:
     art/slrr_drivers/<id>/walker/walk.dae, walk_slow.dae, walk_fast.dae, idle.dae, ped.json
+Like the pedestrians, the shapes stand with their soles at z = 0, origin between the feet.
 The shapes use the driver's own material (<id>_driver), so they wear his skin.
 """
 import json
@@ -133,6 +134,21 @@ def stand(bones, walk, period=3.0, hz=30):
     return out
 
 
+def sole(bones, subs, tracks):
+    """Height (m) of the lowest skinned vertex below the origin at the start of a cycle."""
+    n = len(bones)
+    rest, W = [None] * n, cp.pose_at(bones, tracks, 0)
+
+    def world(i):
+        if rest[i] is None:
+            m = cp.local_matrix(bones[i]["rot"].T, bones[i]["pos"])
+            rest[i] = m if bones[i]["parent"] < 0 else world(bones[i]["parent"]) @ m
+        return rest[i]
+    M = [DRIVER_CONV @ W[i] @ np.linalg.inv(world(i)) for i in range(n)]
+    return min(sum(wt * (M[b] @ np.append(v, 1))[2] for b, wt in wl)
+               for s_ in subs for v, wl in zip(s_["pos"], s_["weights"]))
+
+
 def check(bones, tracks):
     """The retargeted walk faces +y and walks forwards: feet under the hips, a planted foot moving back."""
     ts, (left, right) = cp.ankle_paths(bones, tracks)
@@ -160,6 +176,10 @@ def main():
         walk = retarget(bones, pw_bones, pw_tracks)
         check(bones, walk)
         idle = stand(bones, walk)
+        # origin between the feet, soles at z = 0, as the pedestrians (SLRR's drivers have it at the hips)
+        ground = -sole(bones, subs, idle)
+        cp.CONV = DRIVER_CONV.copy()
+        cp.CONV[2, 3] = ground
         cycle, speed = cp.gait(bones, walk)
         for did in ids:
             out = os.path.join(ART, did, "walker")
@@ -173,7 +193,9 @@ def main():
             cp.write_skinned_dae(os.path.join(out, "idle.dae"), model, bones, subs, idle, mat)
             json.dump({"cycle": round(cycle, 3), "walks": walks, "idle": "idle.dae",
                        "idleCycle": round(cp.cycle_time(idle), 3)}, open(os.path.join(out, "ped.json"), "w"), indent=1)
-        print(model, "walk %.2f m/s, stride %.2f m per %.2f s, for %s" % (speed, speed * cycle, cycle, ", ".join(ids)))
+        print(model, "walk %.2f m/s, stride %.2f m per %.2f s, soles %.3f m below the hips, for %s"
+              % (speed, speed * cycle, cycle, ground, ", ".join(ids)))
+        cp.CONV = DRIVER_CONV
 
 
 if __name__ == "__main__":
