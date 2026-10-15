@@ -34,6 +34,13 @@ for mode in full still hideFirstPerson hidden full; do
   lua "slrrDrivers.setDisplayMode('$mode') return 1" >/dev/null; sleep 1
   lua "local c=slrrDrivers.getState(M_qa) local n=0 for _, o in pairs(c.parts) do if o:isHidden() then n=n+1 end end local want = ('$mode'=='hidden' or '$mode'=='hideFirstPerson') and 14 or 0 return string.format('J4 %s: $mode in the driver camera hides %d of 14 parts', n == want and 'PASS' or 'FAIL', n)"
 done | tee -a "$LOG"
+echo "== X30: clothing tint and helmet (screenshot for review)"
+lua "slrrDrivers.setAppearance(M_qa, {shirt = {0.8, 0.1, 0.1}, trousers = {0.1, 0.1, 0.45}, helmet = true, helmetColor = {1, 0.8, 0}}) return 1" >/dev/null
+sleep 2
+lua "local v=be:getObjectByID(M_qa) local c=slrrDrivers.getState(M_qa) v:setMeshAlpha(0.1,'',false) local eye=v:getPosition()+vec3(v:getNodePositionXYZ(c.camNode)) local f=v:getDirectionVector():normalized() local r=f:cross(vec3(0,0,1)) local cam=eye+f*1.0-r*0.6+vec3(0,0,0.05) commands.setFreeCamera() core_camera.setPosition(0,cam) core_camera.setRotation(0, quatFromDir((eye-vec3(0,0,0.3)-cam):normalized(), vec3(0,0,1))) return string.format('X30: material %s, helmet %s, tints loaded %d', c.material, tostring(c.parts.helmet ~= nil), slrrDrivers.getTintCount())" | tee -a "$LOG"
+SHOT="$(cd ..; pwd)/../SLRR BeamNG Graph/review/x30_tint_helmet.jpg"
+SHOT="$SHOT" node bng.js screenshot_image >/dev/null; sleep 4; SHOT="$SHOT" node bng.js screenshot_image
+lua "be:getObjectByID(M_qa):setMeshAlpha(1,'',false) slrrDrivers.setAppearance(M_qa, {shirt = false, trousers = false, helmet = false}) return 1" >/dev/null
 lua "core_camera.setByName(0,'orbit') be:getObjectByID(M_qa):delete() return 1" >/dev/null
 
 echo "== J1 / J2 / J6: recordings"
