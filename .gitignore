@@ -2,3 +2,6 @@
 dist/
 __pycache__/
 *.pyc
+
+# Licensed HD player model (Renderpeople) - local use only, never commit or ship
+HD Model/
