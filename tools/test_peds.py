@@ -43,13 +43,14 @@ scenetree = {findObject = function() return nil end, MissionGroup = setmetatable
 camPos = vec3(-340, 210, 7)
 core_camera = {getPosition = function() return camPos end}
 be = {getObjectCount = function() return 0 end}
--- signals: two phases alternating 10 s green, 4 s yellow, 1.5 s all red (signals.py), phase = controllerId
+-- signals as signals.json runs them: phase 1 then phase 2 (each 10 s green, 4 s yellow, 1.5 s red), then a 7 s
+-- walk phase with every approach red; phase = controllerId
 local Sig = {}
 Sig.__index = Sig
 local function stateAt(phase, t)
-  local c = t % 31
-  local mine = phase == 1 and c or (c + 15.5) % 31
-  if mine < 10 then return 'greenTrafficLight' elseif mine < 14 then return 'yellowTrafficLight' end
+  local c = t % 38
+  local mine = phase == 1 and c or c - 15.5
+  if mine >= 0 and mine < 10 then return 'greenTrafficLight' elseif mine >= 10 and mine < 14 then return 'yellowTrafficLight' end
   return 'redTrafficLight'
 end
 function Sig:getState() return stateAt(self.controllerId, time) end
@@ -93,7 +94,7 @@ def main():
     M.setOptions(lua.table_from({"maxCount": 200}))
 
     dt = 1 / 30
-    states, crossings, close, slides, steps = set(), {"green": 0, "other": 0, "free": 0}, 0, [], 0
+    states, crossings, close, slides, steps = set(), {"green": 0, "walk phase": 0, "other": 0, "free": 0}, 0, [], 0
     seen = {}
     for frame in range(int(240 / dt)):
         g.time = frame * dt
@@ -110,8 +111,12 @@ def main():
                 seen[id(c)] = True
                 if c.signal is None:
                     crossings["free"] += 1
+                elif c.signal.getState(c.signal) == "greenTrafficLight":
+                    crossings["green"] += 1
+                elif all(o.getState(o) == "redTrafficLight" for o in c.junction.signals.values()):
+                    crossings["walk phase"] += 1
                 else:
-                    crossings["green" if c.signal.getState(c.signal) == "greenTrafficLight" else "other"] += 1
+                    crossings["other"] += 1
             # along-path speed of walkers on a sidewalk (no sidestep or dodge running) vs their shape's speed
             key = (p.line, p.dir)
             if p.state == "walk" and c is None and p._last is not None and p._last[0] == key and abs(p.side) < 1e-6:

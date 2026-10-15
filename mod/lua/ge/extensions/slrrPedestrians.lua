@@ -37,7 +37,9 @@ local STOP_RATE = 1 / 90                 -- chance per second (times the pedestr
 local SPAWN_STANDING = 0.15              -- share spawned standing
 local CROSS_MIN = 5         -- a link this long or more crosses a road
 local JUNCTION_REACH = 35   -- a crossing this close to a signalled junction's centre obeys its lights
-local GREEN = 'greenTrafficLight'
+local GREEN, RED = 'greenTrafficLight', 'redTrafficLight'
+local GAP_MARGIN = 2        -- seconds: no crossing while a car would reach it before they're over plus this
+local CAR_CLEAR = 3         -- metres: a car passing this close to the crossing counts as reaching it
 local FRAME_TAU = 2         -- seconds of frame-time smoothing
 local MIN_CAP = 6
 local MIN_SHARE = 0.15      -- the quietest area still gets this share of the count
@@ -58,6 +60,7 @@ local junctions             -- {{c = centre, signals = {SignalInstance}}}, from 
 local frameAvg, cap, capTimer = 1 / 60, nil, 0
 local density               -- walk density by area (density_<level>.json), nil = even everywhere
 local share, shareTimer = 1, 0
+local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
 
 -- take the known keys of t, type-checked and clamped; returns true if anything changed
 local function applyOptions(t)
@@ -208,7 +211,7 @@ local function signalFor(a, b)
     local d = math.abs(c.x * arm.x + c.y * arm.y)
     if d > bestDot then sig, bestDot = s, d end
   end
-  return sig
+  return sig, best
 end
 
 -- 0..1: how busy the sidewalks are here (the last matching box wins)
@@ -352,20 +355,42 @@ local function stepOut(q, side, car)
 end
 
 local function startLink(p)
-  local e, o, signal = p.link.from, p.link.to, p.link.signal
+  local e, o, signal, junction = p.link.from, p.link.to, p.link.signal, p.link.junction
   p.link = nil
-  p.cross = {from = e.p, to = o.p, t = 0, len = math.max(0.5, e.p:distance(o.p)), signal = signal}
+  p.cross = {from = e.p, to = o.p, t = 0, len = math.max(0.5, e.p:distance(o.p)), signal = signal, junction = junction}
   p.line, p.dir = o.line, o.atStart and 1 or -1
   p.s = o.atStart and 0 or lines[o.line].total
 end
 
--- may p start its crossing now: no signal, or green now and still green when they reach the far side
+-- would a moving car come within reach of the crossing a-b in the next `time` seconds
+local function carComing(a, b, time)
+  local mid, half = (a + b) * 0.5, a:distance(b) * 0.5 + CAR_CLEAR
+  for _, v in ipairs(cars) do
+    local sp = v.vel:length()
+    if sp > 1 then
+      local rel = mid - v.pos
+      local t = clamp(rel:dot(v.vel) / (sp * sp), 0, time)   -- closest approach within the window
+      if (v.pos + v.vel * t - mid):length() < half then return true end
+    end
+  end
+  return false
+end
+
+-- may p start its crossing now: no car on its way, and no signal or green now and still green when they're over
 local function mayCross(p)
+  local time = p.link.len / p.speed
+  if p.link.len >= CROSS_MIN and carComing(p.link.from.p, p.link.to.p, time + GAP_MARGIN) then return false end
   local s = p.link.signal
   if not s then return true end
   local now = s:getState()
   if now == 'none' then return true end   -- signal system not running
-  return now == GREEN and s:getStateAfterTime(p.link.len / p.speed + 1) == GREEN
+  -- the junction's walk phase: every approach red now and until they're over (the map's all-red, signals.json)
+  local allRed = true
+  for _, o in ipairs(p.link.junction.signals) do
+    if o:getState() ~= RED or o:getStateAfterTime(time + 1) ~= RED then allRed = false break end
+  end
+  -- or with the traffic alongside: green now and still green when they're over (turning cars: the gap check above)
+  return allRed or (now == GREEN and s:getStateAfterTime(time + 1) == GREEN)
 end
 
 -- at a sidewalk's end: pick the next sidewalk, maybe stand a while, then go (or wait for the light)
@@ -380,7 +405,8 @@ local function reachEnd(p)
   end
   if #choices == 0 then p.dir = -p.dir return end
   local o = choices[math.random(#choices)]
-  p.link = {from = e, to = o, len = e.p:distance(o.p), signal = signalFor(e.p, o.p)}
+  local signal, junction = signalFor(e.p, o.p)
+  p.link = {from = e, to = o, len = e.p:distance(o.p), signal = signal, junction = junction}
   if opts.idling and math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   elseif not mayCross(p) then stand(p)
   else startLink(p) end
@@ -393,6 +419,11 @@ local function updateStanding(p, dt)
   if p.state == 'idle' then
     p.timer = opts.idling and p.timer - dt or 0
     if p.timer > 0 then return end
+  end
+  if p.link and p.state == 'wait' then        -- waiting at the kerb: look again 4 times a second
+    p.check = (p.check or 0) - dt
+    if p.check > 0 then return end
+    p.check = 0.25
   end
   if p.link and not mayCross(p) then
     if p.state ~= 'wait' then stand(p) end
@@ -530,6 +561,7 @@ local function onUpdate(dtReal, dtSim)
       table.insert(vehicles, car)
     end
   end
+  cars = vehicles
   -- pedestrians by 2 m cell, from last frame's positions, for spacing
   local cells = {}
   for _, p in ipairs(peds) do
