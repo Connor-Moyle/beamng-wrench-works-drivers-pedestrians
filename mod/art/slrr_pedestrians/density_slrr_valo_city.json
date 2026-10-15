@@ -1,0 +1,86 @@
+{
+ "note": "Pedestrian density by area: boxes [xmin, ymin, xmax, ymax] in world metres, weight 0..1; where boxes overlap the later one wins. Districts read off SLRR's city map (connor-13).",
+ "default": 0.1,
+ "areas": [
+  {
+   "name": "inside the ring freeway",
+   "box": [
+    -1400,
+    -1550,
+    1400,
+    1150
+   ],
+   "weight": 0.35
+  },
+  {
+   "name": "South End (residential)",
+   "box": [
+    -1350,
+    -1470,
+    1300,
+    -100
+   ],
+   "weight": 0.5
+  },
+  {
+   "name": "North End edges (residential)",
+   "box": [
+    -1100,
+    150,
+    1100,
+    800
+   ],
+   "weight": 0.5
+  },
+  {
+   "name": "Old Riverbed",
+   "box": [
+    -1400,
+    -190,
+    1400,
+    30
+   ],
+   "weight": 0.15
+  },
+  {
+   "name": "industrial east",
+   "box": [
+    700,
+    -700,
+    1300,
+    0
+   ],
+   "weight": 0.2
+  },
+  {
+   "name": "downtown (North End core)",
+   "box": [
+    -600,
+    150,
+    600,
+    800
+   ],
+   "weight": 1.0
+  },
+  {
+   "name": "beachfront and bay edge",
+   "box": [
+    -650,
+    800,
+    600,
+    1100
+   ],
+   "weight": 1.0
+  },
+  {
+   "name": "bay island",
+   "box": [
+    -550,
+    1330,
+    270,
+    1900
+   ],
+   "weight": 0.8
+  }
+ ]
+}

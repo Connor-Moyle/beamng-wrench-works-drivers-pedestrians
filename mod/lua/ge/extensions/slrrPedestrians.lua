@@ -10,7 +10,9 @@
 -- across the street), or turns back. Some stop at corners or along the way and stand a while. Across a
 -- signalled junction they wait until the light for their direction is green long enough to get over.
 -- They keep apart (keep right when meeting, pass on the free side), step round parked cars and jump out
--- of the way of fast ones. Fewer walk while the frame time is over budget.
+-- of the way of fast ones. Fewer walk while the frame time is over budget. An optional
+-- density_<level>.json weights areas (downtown busy, outskirts quiet): spawns favour busy spots, and the
+-- count round the camera is the budget times the area's weight.
 --
 -- API: slrrPedestrians.setCount(n) (saved), slrrPedestrians.getCount()
 
@@ -36,11 +38,17 @@ local SPAWN_STANDING = 0.15              -- share spawned standing
 local CROSS_MIN = 5         -- a link this long or more crosses a road
 local JUNCTION_REACH = 35   -- a crossing this close to a signalled junction's centre obeys its lights
 local GREEN = 'greenTrafficLight'
-local FRAME_BUDGET = 1 / 55 -- seconds; over it, pedestrians are shed
 local FRAME_TAU = 2         -- seconds of frame-time smoothing
 local MIN_CAP = 6
+local MIN_SHARE = 0.15      -- the quietest area still gets this share of the count
 
-local count = 30
+local count = 30            -- the base count ('medium'); setCount changes it
+local AMOUNT = {off = 0, low = 0.5, medium = 1, high = 1.5, veryhigh = 2}
+-- player options (Wrench Works' settings call setOptions); defaults are the mod's own behaviour
+local DEFAULTS = {amount = 'medium', maxCount = 60, autoReduce = true, targetFps = 55, idling = true, crossing = true,
+                  busyAreas = true}
+local opts = {}
+for k, v in pairs(DEFAULTS) do opts[k] = v end
 local types = {}            -- {walks = {{shape, speed}}, idle = shape or nil}
 local lines, ends, grid
 local peds = {}
@@ -48,10 +56,39 @@ local group
 local loadedMaterials = false
 local junctions             -- {{c = centre, signals = {SignalInstance}}}, from core_trafficSignals
 local frameAvg, cap, capTimer = 1 / 60, nil, 0
+local density               -- walk density by area (density_<level>.json), nil = even everywhere
+local share, shareTimer = 1, 0
+
+-- take the known keys of t, type-checked and clamped; returns true if anything changed
+local function applyOptions(t)
+  local changed = false
+  for k, v in pairs(t or {}) do
+    local d = DEFAULTS[k]
+    if k == 'amount' then v = AMOUNT[v] and v or nil
+    elseif type(d) == 'number' then
+      v = tonumber(v)
+      if v then v = math.floor(clamp(v, k == 'maxCount' and 0 or 30, k == 'maxCount' and 200 or 144) + 0.5) end
+    elseif type(d) == 'boolean' then
+      if type(v) ~= 'boolean' then v = nil end   -- not `and v or nil`: that drops false
+    else v = nil end
+    if v ~= nil and opts[k] ~= v then opts[k], changed = v, true end
+  end
+  return changed
+end
+
+local function saveSettings()
+  jsonWriteFile(SETTINGS, {count = count, options = opts}, true)
+end
 
 local function loadSettings()
   local s = jsonReadFile(SETTINGS)
   if s and tonumber(s.count) then count = tonumber(s.count) end
+  if s then applyOptions(s.options) end
+end
+
+-- how many may walk before the frame-time cap and the area share
+local function wanted()
+  return math.min(opts.maxCount, math.floor(count * AMOUNT[opts.amount] + 0.5))
 end
 
 local function levelName()
@@ -77,6 +114,7 @@ local function loadWalks()
   lines, ends, grid, junctions = nil, nil, nil, nil
   local lvl = levelName()
   local data = lvl and jsonReadFile(ROOT .. 'walk_' .. lvl .. '.json')
+  density = lvl and jsonReadFile(ROOT .. 'density_' .. lvl .. '.json')
   if not data then return end
   loadTypes()
   if #types == 0 then return end
@@ -173,6 +211,29 @@ local function signalFor(a, b)
   return sig
 end
 
+-- 0..1: how busy the sidewalks are here (the last matching box wins)
+local function weightAt(x, y)
+  if not density or not opts.busyAreas then return 1 end
+  local w = density.default or 1
+  for _, a in ipairs(density.areas or {}) do
+    local b = a.box
+    if x >= b[1] and x <= b[3] and y >= b[2] and y <= b[4] then w = a.weight end
+  end
+  return w
+end
+
+-- the share of the count for the area round the camera: mean weight on the spawn ring
+local function localShare(cam)
+  local sum, n = 0, 0
+  for r = SPAWN_MIN, SPAWN_MAX, (SPAWN_MAX - SPAWN_MIN) / 2 do
+    for k = 0, 7 do
+      local a = k * math.pi / 4
+      sum, n = sum + weightAt(cam.x + math.cos(a) * r, cam.y + math.sin(a) * r), n + 1
+    end
+  end
+  return math.max(MIN_SHARE, sum / n)
+end
+
 local function pointAt(line, s)
   local pts, len = line.pts, line.len
   for k = 2, #pts do
@@ -204,6 +265,11 @@ end
 
 local function despawn(p)
   if p.obj and simObjectExists(p.obj) then p.obj:delete() end
+end
+
+local function clear()
+  for _, p in ipairs(peds) do despawn(p) end
+  peds = {}
 end
 
 local function makeObj(shape, transform)
@@ -254,14 +320,14 @@ local function spawnNear(cam)
     local a, r = math.random() * 2 * math.pi, SPAWN_MIN + math.random() * (SPAWN_MAX - SPAWN_MIN)
     local q = cam + vec3(math.cos(a) * r, math.sin(a) * r, 0)
     local bucket = grid[math.floor(q.x / CELL) .. ',' .. math.floor(q.y / CELL)]
-    if bucket and #bucket > 0 then
+    if bucket and #bucket > 0 and math.random() < weightAt(q.x, q.y) then   -- busier areas take more
       local pick = bucket[math.random(#bucket)]
       local t = types[math.random(#types)]
       local w = t.walks[math.random(#t.walks)]
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
                  dir = math.random() < 0.5 and 1 or -1, lane = (math.random() * 2 - 1) * LANE, side = 0,
                  idleChance = t.idle and math.random() * 0.6 or 0, zTimer = 0, dodge = vec3(0, 0, 0)}
-      if t.idle and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * 2 * IDLE_MAX) else walkOn(p) end
+      if t.idle and opts.idling and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * 2 * IDLE_MAX) else walkOn(p) end
       return p
     end
   end
@@ -307,20 +373,29 @@ local function reachEnd(p)
   local line = lines[p.line]
   local e = p.dir > 0 and line.endEnd or line.startEnd
   local choices = e and e.links or {}
+  if not opts.crossing then
+    local corners = {}
+    for _, o in ipairs(choices) do if o.p:distance(e.p) < CROSS_MIN then table.insert(corners, o) end end
+    choices = corners
+  end
   if #choices == 0 then p.dir = -p.dir return end
   local o = choices[math.random(#choices)]
   p.link = {from = e, to = o, len = e.p:distance(o.p), signal = signalFor(e.p, o.p)}
-  if math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
+  if opts.idling and math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   elseif not mayCross(p) then stand(p)
   else startLink(p) end
 end
 
 local function updateStanding(p, dt)
+  if p.link and not opts.crossing and p.link.len >= CROSS_MIN then   -- crossing switched off: turn back
+    p.link, p.dir = nil, -p.dir
+  end
   if p.state == 'idle' then
-    p.timer = p.timer - dt
+    p.timer = opts.idling and p.timer - dt or 0
     if p.timer > 0 then return end
-    if p.link and not mayCross(p) then stand(p) return end
-  elseif not mayCross(p) then
+  end
+  if p.link and not mayCross(p) then
+    if p.state ~= 'wait' then stand(p) end
     return
   end
   if p.link then startLink(p) end
@@ -331,7 +406,7 @@ local function updatePed(p, dt, vehicles, near)
   local pos, fwd
   if p.state ~= 'walk' then
     updateStanding(p, dt)
-  elseif not p.cross and p.idleChance > 0 and math.random() < STOP_RATE * p.idleChance * dt then
+  elseif opts.idling and not p.cross and p.idleChance > 0 and math.random() < STOP_RATE * p.idleChance * dt then
     stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   end
   local moving = p.state == 'walk'
@@ -411,19 +486,26 @@ end
 
 -- how many may walk: the setting, lowered while the smoothed frame time is over budget
 local function target(dtReal)
-  cap = cap or count
+  local want = wanted()
+  cap = math.min(cap or want, want)
   frameAvg = frameAvg + (dtReal - frameAvg) * math.min(1, dtReal / FRAME_TAU)
+  if not opts.autoReduce then cap = want return want end
+  local budget = 1 / opts.targetFps
   capTimer = capTimer + dtReal
   if capTimer > 0.5 then
     capTimer = 0
-    if frameAvg > FRAME_BUDGET then cap = math.max(math.min(MIN_CAP, count), cap - 2)
-    elseif frameAvg < FRAME_BUDGET * 0.85 then cap = math.min(count, cap + 1) end
+    if frameAvg > budget then cap = math.max(math.min(MIN_CAP, want), cap - 2)
+    elseif frameAvg < budget * 0.85 then cap = math.min(want, cap + 1) end
   end
-  return math.min(count, cap)
+  return cap
 end
 
 local function onUpdate(dtReal, dtSim)
-  if not lines or count <= 0 then return end
+  if not lines then return end
+  if wanted() <= 0 then
+    if #peds > 0 then clear() end
+    return
+  end
   local cam = core_camera.getPosition()
   local dt = dtSim or dtReal
   local vehicles = {}
@@ -475,7 +557,9 @@ local function onUpdate(dtReal, dtSim)
       if pos:distance(cam) > DESPAWN then despawn(p) table.remove(peds, i) end
     end
   end
-  local n = target(dtReal)
+  shareTimer = shareTimer - dtReal
+  if shareTimer <= 0 then share, shareTimer = localShare(cam), 1 end
+  local n = math.max(1, math.floor(target(dtReal) * share + 0.5))
   if #peds < n then
     local p = spawnNear(cam)
     if p then table.insert(peds, p) end
@@ -490,20 +574,28 @@ local function onUpdate(dtReal, dtSim)
   end
 end
 
-local function clear()
-  for _, p in ipairs(peds) do despawn(p) end
-  peds = {}
-end
-
 M.setCount = function(n)
   count = math.max(0, math.floor(tonumber(n) or 0))
-  cap = count
-  jsonWriteFile(SETTINGS, {count = count}, true)
-  while #peds > count do despawn(table.remove(peds)) end
+  cap = nil
+  saveSettings()
 end
 M.getCount = function() return count end
+-- options: amount 'off'|'low'|'medium'|'high'|'veryhigh' (x0 .. x2 of the count), maxCount 0..200, autoReduce,
+-- targetFps 30..144, idling, crossing, busyAreas; only the keys given change; applied live and saved
+M.setOptions = function(t)
+  if applyOptions(t) then
+    cap = nil
+    saveSettings()
+  end
+end
+M.getOptions = function()
+  local t = {}
+  for k, v in pairs(opts) do t[k] = v end
+  return t
+end
+M.weightAt = weightAt
 M.getState = function()   -- internal state, for debugging
-  return {peds = peds, cap = cap, frameMs = frameAvg * 1000, junctions = junctions and #junctions}
+  return {peds = peds, cap = cap, share = share, frameMs = frameAvg * 1000, junctions = junctions and #junctions}
 end
 M.onUpdate = onUpdate
 M.onExtensionLoaded = function() loadSettings() loadWalks() end

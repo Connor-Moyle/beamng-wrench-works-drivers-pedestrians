@@ -5,7 +5,7 @@ first signalled junction, using the real sidewalks, ped.json files and the map's
 
 Checks: walkers move at their shape's speed (no foot slide), nobody starts a signalled crossing on anything but
 green, standing and waiting both happen, pedestrians keep apart, and the count drops when frames are slow and
-comes back when they are fast. MAP_DIR defaults to C:/Dev/SLRR map for beam ng.
+comes back when they are fast, and areas are weighted (downtown and the beachfront busiest). MAP_DIR defaults to C:/Dev/SLRR map for beam ng.
 """
 import json
 import math
@@ -90,6 +90,7 @@ def main():
     M.onExtensionLoaded()
     M.onClientStartMission()
     M.setCount(40)
+    M.setOptions(lua.table_from({"maxCount": 200}))
 
     dt = 1 / 30
     states, crossings, close, slides, steps = set(), {"green": 0, "other": 0, "free": 0}, 0, [], 0
@@ -122,17 +123,46 @@ def main():
                 steps += 1
                 if math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y) < 0.3:
                     close += 1
-    end_count = len(list(M.getState().peds.values()))
+    end_state = M.getState()
+    end_count, share = len(list(end_state.peds.values())), end_state.share
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
     print("walking speed error: max %.4f m/s over %d steps" % (max(slides), len(slides)))
     print("walker pairs closer than 0.3 m: %d of %d pair-frames" % (close, steps))
-    print("count: 40 set, %d after 30 s of 40 ms frames, %d after 60 s of fast frames" % (slow_count, end_count))
+    print("count: 40 set x area share %.2f, %d after 30 s of 40 ms frames, %d after 60 s of fast frames" % (
+        share, slow_count, end_count))
+    # density: downtown and the beachfront busiest, outskirts quietest
+    w = {name: M.weightAt(x, y) for name, (x, y) in {"downtown": (0, 500), "beachfront": (0, 950), "south end": (0, -800),
+                                                    "industrial": (1000, -300), "outskirts": (3000, 3000)}.items()}
+    print("density weights:", w)
     assert states >= {"walk", "idle", "wait"}, states
     assert crossings["other"] == 0 and crossings["green"] > 0, crossings
     assert max(slides) < 0.01, max(slides)
     assert close < steps * 0.001, (close, steps)
-    assert slow_count <= 10 and end_count >= 35, (slow_count, end_count)
+    assert slow_count <= 10 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)
+    assert w["downtown"] == w["beachfront"] == 1 and w["outskirts"] < w["industrial"] < w["south end"] < 1, w
+
+    # player options: no idling and no crossings, then a hard cap, then off
+    M.setOptions(lua.table_from({"idling": False, "crossing": False, "amount": "high", "bogus": 1}))
+    long_cross = idle = 0
+    for frame in range(int(60 / dt)):
+        g.time = 300 + frame * dt
+        M.onUpdate(1 / 90, dt)
+        for p in M.getState().peds.values():
+            idle += p.state == "idle"
+            long_cross += p.cross is not None and p.cross.len >= 5 and p.cross.t < 0.05
+    opts = M.getOptions()
+    print("idling/crossing off: %d idle frames, %d road crossings started; options %s" % (
+        idle, long_cross, dict(opts.items())))
+    assert idle == 0 and long_cross == 0, (idle, long_cross)
+    assert opts.amount == "high" and opts.bogus is None
+    for setting, most in (({"maxCount": 10}, 10), ({"amount": "off"}, 0)):
+        M.setOptions(lua.table_from(setting))
+        for frame in range(120):
+            M.onUpdate(1 / 90, dt)
+        n = len(list(M.getState().peds.values()))
+        print(setting, "->", n, "pedestrians")
+        assert n <= most, (setting, n)
     print("ok")
 
 
