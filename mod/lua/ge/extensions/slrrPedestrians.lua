@@ -696,8 +696,31 @@ local function updatePlayer(dt)
   place(player.obj, vec3(pos.x, pos.y, groundZ(pos)), fwd)
 end
 
+-- recording for review (tools/ped_replay.py): every pedestrian's place and shape each frame
+local rec
+
+local function record(dtReal)
+  rec.t = rec.t + dtReal
+  local f = {t = rec.t, ms = dtReal * 1000, peds = {}, cars = {}}
+  for _, v in ipairs(cars) do table.insert(f.cars, {x = v.pos.x, y = v.pos.y, z = v.pos.z, v = v.vel:length()}) end
+  for _, p in ipairs(peds) do
+    if p.pos and p.obj and simObjectExists(p.obj) then
+      local q = p.obj:getPosition()
+      table.insert(f.peds, {id = tostring(p):sub(-8), x = q.x, y = q.y, z = q.z, fx = p.fwd.x, fy = p.fwd.y,
+                            shape = p.shape, state = p.state, cross = p.cross and true or false})
+    end
+  end
+  table.insert(rec.frames, f)
+  if rec.t >= rec.seconds then
+    jsonWriteFile(rec.path, {frames = rec.frames}, false)
+    log('I', 'slrrPedestrians', 'recording written: ' .. rec.path .. ' (' .. #rec.frames .. ' frames)')
+    rec = nil
+  end
+end
+
 local function onUpdate(dtReal, dtSim)
   if player then updatePlayer(dtSim or dtReal) end
+  if rec then record(dtReal) end
   if not lines then return end
   if wanted() <= 0 then
     if #peds > 0 then clear() end
@@ -803,6 +826,10 @@ M.onExtensionLoaded = function() loadSettings() loadWalks() end
 M.onExtensionUnloaded = function() clear() followPlayer(nil) end
 -- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
 M.followPlayer = followPlayer
+-- slrrPedestrians.record(seconds, path): write every pedestrian's place and shape per frame to path (json)
+M.record = function(seconds, path)
+  rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
+end
 M.onClientStartMission = function() group = nil peds = {} loadWalks() end
 M.onClientEndMission = function() group = nil peds = {} lines = nil junctions = nil player = nil end
 
