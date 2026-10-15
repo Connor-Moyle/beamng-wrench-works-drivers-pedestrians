@@ -56,6 +56,8 @@ local function addProps(vehicle, camCid)
   if not sp then return 0 end
   local cam = byCid(vehicle)[camCid].pos
   vehicle.props = vehicle.props or {}
+  -- string keys on purpose: the vehicle's props.lua walks only the array part, so it never pushes its own
+  -- visibility over these (hiding from the GE side works) and never animates them
   for _, part in ipairs(PARTS) do
     vehicle.props['slrr_driver_' .. part] = {
       mesh = 'slrr_' .. model .. '_' .. part, func = 'slrr_driver', idRef = sp.idRef, idX = sp.idX, idY = sp.idY,
