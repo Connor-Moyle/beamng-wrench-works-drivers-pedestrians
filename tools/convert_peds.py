@@ -16,7 +16,7 @@ are runs of 24-byte records (point, step to the next point); they are found as p
 box whose offsets step by 24. Points are written in Valo City coordinates (x, -z, y).
 
 Output: MOD_DIR/art/slrr_pedestrians/<name>/<name>.dae, skin, main.materials.json, and
-MOD_DIR/art/slrr_pedestrians/walk_slrr_valo_city.json (sidewalk polylines).
+tools/walk_slrr_valo_city.raw.json (SLRR's sidewalk polylines; ped_paths.py --fix makes the mod's walk file).
 """
 import json
 import math
@@ -334,5 +334,7 @@ if __name__ == "__main__":
                   open(os.path.join(d, "main.materials.json"), "w"), indent=1)
         print(name, tri, "triangles,", len(tracks[0]), "keys")
     walks = sidewalks()
-    json.dump(walks, open(os.path.join(OUT, "walk_slrr_valo_city.json"), "w"), separators=(",", ":"))
+    # SLRR's paths as they are; tools/ped_paths.py --fix puts them on the pavement and writes the mod's walk file
+    json.dump(walks, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "walk_slrr_valo_city.raw.json"), "w"),
+              separators=(",", ":"))
     print(len(walks), "sidewalk polylines, %.1f km" % (sum(math.dist(a, b) for l in walks for a, b in zip(l, l[1:])) / 1000))

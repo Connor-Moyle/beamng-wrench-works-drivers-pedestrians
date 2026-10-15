@@ -1,6 +1,8 @@
 """Offline check that pedestrians' sidewalks are on the pavement (Valo City).
 
-    python ped_paths.py [MAP_DIR] [--plot out.png]
+    python ped_paths.py [--plot out.png] [--fix] [--walk file] [--offset]
+
+--fix rebuilds the mod's walk file from tools/walk_slrr_valo_city.raw.json (convert_peds.py) against the map.
 
 Samples every sidewalk polyline in walk_slrr_valo_city.json every 0.5 m and finds what a pedestrian stands on
 there, the way slrrPedestrians.groundZ does (the highest static surface from 2 m above the path down to 4 m
@@ -28,6 +30,7 @@ MOD = os.path.join(HERE, "..", "mod")
 MAP = r"C:\Dev\SLRR map for beam ng"
 LEVEL = os.path.join(MAP, "mod", "levels", "slrr_valo_city")
 WALK = os.path.join(MOD, "art", "slrr_pedestrians", "walk_slrr_valo_city.json")
+RAW = os.path.join(HERE, "walk_slrr_valo_city.raw.json")     # convert_peds.py's output: SLRR's paths as converted
 STEP = 0.5
 UP, DOWN = 2.0, 4.0          # groundZ's ray: from 2 m above the path, 6 m long
 CELL = 1.0
@@ -487,6 +490,7 @@ def main():
     km, comp = graph(lines)
     print("%.1f km of sidewalk in %d connected parts (largest %.1f km)" % (km, len(comp), comp[0]))
     if "--fix" in sys.argv:
+        lines = json.load(open(RAW))      # always from SLRR's own paths, so new pavement in the map is picked up
         before = sum(len(l) for l in lines)
         lines = snap(lines, tris, mats)
         km, comp = graph(lines)
