@@ -745,6 +745,8 @@ M.getDefaultDriver = function() return defaultDriver end
 M.setDisplayMode = function(mode, vid)
   if mode == 'static' then mode = 'still' end
   if mode ~= nil and not MODES[mode] then log('W', 'slrrDrivers', 'unknown display mode ' .. tostring(mode)) return end
+  -- unchanged: nothing to do (callers may set it on every spawn; no reset, no settings write)
+  if (vid and carMode[vid] == mode) or (not vid and displayMode == (mode or 'full')) then return end
   if vid then carMode[vid] = mode else displayMode = mode or 'full' saveSettings() end
   -- start the animation state fresh, so switching never leaves a half-finished move behind
   for id, c in pairs(cars) do
