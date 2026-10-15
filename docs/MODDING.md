@@ -15,13 +15,16 @@ art/slrr_drivers/
   <driverId>/               one folder per driver
     driver.json
     main.materials.json
-    <texture>.dds
+    <texture>.color.png     base colour         (the PBR set: made by tools/remaster_textures.py,
+    <texture>.normal.png    normal map           or paint your own)
+    <texture>_r.data.png    roughness
+    <texture>_ao.data.png   ambient occlusion
     preview.png             optional, shown in the Wrench Works garage
 
 art/slrr_pedestrians/
   <name>/<name>.dae         one folder per pedestrian; the folder and file names must match
   <name>/main.materials.json
-  <name>/<texture>.dds
+  <name>/<texture>.color.png, .normal.png, _r.data.png, _ao.data.png
   walk_<levelName>.json     sidewalks for one map
 
 lua/ge/extensions/slrrDrivers.lua          drivers: seating, arms, weight, collision, API
@@ -38,20 +41,29 @@ The quickest change: a new texture on the vin or police body.
 
 1. Copy `art/slrr_drivers/slrr_mitch/` to `art/slrr_drivers/<yourId>/`, using a lowercase id with no
    spaces, e.g. `my_racer`.
-2. Paint your texture over the original one, which shows the UV layout. Save it as DDS
-   (DXT1, or DXT5 if it needs alpha) or PNG.
+2. Paint your texture over `*.color.png`, which shows the UV layout (2048 x 2048). Either paint
+   matching normal, roughness and AO maps too, or let the remaster tool make them (see below).
 3. Edit `main.materials.json` so the material is named `<yourId>_driver` (both `name` and `mapTo`)
-   and `baseColorMap` points at your texture:
+   and the maps point at your files:
 
    ```json
    {
      "my_racer_driver": {
        "name": "my_racer_driver", "mapTo": "my_racer_driver", "class": "Material",
        "version": 1.5, "materialTag0": "beamng",
-       "Stages": [{"baseColorMap": "/art/slrr_drivers/my_racer/my_racer.dds"}, {}, {}, {}]
+       "Stages": [{
+         "baseColorMap": "/art/slrr_drivers/my_racer/my_racer.color.png",
+         "normalMap": "/art/slrr_drivers/my_racer/my_racer.normal.png",
+         "roughnessMap": "/art/slrr_drivers/my_racer/my_racer_r.data.png",
+         "ambientOcclusionMap": "/art/slrr_drivers/my_racer/my_racer_ao.data.png",
+         "metallicFactor": 0
+       }, {}, {}, {}]
      }
    }
    ```
+
+   Only `baseColorMap` is required. Keep the file-name endings: BeamNG reads `.color` files as
+   colour (sRGB), and `.normal` and `.data` files as linear data.
 
 4. Edit `driver.json`:
 
@@ -130,6 +142,22 @@ pivot the upper body leans about.
 
 Then make a driver folder that uses it (`"model": "mybody"`), as in section 1.
 
+### Making PBR maps from a plain texture
+
+`tools/remaster_textures.py` turns a plain skin into a full PBR set. Put your texture in the
+driver's or pedestrian's folder as a `.dds` file, next to its `main.materials.json`, and run:
+
+```
+python tools/remaster_textures.py --upscaler path/to/realesrgan-ncnn-vulkan.exe
+```
+
+It upscales the texture 4x (to 2048 for drivers, 1024 for pedestrians), writes the colour, normal,
+roughness and AO maps, and points the material at them. The upscaler is the free Real-ESRGAN
+ncnn-vulkan build (github.com/xinntao/Real-ESRGAN, releases); without `--upscaler` it falls back
+to a plain sharpened resize. The roughness comes from colour: skin about 0.55, cloth 0.85, and
+dark hair, shoes and belts 0.6. Edit `*_r.data.png` (darker = shinier) if your outfit needs
+something else, such as a leather jacket.
+
 ## 3. Pedestrians
 
 Every `art/slrr_pedestrians/<name>/<name>.dae` is a pedestrian type. Add a folder and it joins the
@@ -143,7 +171,8 @@ The shape must:
   Blender or similar as Collada, works;
 - loop about once a second, so the feet match the walking speed (about 1.15–1.5 m/s).
 
-Add a `main.materials.json` for its texture, the same as for a driver skin (any material name).
+Add a `main.materials.json` for its textures, the same as for a driver skin (any material name). The
+remaster tool works on pedestrian folders too.
 
 To convert more SLRR pedestrians, add them to `PEDS` in `tools/convert_peds.py`. The converter
 writes the skeleton, skin weights and walk animation into the Collada file.

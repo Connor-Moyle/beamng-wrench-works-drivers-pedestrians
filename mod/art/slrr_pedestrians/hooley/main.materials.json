@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_pedestrians/hooley/Hooley.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_pedestrians/hooley/hooley.color.png",
+    "normalMap": "/art/slrr_pedestrians/hooley/hooley.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/hooley/hooley_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/hooley/hooley_ao.data.png",
     "metallicFactor": 0
    },
    {},

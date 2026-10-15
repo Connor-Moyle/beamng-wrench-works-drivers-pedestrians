@@ -15,6 +15,7 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
 - **Pedestrians walk the city.** On the Valo City map (SLRR's city rebuilt for BeamNG) SLRR's six
   pedestrians walk SLRR's own sidewalks with SLRR's walk animation. They go round corners, cross
   streets, step round parked cars and jump out of the way of fast ones.
+- **Remastered PBR textures.** Every skin is upscaled 4x and has normal, roughness and AO maps.
 - **Easy to extend.** New skins and new bodies drop in as folders. See [docs/MODDING.md](docs/MODDING.md).
 
 It works on its own, and it also plugs into
@@ -81,6 +82,10 @@ each part's own weight. It's checked once a second, so fuel use or a reset can't
 body is a damped spring on his hips, pushed by the car's acceleration and stopped by a seatbelt and
 by the cabin. His head, chest and shoulders are collision spheres tested against the car's own
 physics points around him.
+
+**Textures.** The SLRR skins are remastered: upscaled 4x (2048 px for drivers, 1024 for
+pedestrians), with normal, roughness and ambient-occlusion maps added, so they work as full PBR
+materials under BeamNG's lighting.
 
 **Pedestrians** are skinned models with SLRR's walk cycle built in, so the game animates them by
 itself. The mod moves them along the sidewalks, keeps about 30 near the camera and removes the ones

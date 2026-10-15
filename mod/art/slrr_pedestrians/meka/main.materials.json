@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_pedestrians/meka/Meka.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_pedestrians/meka/meka.color.png",
+    "normalMap": "/art/slrr_pedestrians/meka/meka.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/meka/meka_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/meka/meka_ao.data.png",
     "metallicFactor": 0
    },
    {},

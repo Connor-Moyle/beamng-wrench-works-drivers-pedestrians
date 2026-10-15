@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_drivers/slrr_mitch/Mitch_whole.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_drivers/slrr_mitch/mitch_whole.color.png",
+    "normalMap": "/art/slrr_drivers/slrr_mitch/mitch_whole.normal.png",
+    "roughnessMap": "/art/slrr_drivers/slrr_mitch/mitch_whole_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_drivers/slrr_mitch/mitch_whole_ao.data.png",
     "metallicFactor": 0
    },
    {},

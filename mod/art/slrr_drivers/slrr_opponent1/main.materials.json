@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_drivers/slrr_opponent1/opponent1.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_drivers/slrr_opponent1/opponent1.color.png",
+    "normalMap": "/art/slrr_drivers/slrr_opponent1/opponent1.normal.png",
+    "roughnessMap": "/art/slrr_drivers/slrr_opponent1/opponent1_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_drivers/slrr_opponent1/opponent1_ao.data.png",
     "metallicFactor": 0
    },
    {},

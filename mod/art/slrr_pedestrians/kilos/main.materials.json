@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_pedestrians/kilos/kilos.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_pedestrians/kilos/kilos.color.png",
+    "normalMap": "/art/slrr_pedestrians/kilos/kilos.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/kilos/kilos_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/kilos/kilos_ao.data.png",
     "metallicFactor": 0
    },
    {},

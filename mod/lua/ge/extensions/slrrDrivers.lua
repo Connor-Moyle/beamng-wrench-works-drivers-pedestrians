@@ -283,7 +283,8 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
     local acc = c.prevVel and (vel - c.prevVel) / dtSim or vec3(0, 0, 0)
     c.prevVel = vel
     if acc:length() > 2000 then acc = vec3(0, 0, 0) end   -- teleport or reset, not a crash
-    local a = vec3(acc:dot(Rnow.x), acc:dot(Rnow.y), 0)
+    c.acc = c.acc and lerp(c.acc, acc, math.min(1, dtSim * 20)) or acc   -- physics accel is noisy frame to frame
+    local a = vec3(c.acc:dot(Rnow.x), c.acc:dot(Rnow.y), 0)
     local w = 2 * math.pi * SWAY_HZ
     local steps = math.max(1, math.ceil(dtSim / 0.01))
     local h = dtSim / steps
@@ -299,6 +300,9 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
       end
     end
   end
+  -- never let a bad frame (NaN, inf) stick: start again from sitting still
+  local function finite(v) return v.x == v.x and v.y == v.y and math.abs(v.x) < 10 and math.abs(v.y) < 10 end
+  if not (finite(b.d) and finite(b.v)) then b.d, b.v = vec3(0, 0, 0), vec3(0, 0, 0) end
   local function leanOf(d) return rotBetween(c.head0 - rig.pelvis, c.head0 + d - rig.pelvis) end
   local L = leanOf(b.d)
 
@@ -314,7 +318,7 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
       for si, sp in ipairs(c.spheres) do
         c.ignore[si] = {}
         for i, p in ipairs(pts) do
-          if p:distance(sp.p) < sp.r + 0.04 then c.ignore[si][i] = true end
+          if p:distance(sp.p) < sp.r + 0.10 then c.ignore[si][i] = true end
         end
       end
     end
@@ -331,7 +335,9 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
               n.z = 0
               if n:length() > 1e-3 then
                 n = n:normalized()
-                b.d = b.d + n * ((sp.r - dist) * lever)
+                -- half a correction per pass: nodes on both sides (seat bolsters) must not bat him back and forth
+                local push = math.min((sp.r - dist) * math.min(lever, 1.5) * 0.5, 0.03)
+                b.d = b.d + n * push
                 local into = -b.v:dot(n)
                 if into > 0 then
                   b.v = b.v + n * into
@@ -353,6 +359,7 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
       end
     end
   end
+  if not (finite(b.d) and finite(b.v)) then b.d, b.v = vec3(0, 0, 0), vec3(0, 0, 0) return IDENT end
   return L
 end
 

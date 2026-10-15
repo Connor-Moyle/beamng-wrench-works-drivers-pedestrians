@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_pedestrians/kim/kim.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_pedestrians/kim/kim.color.png",
+    "normalMap": "/art/slrr_pedestrians/kim/kim.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/kim/kim_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/kim/kim_ao.data.png",
     "metallicFactor": 0
    },
    {},

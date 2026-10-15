@@ -1,8 +1,9 @@
 """Build the mod from your own copy of Street Legal Racing Redline.
 
-    python tools/build.py "C:/path/to/Street Legal Racing Redline"
+    python tools/build.py "C:/path/to/Street Legal Racing Redline" [--upscaler path/to/realesrgan-ncnn-vulkan.exe]
 
-Converts the SLRR drivers and pedestrians into mod/art, renders the driver previews, and packs
+Converts the SLRR drivers and pedestrians into mod/art, remasters their skins into PBR materials
+(4x Real-ESRGAN upscale when --upscaler is given, a plain resize otherwise), renders the driver previews, and packs
 everything into dist/slrr_drivers_and_pedestrians.zip, ready for BeamNG's mods folder.
 Needs Python 3 with numpy, pillow and matplotlib (pip install numpy pillow matplotlib).
 """
@@ -25,8 +26,10 @@ def main():
         sys.exit(__doc__)
     slrr = sys.argv[1]
     run("convert_drivers.py", slrr, MOD)
-    run("preview.py")
     run("convert_peds.py", slrr, MOD)
+    up = sys.argv[sys.argv.index("--upscaler") + 1] if "--upscaler" in sys.argv else None
+    run("remaster_textures.py", *(["--upscaler", up] if up else []))
+    run("preview.py")
     out = os.path.join(ROOT, "dist", "slrr_drivers_and_pedestrians.zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:

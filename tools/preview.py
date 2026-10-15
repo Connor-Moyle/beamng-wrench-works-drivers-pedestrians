@@ -63,6 +63,6 @@ if __name__ == "__main__":
     for dj in glob.glob(os.path.join(ROOT, "*", "driver.json")):
         d = json.load(open(dj))
         ddir = os.path.dirname(dj)
-        skin = [f for f in glob.glob(os.path.join(ddir, "*.dds"))][0]
+        skin = (glob.glob(os.path.join(ddir, "*.dds")) + glob.glob(os.path.join(ddir, "*.color.png")))[0]
         render(os.path.join(ROOT, "models", d["model"]), skin, os.path.join(ddir, "preview.png"))
         print(os.path.join(ddir, "preview.png"))

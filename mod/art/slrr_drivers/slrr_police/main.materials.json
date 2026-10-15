@@ -7,8 +7,10 @@
   "materialTag0": "beamng",
   "Stages": [
    {
-    "baseColorMap": "/art/slrr_drivers/slrr_police/police.dds",
-    "roughnessFactor": 0.8,
+    "baseColorMap": "/art/slrr_drivers/slrr_police/police.color.png",
+    "normalMap": "/art/slrr_drivers/slrr_police/police.normal.png",
+    "roughnessMap": "/art/slrr_drivers/slrr_police/police_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_drivers/slrr_police/police_ao.data.png",
     "metallicFactor": 0
    },
    {},
