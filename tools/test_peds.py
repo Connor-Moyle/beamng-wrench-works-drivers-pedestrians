@@ -42,7 +42,7 @@ function createObject(cls) local o = setmetatable({cls = cls}, Obj) table.insert
 function simObjectExists(o) return o and not o.dead end
 scenetree = {findObject = function() return nil end, MissionGroup = setmetatable({}, Obj)}
 camPos = vec3(-340, 210, 7)
-core_camera = {getPosition = function() return camPos end}
+core_camera = {getPosition = function() return camPos end, getForward = function() return vec3(0, 0.6, 0.8) end}
 -- one car driving through junction_0 at 12 m/s along +x, from 260 m before it to 240 m past, then round again
 car = {}
 function car:getPosition() return vec3(-600 + (time * 12) % 500, 210, 7) end
@@ -115,6 +115,7 @@ def main():
         t = (d - c[k]) / max(c[k + 1] - c[k], 1e-6)
         return l[k] + (l[k + 1] - l[k]) * t
     worst_side = 0.0
+    spawns = in_view_spawns = 0
     road_starts = car_conflicts = 0
     for frame in range(int(240 / dt)):
         g.time = frame * dt
@@ -157,6 +158,13 @@ def main():
                 err = min(abs(v - p.speed), abs(v - p.hurry.speed) if p.hurry else 9)
                 slides.append(err)
             p._last = (key, p.s)
+            if p._born is None:
+                p._born = 1
+                spawns += 1
+                if p.pos is not None:
+                    d = (p.pos.x - g.camPos.x, p.pos.y - g.camPos.y, p.pos.z - g.camPos.z)
+                    l = math.sqrt(sum(x * x for x in d)) or 1
+                    in_view_spawns += (0.6 * d[1] + 0.8 * d[2]) / l > 0.5
             # never off the pavement: sideways from the line within the room measured beside it
             if c is None and p.pos is not None and rooms:
                 q = point_at(p.line - 1, p.s)
@@ -173,6 +181,7 @@ def main():
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
     print("furthest beyond the pavement room beside the line: %.3f m" % worst_side)
+    print("spawned in view: %d of %d" % (in_view_spawns, spawns))
     print("road crossings started: %d, into the car's path: %d" % (road_starts, car_conflicts))
     print("walking speed error: max %.4f m/s over %d steps" % (max(slides), len(slides)))
     print("walker pairs closer than 0.3 m: %d of %d pair-frames" % (close, steps))
@@ -186,6 +195,7 @@ def main():
     assert crossings["other"] == 0 and crossings["crossed traffic red"] > 0, crossings
     assert road_starts > 0 and car_conflicts == 0, (road_starts, car_conflicts)
     assert worst_side < 0.01, worst_side
+    assert in_view_spawns == 0, (in_view_spawns, spawns)
 
     # X33: the car crashes (stops dead) at the junction: the nearest react, the closest hurry away
     g.time = 300
@@ -193,7 +203,11 @@ def main():
     for frame in range(int(20 / dt)):
         g.time = 300 + frame * dt
         M.onUpdate(1 / 90, dt)
-    lua.execute("crashed = true")
+    p0 = [p for p in M.getState().peds.values() if p.pos is not None and not p.cross][0]
+    lua.execute("crashAt = vec3(%f, %f, %f)" % (p0.pos.x + 6, p0.pos.y, p0.pos.z))
+    lua.execute("""local get = car.getPosition
+      function car:getPosition() if crashed then return crashAt end return get(self) end
+      crashed = true""")
     M.onUpdate(1 / 90, dt)
     peds = list(M.getState().peds.values())
     watching = sum(1 for p in peds if p.face is not None)
@@ -262,6 +276,69 @@ def player():
     assert not [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"], "walker left behind"
 
 
+def spectators():
+    """X32: a crowd fills the meet near the camera out of view within the budget, cheers at a fast car and a race
+    finish, and goes when the camera leaves."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/")))))         if os.path.exists(os.path.join(MOD, p.lstrip("/"))) else None
+    root_abs = os.path.join(MOD, "art", "slrr_pedestrians")
+    g.py_find = lambda root, pat: lua.table(*[
+        "/art/slrr_pedestrians/" + os.path.relpath(os.path.join(dp, f), root_abs).replace("\\", "/")
+        for dp, _, fs in os.walk(root_abs) for f in fs if f.endswith(pat.lstrip("*"))])
+    g.py_signals = lambda: to_lua(lua, SIGNALS)
+    lua.execute(FAKE)
+    zones = json.load(open(os.path.join(root_abs, "spectators_slrr_valo_city.json")))["zones"]
+    z = [z for z in zones if z["id"] == "slrr_poi_meet_central"][0]
+    lua.execute("""
+      function car:getPosition() return vec3(%f, %f + (time * 20) %% 200 - 100, %f) end
+      function car:getVelocity() return vec3(0, self.moving and 20 or 0, 0) end
+      car.moving = false""" % (z["c"][0], z["c"][1], z["c"][2]))
+    M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
+    M.onExtensionLoaded()
+    M.onClientStartMission()
+    M.setCount(30)
+    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": True}))
+    dt = 1 / 30
+
+    def run(seconds, t0):
+        for f in range(int(seconds / dt)):
+            g.time = t0 + f * dt
+            M.onUpdate(1 / 90, dt)
+        st = M.getState()
+        sp = list(st.spectators.values())
+        return st, sp, sum(1 for x in sp if x.shape == x.type.cheer)
+    lua.execute("camPos = vec3(%f, %f, %f)" % (z["c"][0], z["c"][1] - 120, z["c"][2] + 5))   # arriving
+    run(30, 0)
+    lua.execute("camPos = vec3(%f, %f, %f)" % (z["c"][0], z["c"][1] - 40, z["c"][2] + 5))
+    st, sp, cheering = run(10, 30)
+    look = (0, 0.6, 0.8)
+    in_view = 0
+    for x in sp:
+        d = (x.spot[1] - g.camPos.x, x.spot[2] - g.camPos.y, x.spot[3] - g.camPos.z)
+        l = math.sqrt(sum(c * c for c in d)) or 1
+        in_view += (d[0] * look[0] + d[1] * look[1] + d[2] * look[2]) / l > 0.5
+    print("spectators at %s: %d of %d spots (budget 30, a meet's share 9), %d pedestrians, cheering %d, Lua %.0f KB" % (
+        st.specZone, len(sp), len(z["spots"]), len(list(st.peds.values())), cheering, st.luaKB))
+    assert st.specZone == "slrr_poi_meet_central" and 0 < len(sp) <= 9 and cheering == 0, (st.specZone, len(sp))
+    assert len(sp) + len(list(st.peds.values())) <= 30
+    lua.execute("car.moving = true")
+    st, sp, cheering = run(6, 40)
+    print("a car past at 20 m/s: %d cheering" % cheering)
+    assert cheering > 0
+    lua.execute("car.moving = false")
+    run(10, 46)
+    M.onSlrrRaceFinished()
+    st, sp, cheering = run(3, 56)
+    print("race finished: %d of %d cheering" % (cheering, len(sp)))
+    assert cheering >= len(sp) * 0.8, (cheering, len(sp))
+    lua.execute("camPos = vec3(5000, 5000, 5)")
+    st, sp, _ = run(3, 60)
+    print("camera gone: %d spectators" % len(sp))
+    assert len(sp) == 0
+
+
 def footpaths():
     """K1: every sidewalk sample on pavement (tools/ped_paths.py classifies against the map's collision meshes)."""
     if not os.path.isdir(MAP):
@@ -278,5 +355,6 @@ def footpaths():
 if __name__ == "__main__":
     main()
     player()
+    spectators()
     footpaths()
     print("all ok")

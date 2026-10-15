@@ -423,6 +423,23 @@ def trim(lines, cls, li, pts, step=2):
     return out
 
 
+def simplify(lines, tol=0.15):
+    """Douglas-Peucker in x/y: drop points the line passes within `tol` m of anyway (straight sidewalks keep
+    their two ends); the trim loop re-checks the result, so it never cuts a corner off the pavement."""
+    def rdp(p):
+        if len(p) < 3:
+            return p
+        a, b = p[0, :2], p[-1, :2]
+        ab = b - a
+        L = np.linalg.norm(ab)
+        d = (np.abs(np.cross(ab, p[:, :2] - a)) / L) if L > 1e-9 else np.linalg.norm(p[:, :2] - a, axis=1)
+        k = int(np.argmax(d))
+        if d[k] <= tol:
+            return p[[0, -1]]
+        return np.concatenate([rdp(p[:k + 1])[:-1], rdp(p[k:])])
+    return [[[round(float(c), 2) for c in q] for q in rdp(np.array(l, float))] for l in lines]
+
+
 def junction_centres(lane):
     """Signal groups' centres (signals.json) and places where three or more AI lanes end or start."""
     out = []
@@ -536,11 +553,12 @@ def main():
         print("after snapping: %.1f km in %d connected parts (largest %.1f km; %d under 100 m)" % (
             km, len(comp), comp[0], sum(c < 0.1 for c in comp)))
         lane, gt = lanes(), _mat_ground_types()
-        for _ in range(4):      # resampling a cut line can land a new sample on grass: trim until none is off
+        lines = simplify(lines)
+        for _ in range(6):      # resampling a cut line can land a new sample on grass: trim until none is off
             cls, pts, li, _, _ = classify(lines, tris, mats, lane, gt)
             if all(c in OK for c in cls):
                 break
-            lines = trim(lines, cls, li, pts)
+            lines = simplify(trim(lines, cls, li, pts))
         links, kinds = build_links(lines, tris, mats, lane, gt)
         comp, part = link_components(lines, links)
         keep = [i for i in range(len(lines)) if comp[part[i]] >= 0.1]      # islands under 100 m: dropped

@@ -66,6 +66,18 @@ local density               -- walk density by area (density_<level>.json), nil 
 local share, shareTimer = 1, 0
 local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
 local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
+-- spectators (spectators_<level>.json, tools/spectators.py): crowds at the venues and meets, standing at fixed spots
+local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}}}
+local spectators = {}       -- {obj, shape, type, spot, cheer = seconds left}
+local specZone              -- the zone being filled, or nil
+local specTimer = 0
+local SPEC_REACH = 200      -- metres beyond a venue zone's radius at which it fills
+local MEET_REACH, MEET_SHARE = 150, 0.3   -- a car meet is in town: a smaller crowd, so the streets keep their people
+local SPEC_FAR = 90         -- in view, a spectator may appear only this far away (the crowd is there before you)
+local CHEER_SPEED, CHEER_DIST = 15, 30   -- a car this fast this close sets them cheering
+local SWAPS_PER_FRAME = 4   -- idle <-> cheer changes rebuild an object: at most this many a frame
+local SPEC_SHARE = 0.6      -- the crowd takes at most this share of the budget; pedestrians keep the rest
+local cheerAll              -- defined with the spectators below (react uses it)
 
 -- take the known keys of t, type-checked and clamped; returns true if anything changed
 local function applyOptions(t)
@@ -110,7 +122,7 @@ local function loadTypes()
     local dir, folder, stem = f:match('^(.*/([^/]+)/)([^/]+)%.dae$')
     if folder and folder:lower() == stem:lower() then
       local info = jsonReadFile(dir .. 'ped.json') or {}
-      local t = {walks = {}, idle = info.idle and dir .. info.idle}
+      local t = {walks = {}, idle = info.idle and dir .. info.idle, cheer = info.cheer and dir .. info.cheer}
       for shape, speed in pairs(info.walks or {}) do table.insert(t.walks, {shape = dir .. shape, speed = speed}) end
       if #t.walks == 0 then t.walks[1] = {shape = f, speed = DEFAULT_SPEED} end
       table.insert(types, t)
@@ -123,6 +135,8 @@ local function loadWalks()
   local lvl = levelName()
   local data = lvl and jsonReadFile(ROOT .. 'walk_' .. lvl .. '.json')
   density = lvl and jsonReadFile(ROOT .. 'density_' .. lvl .. '.json')
+  local sp = lvl and jsonReadFile(ROOT .. 'spectators_' .. lvl .. '.json')
+  specZones = sp and sp.zones
   if not data then return end
   loadTypes()
   if #types == 0 then return end
@@ -366,14 +380,25 @@ local function sideRoom(p)
   return -r[2], r[1]
 end
 
+-- is p in front of the camera (within about 60 deg of where it looks): nobody appears or vanishes there
+local function inView(p, cam, look)
+  local d = p - cam
+  local l = d:length()
+  return l > 1e-3 and (d.x * look.x + d.y * look.y + d.z * look.z) / l > 0.5
+end
+
 local function spawnNear(cam)
-  -- a random sidewalk point in a ring around the camera
+  -- a random sidewalk point in a ring around the camera, out of its view
+  local look = core_camera.getForward and vec3(core_camera.getForward()) or vec3(0, 0, 0)
   for _ = 1, 20 do
     local a, r = math.random() * 2 * math.pi, SPAWN_MIN + math.random() * (SPAWN_MAX - SPAWN_MIN)
     local q = cam + vec3(math.cos(a) * r, math.sin(a) * r, 0)
+    if inView(q, cam, look) then q = cam - (q - cam) end   -- mirror it behind the camera
     local bucket = grid[math.floor(q.x / CELL) .. ',' .. math.floor(q.y / CELL)]
-    if bucket and #bucket > 0 and math.random() < weightAt(q.x, q.y) then   -- busier areas take more
-      local pick = bucket[math.random(#bucket)]
+    local pick = bucket and #bucket > 0 and bucket[math.random(#bucket)]
+    local at = pick and lines[pick.line].pts[pick.k]
+    if at and not inView(at, cam, look) and at:distance(cam) > SPAWN_MIN
+        and math.random() < weightAt(q.x, q.y) then   -- busier areas take more
       local t = types[math.random(#types)]
       local w = t.walks[math.random(#t.walks)]
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
@@ -621,6 +646,9 @@ end
 -- a crash at `at`: the nearest MAX_REACT pedestrians react; those within FLEE_DIST hurry away along their
 -- sidewalk, the rest within WATCH_DIST stop and look for a few seconds
 local function react(at)
+  if specZone and #spectators > 0 and vec3(specZone.c[1], specZone.c[2], specZone.c[3]):distance(at) < specZone.r + 60 then
+    cheerAll(4)
+  end
   local near = {}
   for _, p in ipairs(peds) do
     if p.pos and p.pos:distance(at) < WATCH_DIST then table.insert(near, p) end
@@ -640,6 +668,93 @@ local function react(at)
       end
     end
   end
+end
+
+-- spectators ------------------------------------------------------------------------------------------------
+local function specShape(sp, cheer)
+  local t = sp.type
+  return cheer and t.cheer or t.idle or t.walks[1].shape
+end
+
+local function specSet(sp, cheer)
+  local shape = specShape(sp, cheer)
+  if sp.shape == shape then return end
+  if sp.obj and simObjectExists(sp.obj) then sp.obj:delete() end
+  local m = MatrixF(true)
+  local f = vec3(sp.spot[4], sp.spot[5], 0)
+  m:setColumn(0, f:cross(vec3(0, 0, 1)))
+  m:setColumn(1, f)
+  m:setColumn(2, vec3(0, 0, 1))
+  m:setPosition(vec3(sp.spot[1], sp.spot[2], sp.spot[3]))
+  sp.obj, sp.shape = makeObj(shape, m), shape
+end
+
+local function clearSpectators()
+  for _, sp in ipairs(spectators) do if sp.obj and simObjectExists(sp.obj) then sp.obj:delete() end end
+  spectators, specZone = {}, nil
+end
+
+-- everyone in the crowd cheers for a few seconds (a race finish, a crash in front of them)
+function cheerAll(seconds)
+  for _, sp in ipairs(spectators) do sp.cheer = seconds * (0.7 + math.random() * 0.6) end
+end
+
+-- fill the zone near the camera (one at a time, out of view), empty it when the camera leaves, and cheer
+local function updateSpectators(dt, cam, budget)
+  specTimer = specTimer - dt
+  if specTimer <= 0 then
+    specTimer = 1
+    local best, bd = nil, math.huge
+    for _, z in ipairs(specZones or {}) do
+      local d = cam:distance(vec3(z.c[1], z.c[2], z.c[3])) - z.r
+      if d < (z.kind == 'meet' and MEET_REACH or SPEC_REACH) and d < bd then best, bd = z, d end
+    end
+    if best ~= specZone then clearSpectators() specZone = best end
+  end
+  if not specZone then return 0 end
+  local want = math.min(#specZone.spots, math.floor(budget * (specZone.kind == 'meet' and MEET_SHARE or SPEC_SHARE)))
+  local look = core_camera.getForward and vec3(core_camera.getForward()) or vec3(0, 0, 0)
+  if #spectators < want then
+    local used = {}
+    for _, sp in ipairs(spectators) do used[sp.spot] = true end
+    for _ = 1, 10 do
+      local spot = specZone.spots[math.random(#specZone.spots)]
+      local at = vec3(spot[1], spot[2], spot[3])
+      if not used[spot] and (at:distance(cam) > SPEC_FAR or not inView(at, cam, look)) then
+        local sp = {spot = spot, type = types[math.random(#types)], cheer = 0}
+        specSet(sp, false)
+        table.insert(spectators, sp)
+        break
+      end
+    end
+  elseif #spectators > want then
+    local k = #spectators            -- out of view first
+    for i, sp in ipairs(spectators) do
+      if not inView(vec3(sp.spot[1], sp.spot[2], sp.spot[3]), cam, look) then k = i break end
+    end
+    local sp = table.remove(spectators, k)
+    if sp.obj and simObjectExists(sp.obj) then sp.obj:delete() end
+  end
+  -- cheering: a fast car close by; changes limited per frame
+  local swaps = 0
+  for _, sp in ipairs(spectators) do
+    if sp.cheer <= 0 then
+      for _, v in ipairs(cars) do
+        if v.vel:length() > CHEER_SPEED and (v.pos.x - sp.spot[1]) ^ 2 + (v.pos.y - sp.spot[2]) ^ 2 < CHEER_DIST ^ 2 then
+          sp.cheer = 2 + math.random() * 3
+          break
+        end
+      end
+    else
+      sp.cheer = sp.cheer - dt
+    end
+    local cheering = sp.cheer > 0
+    if (sp.shape == specShape(sp, true)) ~= cheering and swaps < SWAPS_PER_FRAME then
+      specSet(sp, cheering)
+      swaps = swaps + 1
+    end
+  end
+  return #spectators
 end
 
 -- how many may walk: the setting, lowered while the smoothed frame time is over budget
@@ -724,6 +839,7 @@ local function onUpdate(dtReal, dtSim)
   if not lines then return end
   if wanted() <= 0 then
     if #peds > 0 then clear() end
+    if #spectators > 0 then clearSpectators() end
     return
   end
   local cam = core_camera.getPosition()
@@ -783,15 +899,20 @@ local function onUpdate(dtReal, dtSim)
   end
   shareTimer = shareTimer - dtReal
   if shareTimer <= 0 then share, shareTimer = localShare(cam), 1 end
-  local n = math.max(1, math.floor(target(dtReal) * share + 0.5))
-  if #peds < n then
+  -- the crowd at a venue comes out of the same budget: spectators first, pedestrians get the rest
+  local total = target(dtReal)
+  local nSpec = specZones and updateSpectators(dtReal, cam, total) or 0
+  local n = math.max(0, math.floor((total - nSpec) * share + 0.5))
+  if #peds < n and n > 0 then
     local p = spawnNear(cam)
     if p then table.insert(peds, p) end
   elseif #peds > n then
-    -- over the cap: drop the one farthest from the camera, one a frame
+    -- over the cap: drop the one farthest from the camera, one a frame; out of view first
+    local look = core_camera.getForward and vec3(core_camera.getForward()) or vec3(0, 0, 0)
     local far, fd = nil, -1
     for i, p in ipairs(peds) do
       local d = p.pos and p.pos:distance(cam) or 0
+      if p.pos and not inView(p.pos, cam, look) then d = d + 1000 end
       if d > fd then far, fd = i, d end
     end
     despawn(table.remove(peds, far))
@@ -819,11 +940,14 @@ M.getOptions = function()
 end
 M.weightAt = weightAt
 M.getState = function()   -- internal state, for debugging
-  return {peds = peds, cap = cap, share = share, frameMs = frameAvg * 1000, junctions = junctions and #junctions}
+  return {peds = peds, cap = cap, share = share, frameMs = frameAvg * 1000, junctions = junctions and #junctions,
+          spectators = spectators, specZone = specZone and specZone.id, luaKB = collectgarbage('count')}
 end
 M.onUpdate = onUpdate
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
-M.onExtensionUnloaded = function() clear() followPlayer(nil) end
+M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) end
+-- a race finishing (Valo City's races): the crowd cheers
+M.onSlrrRaceFinished = function() cheerAll(6) end
 -- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
 M.followPlayer = followPlayer
 -- slrrPedestrians.record(seconds, path): write every pedestrian's place and shape per frame to path (json)
@@ -831,6 +955,8 @@ M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
 end
 M.onClientStartMission = function() group = nil peds = {} loadWalks() end
-M.onClientEndMission = function() group = nil peds = {} lines = nil junctions = nil player = nil end
+M.onClientEndMission = function()
+  group, peds, lines, junctions, player, spectators, specZone, specZones = nil, {}, nil, nil, nil, {}, nil, nil
+end
 
 return M
