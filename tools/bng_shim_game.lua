@@ -184,12 +184,12 @@ function shim_step(dt, speed, acc, steer, kerb, rpm, gear, throttle, brake, clut
 end
 
 -- every part's position in the seat frame (x right, y forward, z up), relative to where the eye is
--- drawn this frame (the eye plus the one-frame lead the mod adds on purpose)
+-- drawn this frame (no render lead: LEAD_FRAMES is 0)
 function shim_parts_local()
   local c = SHIM_M.getState(car.id)
   local fwd, up, left = axes()
   local right = fwd:cross(up)
-  local eye = car.pos + vec3(veh:getNodePositionXYZ(1)) + car.vel * (c.dtAvg or 0)
+  local eye = car.pos + vec3(veh:getNodePositionXYZ(1))
   local out = {}
   for name, o in pairs(c.parts) do
     local d = o.pos - eye

@@ -5,7 +5,8 @@ SLRR ones: the same 14 parts, pivots and rig.json, so slrrDrivers.lua runs them 
 
 Each FBX is read by Blender (tools/fbx_dump.py), its skeleton reduced to the SLRR driver's Biped bones
 (spine_02 + spine_03 -> Spine1, twist bones into their limb, face and finger bones into head and hand),
-put in SLRR's units and axes, and fed through convert_drivers.bake_from: the same seated pose, split and
+put in SLRR's units and axes (fingers curled into a grip first, like SLRR's modelled fists), and fed
+through convert_drivers.bake_from: the same seated pose, split and
 rig. The eye comes from the model's own eye bones. Textures go to the driver caps (colour and normal
 1024, roughness 256 from the inverted gloss map).
 
@@ -72,6 +73,67 @@ def load(fbx):
         subprocess.run([BLENDER, "-b", "--factory-startup", "-P", os.path.join(HERE, "fbx_dump.py"), "--", fbx, out],
                        check=True, stdout=subprocess.DEVNULL)
     return json.load(open(out))
+
+
+# the grip: curl per finger joint (degrees), as SLRR's drivers have their hands modelled as fists
+CURL = {"01": 70, "02": 85, "03": 55}
+THUMB_CURL = {"01": 15, "02": 35, "03": 30}
+
+
+def rodrigues(k, a):
+    k = k / np.linalg.norm(k)
+    K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    return np.eye(3) + np.sin(a) * K + (1 - np.cos(a)) * K @ K
+
+
+def grip(dump):
+    """Curl the fingers into a grip: each finger bone turns about its own joint, toward the palm (the side
+    the thumb is on), and the mesh follows through the original skin weights."""
+    rb = dump["bones"]
+    names = [b["name"] for b in rb]
+    hip = next(n for n in names if n.endswith("hip"))
+    prefix = hip[:-3]
+    short = [n[len(prefix):] if n.startswith(prefix) else n for n in names]
+    at = {n: i for i, n in enumerate(short)}
+    head = [np.array(b["head"]) for b in rb]
+    T = [None] * len(rb)                  # per bone: (rotation, translation) of its delta, world space
+    for side in ("l", "r"):
+        hand = at["hand_" + side]
+        mid = head[at["middle_01_" + side]] - head[hand]
+        lateral = head[at["index_01_" + side]] - head[at["pinky_01_" + side]]
+        palm = np.cross(mid, lateral)
+        palm /= np.linalg.norm(palm)
+        if np.dot(head[at["thumb_02_" + side]] - head[hand], palm) < 0:
+            palm = -palm                  # the palm faces the thumb
+        for finger in ("thumb", "index", "middle", "ring", "pinky"):
+            curl = THUMB_CURL if finger == "thumb" else CURL
+            R, t = np.eye(3), np.zeros(3)
+            for j in ("01", "02", "03"):
+                n = "%s_%s_%s" % (finger, j, side)
+                if n not in at:
+                    break
+                i = at[n]
+                d = np.array(rb[i]["tail"]) - head[i]
+                axis = np.cross(d, palm)  # turning about d x palm brings d toward the palm
+                Rj = rodrigues(axis, np.radians(curl[j]))
+                # about its own (original) joint, then carried by the joints before it
+                R, t = R @ Rj, R @ (head[i] - Rj @ head[i]) + t
+                T[i] = (R, t)
+            # the end bone (if any) follows the last joint
+            e = "%s_end_%s" % (finger, side)
+            if e in at:
+                T[at[e]] = (R, t)
+    for m in dump["meshes"]:
+        for vi, wl in enumerate(m["weights"]):
+            moved = [(T[b], w) for b, w in wl if T[b] is not None]
+            if not moved:
+                continue
+            v, n = np.array(m["pos"][vi]), np.array(m["nrm"][vi])
+            rest = 1.0 - sum(w for _, w in moved)
+            m["pos"][vi] = list(rest * v + sum(w * (R @ v + t) for (R, t), w in moved))
+            nn = rest * n + sum(w * (R @ n) for (R, t), w in moved)
+            m["nrm"][vi] = list(nn / np.linalg.norm(nn))
+    return dump
 
 
 def reduce(dump):
@@ -142,11 +204,12 @@ def main():
         if not os.path.exists(path):
             print("skipped", did, "(no", path + ")")
             continue
-        bones, subs, eye = reduce(load(path))
+        bones, subs, eye = reduce(grip(load(path)))
         got = {b["name"] for b in bones}
         need = {n for n in sum(cd.PARTS.values(), []) if n != "Bip01 R Toe0" and n != "Bip01 L Toe0"} | {"Bip01 Pelvis", "Bip01 Spine"}
         assert need <= got, (did, sorted(need - got))
-        print(did, cd.bake_from(model, bones, subs, eye))
+        # arms bent as the runtime holds them (its REACH): the baked elbow sets the way each arm bends
+        print(did, cd.bake_from(model, bones, subs, eye, reach_frac=0.85))
         textures(did, folder, stem)
         json.dump({"name": name, "model": model, "skin": did}, open(os.path.join(cd.OUT, did, "driver.json"), "w"), indent=1)
 

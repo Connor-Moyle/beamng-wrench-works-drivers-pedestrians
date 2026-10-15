@@ -85,7 +85,7 @@ local SWAY_DAMP = 0.45
 local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
 local COLLIDE_DIST = 40                 -- only drivers this close to the camera collide (it costs node reads)
-local LEAD_FRAMES = 1                   -- render lag of TSStatic transforms, in frames
+local LEAD_FRAMES = 0                   -- render lead (frames of velocity); 0 until the driver is drawn by the car itself (overshot in play)
 
 local drivers = {}      -- id -> {id, name, model, skin, preview}
 local driverList = {}

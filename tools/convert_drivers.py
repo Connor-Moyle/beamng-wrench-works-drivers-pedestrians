@@ -103,7 +103,7 @@ def two_bone_ik(root, target, la, lb, pole):
     return elbow, root + d * dist
 
 
-def pose_model(bones, eye_from_head=EYE_FROM_HEAD):
+def pose_model(bones, eye_from_head=EYE_FROM_HEAD, reach_frac=0.97):
     """Return per-bone (delta rotation, posed joint position) in the seat frame, rest positions too."""
     names = [b["name"] for b in bones]
     idx = {n: i for i, n in enumerate(names)}
@@ -150,7 +150,7 @@ def pose_model(bones, eye_from_head=EYE_FROM_HEAD):
     P = [p - eye for p in P]
     # short-armed bodies (police) slide forward in the seat until the hands reach the base wheel
     ua, fa, hd = idx["Bip01 R UpperArm"], idx["Bip01 R Forearm"], idx["Bip01 R Hand"]
-    reach = 0.97 * (np.linalg.norm(rest_p[fa] - rest_p[ua]) + np.linalg.norm(rest_p[hd] - rest_p[fa]))
+    reach = reach_frac * (np.linalg.norm(rest_p[fa] - rest_p[ua]) + np.linalg.norm(rest_p[hd] - rest_p[fa]))
     t, s0 = wrist_target("r"), P[ua]
     lateral = math.hypot(t[0] - s0[0], t[2] - s0[2])
     shortfall = (t[1] - s0[1]) - math.sqrt(max(0.0, reach * reach - lateral * lateral))
@@ -174,10 +174,10 @@ def bake(model):
     return bake_from(model, read_skl(os.path.join(d, model + ".skl")), read_skinned_scx(os.path.join(d, model + ".SCX")))
 
 
-def bake_from(model, bones, subs, eye_from_head=EYE_FROM_HEAD):
+def bake_from(model, bones, subs, eye_from_head=EYE_FROM_HEAD, reach_frac=0.97):
     """Pose and split a Biped-named skeleton and skinned mesh (SLRR units and axes) into the parts and
     rig.json under models/<model>/ (convert_hd.py feeds other characters through here)."""
-    names, D, P, rest_p = pose_model(bones, eye_from_head)
+    names, D, P, rest_p = pose_model(bones, eye_from_head, reach_frac)
     part_of_bone = {}
     for part, bl in PARTS.items():
         for bn in bl:

@@ -31,7 +31,7 @@ def run(animated, record_to=None, look=None):
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
     g.SHIM_MOD = MOD.replace("\\", "/")
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     lua.execute("shim_setup()")
     lua_src = os.environ.get("SLRR_DRIVERS_LUA") or os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")
     M = lua.execute(open(lua_src).read())     # SLRR_DRIVERS_LUA: run an older version for before/after renders
@@ -132,7 +132,7 @@ def check_modes():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -166,7 +166,7 @@ def check_presence():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -190,7 +190,7 @@ def check_damage():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -222,7 +222,7 @@ def check_look():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -256,7 +256,7 @@ def check_shift():
     g = lua.globals()
     g.SHIM_HPATTERN = True
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -283,7 +283,7 @@ def check_tints():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
     lua.execute("shim_start(M)")
@@ -305,7 +305,7 @@ def check_bake():
     lua.execute(rd("bng_shim_game.lua"))
     g = lua.globals()
     g[b"SHIM_MOD"] = MOD.replace("\\", "/").encode()
-    g[b"SHIM_RIG"] = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json")))).encode()
+    g[b"SHIM_RIG"] = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin"))))).encode()
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua"), "rb").read())
     g[b"M"] = M
     lua.execute(b"shim_start(M)")
