@@ -156,6 +156,30 @@ def check_modes():
     print("display modes ok")
 
 
+def check_presence():
+    """A driver only while the car is driven: the player's car, or one whose AI is on."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+
+    def driver():
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+        return M.getState(7) is not None
+    assert driver(), "the player's car has no driver"
+    lua.execute("be.getPlayerVehicleID = function() return -1 end M.onVehicleSwitched(7, -1)")
+    assert not driver(), "a car the player left, AI off, kept its driver"
+    M.onAiModeChange(7, "traffic")
+    assert driver(), "a traffic car has no driver"
+    M.onAiModeChange(7, "disabled")
+    assert not driver(), "a car whose AI was turned off kept its driver"
+    print("presence ok")
+
+
 def check_shift():
     """An H-pattern car: on a gear change the shifting hand ends on the lever knob and the clutch goes down."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -256,6 +280,7 @@ if __name__ == "__main__":
         run(True, sys.argv[sys.argv.index("--record") + 1])
         print("recorded"); sys.exit()
     check_modes()
+    check_presence()
     check_tints()
     check_bake()
     check_sizes()

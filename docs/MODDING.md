@@ -274,6 +274,10 @@ slrrPedestrians.setCount(n)          -- how many walk at once (saved)
 slrrPedestrians.getCount()
 ```
 
+A car shows its driver only while it is driven: the player is in it, or its AI is on (any mode but
+`disabled`). `setDriver` picks who sits in a car, not whether anyone does, so parked, lot and garage
+cars stay empty whatever was chosen for them.
+
 Choices made with `setDriver` survive part changes, resets and respawns of the same vehicle. A
 career or garage mod that respawns cars under new ids should call `setDriver` again after the
 spawn.

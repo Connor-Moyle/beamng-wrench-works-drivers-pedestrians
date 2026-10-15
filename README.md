@@ -33,8 +33,9 @@ garage's Services drawer gets a **Driver** choice.
 2. Put it in BeamNG's mods folder (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods`). Don't unzip it.
 3. Start the game.
 
-Every car with a driver's camera gets a driver straight away. Props, trailers, the on-foot player and
-cars parked by traffic stay empty, as in SLRR.
+A car has a driver while it is being driven: the player's car while you're in it, and AI cars that are
+driving (traffic, racers, police). Parked, lot and garage cars, wrecks, props, trailers and the on-foot
+player stay empty, and a car empties as soon as you get out or its AI is switched off.
 
 ## Drivers
 
