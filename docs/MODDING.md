@@ -31,7 +31,7 @@ art/slrr_pedestrians/
 
 lua/ge/extensions/slrrDrivers.lua          drivers: seating, arms, weight, collision, API
 lua/ge/extensions/slrrPedestrians.lua      pedestrians
-lua/vehicle/extensions/slrrDriverFeed.lua  vehicle side: steering/rpm/gear feed, driver weight, impacts
+lua/vehicle/extensions/slrrDriverFeed.lua  vehicle side: steering/rpm/gear feed, driver weight
 tools/                                     converters (Python)
 ```
 

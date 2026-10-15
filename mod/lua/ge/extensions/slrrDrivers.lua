@@ -67,9 +67,6 @@ local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undo
 local SWAY_DAMP = 0.45
 local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
-local UPPER_BODY_SHARE = 0.5            -- share of the driver's mass that hits things
-local HIT_MIN_SPEED = 1.0               -- m/s; slower contacts don't push on the car
-local HIT_TIME = 0.05                   -- the impact force is spread over this long
 local COLLIDE_DIST = 40                 -- only drivers this close to the camera collide (it costs node reads)
 local LEAD_FRAMES = 1                   -- render lag of TSStatic transforms, in frames
 
@@ -562,17 +559,8 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
                 local push = math.min((sp.r - dist) * math.min(lever, 1.5) * 0.5, 0.03)
                 b.d = b.d + n * push
                 local into = -b.v:dot(n)
-                if into > 0 then
-                  b.v = b.v + n * into
-                  if into > HIT_MIN_SPEED and dtSim > 0 then
-                    -- push the node with the upper body's momentum, in world space
-                    local J = into * c.mass * UPPER_BODY_SHARE
-                    local f = rotate(Rnow, -n) * (J / HIT_TIME)
-                    veh:queueLuaCommand(string.format(
-                      'if slrrDriverFeed then slrrDriverFeed.hit(%d,%.1f,%.1f,%.1f,%g) end',
-                      c.colNodes[i], f.x, f.y, f.z, HIT_TIME))
-                  end
-                end
+                -- visual only: he stops against the car, the car never feels it (pushes popped door latches)
+                if into > 0 then b.v = b.v + n * into end
                 L = leanOf(b.d)
                 center = rig.pelvis + rotate(L, sp.p - rig.pelvis)
               end

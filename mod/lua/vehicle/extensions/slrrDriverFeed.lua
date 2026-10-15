@@ -1,5 +1,5 @@
 -- SLRR Drivers, vehicle side: streams what the driver's arms need to the GE extension every frame,
--- and puts the driver's weight into the car's physics.
+-- and puts the driver's weight into the car's physics. He applies no forces: his collision is visual.
 local M = {}
 
 local fmt = string.format
@@ -15,6 +15,12 @@ local function removeMass()
   extra = {}
 end
 
+-- moving panels never carry him: weight on a door loads its latch and can pop it open
+local function onPanel(n)
+  local part = string.lower(tostring(n.partOrigin or ''))
+  return part:find('door') or part:find('hood') or part:find('trunk') or part:find('tailgate') or part:find('hatch')
+end
+
 local function setDriverMass(camCid, kg)
   removeMass()
   local cam = v.data.nodes[camCid] and v.data.nodes[camCid].pos
@@ -24,7 +30,7 @@ local function setDriverMass(camCid, kg)
   for _, radius in ipairs({0.45, 0.7, 1.0, 1.5}) do
     picked, total = {}, 0
     for _, n in pairs(v.data.nodes) do
-      if n.cid and n.pos and vec3(n.pos):distance(seat) < radius then
+      if n.cid and n.pos and not onPanel(n) and vec3(n.pos):distance(seat) < radius then
         local m = obj:getNodeMass(n.cid)
         picked[n.cid] = m
         total = total + m
@@ -61,13 +67,7 @@ local function updateGFX(dt)
   keepMass(dt)
 end
 
--- the driver's body hit this node: push it (world-space force, newtons, for t seconds)
-local function hit(cid, fx, fy, fz, t)
-  if v.data.nodes[cid] then obj:applyForceVectorTime(cid, vec3(fx, fy, fz), t) end
-end
-
 M.updateGFX = updateGFX
-M.hit = hit
 M.setDriverMass = setDriverMass
 M.onReset = function() checkTimer = 1 end   -- re-check straight away
 M.onExtensionUnloaded = removeMass

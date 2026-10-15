@@ -8,8 +8,8 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
 - **He has weight.** 90 kg is added to the car at the seat, so braking, cornering and balance
   change the way they would with someone sitting there.
 - **He moves with the car.** His upper body leans into braking, acceleration and corners, held by a
-  seatbelt. He bumps into the wheel, doors, pillars and roof, and a hard hit pushes on the part he
-  hits.
+  seatbelt. He stops against the wheel, doors, pillars and roof (visually: he never pushes on the car,
+  so he can't knock a door open).
 - **Feet on the pedals.** His right foot works the throttle and moves across to the brake, and his
   left works the clutch in manual cars. The pedals are found on every car, and each foot pivots to
   match its pedal.
@@ -110,7 +110,7 @@ so the two never run out of reach together.
 each part's own weight. It's checked once a second, so fuel use or a reset can't wipe it. His upper
 body is a damped spring on his hips, pushed by the car's acceleration and stopped by a seatbelt and
 by the cabin. His head, chest and shoulders are collision spheres tested against the car's own
-physics points around him.
+physics points around him. His weight sits on the floor and seat, never on doors, hood or trunk.
 
 **Textures.** The SLRR skins are remastered: upscaled 4x (2048 px for drivers, 1024 for
 pedestrians), with normal, roughness and ambient-occlusion maps added, so they work as full PBR
