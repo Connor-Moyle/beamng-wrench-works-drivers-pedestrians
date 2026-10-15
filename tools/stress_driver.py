@@ -32,7 +32,8 @@ def run(animated, record_to=None):
     g.SHIM_MOD = MOD.replace("\\", "/")
     g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/vin/rig.json"))))
     lua.execute("shim_setup()")
-    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    lua_src = os.environ.get("SLRR_DRIVERS_LUA") or os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")
+    M = lua.execute(open(lua_src).read())     # SLRR_DRIVERS_LUA: run an older version for before/after renders
     g.M = M
     lua.execute("shim_start(M)")
     M.setAnimated(animated)
@@ -57,10 +58,12 @@ def run(animated, record_to=None):
         else:
             acc = -6.0
         speed = max(0.0, speed + acc * DT)
+        # what a driver does: full lock only at walking pace, a fraction of it at speed (wheel deg)
+        cap = 470 if speed < 8 else max(60, 470 * 8 / speed)
         if 18 <= t < 30:
-            steer = 470 * math.sin((t - 18) * 1.7)        # wheel swung lock to lock
+            steer = cap * math.sin((t - 18) * 1.7)        # weaving, as far as the speed allows
         elif t >= 30:
-            steer = 470 if int(t * 2) % 2 else -470          # sawing at the wheel
+            steer = (cap if int(t) % 2 else -cap) * min(1, (t % 1) * 3)   # quick turns, built up over 0.3 s
         else:
             steer = 0.0
         kerb = 25.0 if (10 < t < 14 and frame % 37 == 0) else 0.0   # sharp vertical/lateral hits

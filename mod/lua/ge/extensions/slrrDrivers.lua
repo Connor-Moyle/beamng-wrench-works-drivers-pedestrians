@@ -30,6 +30,8 @@ local WHEEL_TILT = math.rad(25)
 local WHEEL_RADIUS = 0.185
 local GRIP_ANGLE = math.rad(10)
 local WRIST_BACK = 0.07
+local HAND_LENGTH = 0.07                -- wrist to the middle of the fist
+local HAND_DOWN = math.rad(50)         -- how far below home a hand is carried before it grips again
 local HAND_RANGE = math.rad(80)         -- how far a hand turns with the rim before it lets go (hand over hand)
 local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this far past its home spot
 local REGRIP_TIME = 0.22
@@ -180,16 +182,20 @@ local function updateHands(c, turn, dt)
       if s.t >= 1 then s.g, s.t = s.g1, nil end
     elseif side == c.shiftSide and c.reach > 0.3 then
       s.g = wrapAngle(home - turn)   -- off at the lever: comes back to its home spot
-    elseif not busy or math.abs(wrapAngle(s.g + turn - home)) > HAND_RANGE + math.rad(30) then
-      -- (a hand dragged far past its range lets go even while the other is still off the rim)
-      local off = wrapAngle(s.g + turn - home)
-      -- the hand climbing toward the top of the rim lets go sooner, so the two never run out together
-      local climbing = math.cos(s.g + turn) * speed > 0
-      if math.abs(off) > HAND_RANGE * (climbing and 0.6 or 1) then
+    else
+      -- off: how far the hand has been carried from home, positive toward the top of the rim (where the
+      -- right and left zones meet). Hands go up to the top but only HAND_DOWN below home, as drivers
+      -- keep their hands in the upper part of the wheel; past either limit the hand grips again.
+      local up = side == 'r' and 1 or -1
+      local off = wrapAngle(s.g + turn - home) * up
+      local over = off > HAND_RANGE or off < -HAND_DOWN
+      if over and (not busy or off > HAND_RANGE + math.rad(30) or off < -HAND_DOWN - math.rad(30)) then
+        -- (a hand dragged far past its limit lets go even while the other is still off the rim)
         s.g0, s.t = s.g, 0
-        s.g1 = s.g + wrapAngle(home - turn - sign(off) * REGRIP_AHEAD - s.g)   -- the short way round
+        local land = off > 0 and -REGRIP_AHEAD * 0.6 or REGRIP_AHEAD   -- from the top: a little below home; from below: above it
+        s.g1 = s.g + wrapAngle(home + up * land - turn - s.g)   -- the short way round
         busy = true
-      elseif math.abs(speed) < math.rad(20) and math.abs(wrapAngle(turn)) < math.rad(30) and math.abs(off) > math.rad(30) then
+      elseif not busy and math.abs(speed) < math.rad(20) and math.abs(wrapAngle(turn)) < math.rad(30) and math.abs(off) > math.rad(30) then
         s.g0, s.t = s.g, 0
         s.g1 = s.g + wrapAngle(home - turn - s.g)
         busy = true
@@ -709,12 +715,16 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local grips = updateHands(c, turn, dt)
   for side, arm in pairs(rig.arms) do
     local grip = grips[side]
-    local target = rimPoint(wheel, grip.a, grip.lift)
+    local target = rimPoint(wheel, grip.a, grip.lift) - wheelN * WRIST_BACK   -- the rim itself (+ the re-grip lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
     local shoulder = lean(arm.shoulder)
     local d = target - shoulder
     local over = d:length() - (arm.la + arm.lb) * REACH
     if over > 0 then shoulder = shoulder + d:normalized() * math.min(over * 0.6, SHOULDER_REACH) end
+    if side ~= c.shiftSide or c.reach < 1 then
+      local back = (shoulder - target):normalized() * HAND_LENGTH   -- fist on the rim, wrist behind it along the arm
+      target = side == c.shiftSide and lerp(target + back, target, c.reach) or target + back
+    end
     target = follow(c, side .. 'Hand', target, dt, 4)
     local elbow, wrist = ik(shoulder, target, arm.la, arm.lb, arm.pole)
     local n = (elbow - shoulder):cross(wrist - shoulder)

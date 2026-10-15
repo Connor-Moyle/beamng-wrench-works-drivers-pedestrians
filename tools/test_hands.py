@@ -7,7 +7,7 @@ import re
 from lupa.luajit21 import LuaRuntime
 
 src = open(os.path.join(os.path.dirname(__file__), "..", "mod", "lua", "ge", "extensions", "slrrDrivers.lua")).read()
-consts = "\n".join(l for l in src.splitlines() if re.match(r"local (GRIP_ANGLE|HAND_RANGE|REGRIP_\w+) =", l))
+consts = "\n".join(l for l in src.splitlines() if re.match(r"local (GRIP_ANGLE|HAND_RANGE|HAND_DOWN|REGRIP_\w+) =", l))
 fn = src[src.index("local HOME = {r ="):src.index("-- rotation R turned by angle")]
 fn = re.sub(r"local function rimPoint.*?\nend\n", "", fn, flags=re.S)
 lua = LuaRuntime()
@@ -29,7 +29,11 @@ for target in (470, -470, 470, -470, 200, 0):
         both = 0
         for side in ("r", "l"):
             g = out[side]
-            off = abs((g.a - home[side] + math.pi) % (2 * math.pi) - math.pi)
+            signed = ((g.a - home[side] + math.pi) % (2 * math.pi) - math.pi) * (1 if side == "r" else -1)
+            off = abs(signed)
+            if g.lift == 0:
+                worst_down = max(globals().get("worst_down", 0), -signed)
+                globals()["worst_down"] = worst_down
             if g.lift > 0:   # a re-grip must take the short way: never sweep more than half a turn
                 sweep = abs(out[side].a - prev_a.get(side, out[side].a))
                 assert sweep < math.radians(60), ("hand jumped", side, math.degrees(sweep))
@@ -43,7 +47,8 @@ for target in (470, -470, 470, -470, 200, 0):
             state[side] = g.lift > 0
         both_off = max(globals().get("both_off", 0), both)
 print("both hands lifted at once at some point:", both_off == 2)
-print("max held offset from home: %.0f deg, regrips: %d" % (math.degrees(worst), regrips))
+print("max held offset from home: %.0f deg (below home at most %.0f), regrips: %d" % (math.degrees(worst), math.degrees(worst_down), regrips))
+assert math.degrees(worst_down) < 95, "a hand was carried down toward the lap"
 assert math.degrees(worst) < 165, "a hand turned too far with the wheel"   # 160 happens for a moment on a 300 deg/s reversal while the other hand is off
 for side in ("r", "l"):
     assert abs((out[side].a - home[side] + math.pi) % (2 * math.pi) - math.pi) <= math.radians(30), (side, math.degrees(out[side].a))
