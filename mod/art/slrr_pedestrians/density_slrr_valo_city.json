@@ -81,6 +81,16 @@
     1900
    ],
    "weight": 0.8
+  },
+  {
+   "name": "east bay promenade",
+   "box": [
+    1050,
+    500,
+    1350,
+    1000
+   ],
+   "weight": 1.0
   }
  ]
 }
