@@ -12,6 +12,7 @@ import math
 import os
 import sys
 
+import numpy as np
 from lupa.luajit21 import LuaRuntime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +46,9 @@ core_camera = {getPosition = function() return camPos end}
 -- one car driving through junction_0 at 12 m/s along +x, from 260 m before it to 240 m past, then round again
 car = {}
 function car:getPosition() return vec3(-600 + (time * 12) % 500, 210, 7) end
-function car:getVelocity() return vec3(12, 0, 0) end
+function car:getVelocity() return vec3(crashed and 0 or 12, 0, 0) end
+function car:getId() return 1 end
+crashed = false
 be = {getObjectCount = function() return 1 end, getObject = function() return car end}
 -- signals as signals.json runs them: phase 1 then phase 2 (each 10 s green, 4 s yellow, 1.5 s red), then a 7 s
 -- walk phase with every approach red; phase = controllerId
@@ -100,6 +103,18 @@ def main():
     dt = 1 / 30
     states, crossings, close, slides, steps = set(), {"crossed traffic red": 0, "green alongside": 0, "other": 0, "free": 0}, 0, [], 0
     seen = {}
+    walk = json.load(open(os.path.join(MOD, "art", "slrr_pedestrians", "walk_slrr_valo_city.json")))
+    rooms = walk.get("room") if isinstance(walk, dict) else None
+    plines = [np.array(l) for l in (walk["lines"] if isinstance(walk, dict) else walk)]
+    cums = [np.concatenate([[0], np.cumsum(np.linalg.norm(
+        np.diff(l[:, :2], axis=0), axis=1))]) for l in plines]
+
+    def point_at(i, d):
+        l, c = plines[i], cums[i]
+        k = min(max(int(np.searchsorted(c, d, side="right")) - 1, 0), len(l) - 2)
+        t = (d - c[k]) / max(c[k + 1] - c[k], 1e-6)
+        return l[k] + (l[k + 1] - l[k]) * t
+    worst_side = 0.0
     road_starts = car_conflicts = 0
     for frame in range(int(240 / dt)):
         g.time = frame * dt
@@ -138,8 +153,15 @@ def main():
             # along-path speed of walkers on a sidewalk (no sidestep or dodge running) vs their shape's speed
             key = (p.line, p.dir)
             if p.state == "walk" and c is None and p._last is not None and p._last[0] == key and abs(p.side) < 1e-6:
-                slides.append(abs(abs(p.s - p._last[1]) / dt - p.speed))
+                v = abs(p.s - p._last[1]) / dt   # a hurry starting this frame moves from the next one
+                err = min(abs(v - p.speed), abs(v - p.hurry.speed) if p.hurry else 9)
+                slides.append(err)
             p._last = (key, p.s)
+            # never off the pavement: sideways from the line within the room measured beside it
+            if c is None and p.pos is not None and rooms:
+                q = point_at(p.line - 1, p.s)
+                lat = math.hypot(p.pos.x - q[0], p.pos.y - q[1])
+                worst_side = max(worst_side, lat - max(rooms[p.line - 1]))
         walkers = [p for p in peds if p.pos is not None and p.state == "walk"]
         for i, a in enumerate(walkers):
             for b in walkers[i + 1:]:
@@ -150,6 +172,7 @@ def main():
     end_count, share = len(list(end_state.peds.values())), end_state.share
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
+    print("furthest beyond the pavement room beside the line: %.3f m" % worst_side)
     print("road crossings started: %d, into the car's path: %d" % (road_starts, car_conflicts))
     print("walking speed error: max %.4f m/s over %d steps" % (max(slides), len(slides)))
     print("walker pairs closer than 0.3 m: %d of %d pair-frames" % (close, steps))
@@ -162,6 +185,22 @@ def main():
     assert states >= {"walk", "idle", "wait"}, states
     assert crossings["other"] == 0 and crossings["crossed traffic red"] > 0, crossings
     assert road_starts > 0 and car_conflicts == 0, (road_starts, car_conflicts)
+    assert worst_side < 0.01, worst_side
+
+    # X33: the car crashes (stops dead) at the junction: the nearest react, the closest hurry away
+    g.time = 300
+    g.camPos = g.vec3(-340, 210, 7)
+    for frame in range(int(20 / dt)):
+        g.time = 300 + frame * dt
+        M.onUpdate(1 / 90, dt)
+    lua.execute("crashed = true")
+    M.onUpdate(1 / 90, dt)
+    peds = list(M.getState().peds.values())
+    watching = sum(1 for p in peds if p.face is not None)
+    fleeing = sum(1 for p in peds if p.hurryTime is not None and p.hurryTime > 5)
+    print("crash: %d stop and look, %d hurry away (of %d walking nearby)" % (watching, fleeing, len(peds)))
+    assert 0 < watching + fleeing <= 12, (watching, fleeing)
+    lua.execute("crashed = false")
     assert max(slides) < 0.01, max(slides)
     assert close < steps * 0.001, (close, steps)
     assert slow_count <= 10 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)

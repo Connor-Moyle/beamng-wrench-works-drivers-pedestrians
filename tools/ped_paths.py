@@ -333,6 +333,45 @@ def snap(lines, tris, mats, step=2.0):
     return out
 
 
+BODY = 0.25     # half a pedestrian's width: kept clear of the pavement's edge
+
+
+def room(lines, tris, mats, step=1.0):
+    """Per line [left, right]: how far a pedestrian can step to each side (of the line's own direction) and stay on
+    pavement all along it, less BODY; from a sideways scan of the collision meshes."""
+    offs = np.arange(-REACH, REACH + 1e-6, 0.25)
+    pts, li, _ = samples(lines, step)
+    t = np.zeros((len(pts), 2))
+    for i in np.unique(li):
+        k = np.where(li == i)[0]
+        if len(k) > 1:
+            t[k] = np.gradient(pts[k, :2], axis=0)
+    t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-9)
+    n = np.stack([t[:, 1], -t[:, 0]], 1)        # right of the line's direction
+    q = np.repeat(pts, len(offs), 0)
+    q[:, :2] += np.tile(offs, len(pts))[:, None] * np.repeat(n, len(offs), 0)
+    _, m = mesh_ground(q, tris, mats)
+    pave = np.array([bool(PAVE.search(x or "")) for x in m]).reshape(len(pts), len(offs))
+    zero = int(np.argmin(np.abs(offs)))
+    right, left = np.zeros(len(pts)), np.zeros(len(pts))
+    for i, row in enumerate(pave):
+        if not row[zero]:
+            continue
+        j = zero
+        while j + 1 < len(offs) and row[j + 1]:
+            j += 1
+        right[i] = offs[j]
+        j = zero
+        while j > 0 and row[j - 1]:
+            j -= 1
+        left[i] = -offs[j]
+    out = []
+    for i in range(len(lines)):
+        k = li == i
+        out.append([round(max(0.0, float(left[k].min()) - BODY), 2), round(max(0.0, float(right[k].min()) - BODY), 2)])
+    return out
+
+
 def graph(lines, link=14.0):
     """(km of path, [component km, largest first]): sidewalks joined where their ends are within `link` m, as
     slrrPedestrians links them."""
@@ -515,7 +554,10 @@ def main():
         top = sorted(comp.values(), reverse=True)
         print("result: %.1f km in %d connected parts (largest %.1f km, then %s)" % (
             sum(top), len(top), top[0], ", ".join("%.1f" % v for v in top[1:6])))
-        json.dump({"lines": lines, "links": links}, open(WALK, "w"), separators=(",", ":"))
+        rooms = room(lines, tris, mats)
+        print("room to the sides (m, median left/right): %.2f / %.2f; %d lines with under 0.2 m either side" % (
+            np.median([r[0] for r in rooms]), np.median([r[1] for r in rooms]), sum(min(r) < 0.2 for r in rooms)))
+        json.dump({"lines": lines, "links": links, "room": rooms}, open(WALK, "w"), separators=(",", ":"))
         print("%d sidewalks, %d links -> %s (from %d points)" % (len(lines), len(links), WALK, before))
     print(len(tris), "walkable collision triangles,", len(lines), "sidewalks")
     lane = lanes()

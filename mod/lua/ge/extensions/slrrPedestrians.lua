@@ -27,6 +27,9 @@ local DODGE_DIST, DODGE_SPEED = 6, 4
 local CAR_MARGIN = 0.45     -- room kept around a car's box when walking round it
 local LOOK_AHEAD = 2.5      -- metres ahead a pedestrian starts to step round a car
 local SIDESTEP_SPEED = 0.8  -- m/s sideways
+local KERB_SPEED, KERB_DIST, KERB_STEP = 8, 4, 0.6   -- a car this fast passing this close: step this far away
+local CRASH_DV = 8          -- m/s lost in one frame: a crash
+local FLEE_DIST, WATCH_DIST, MAX_REACT = 12, 40, 12  -- walk away / stop and look; at most this many react
 local DEFAULT_SPEED = 1.3   -- walk speed for a shape without ped.json (MODDING.md: loops about once a second)
 local LANE = 0.4            -- each pedestrian walks up to this far either side of the sidewalk line
 local PERSONAL = 0.7        -- sideways room kept from another pedestrian
@@ -62,6 +65,7 @@ local frameAvg, cap, capTimer = 1 / 60, nil, 0
 local density               -- walk density by area (density_<level>.json), nil = even everywhere
 local share, shareTimer = 1, 0
 local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
+local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
 
 -- take the known keys of t, type-checked and clamped; returns true if anything changed
 local function applyOptions(t)
@@ -128,6 +132,7 @@ local function loadWalks()
   end
   -- {lines, links} (links checked offline: tools/ped_paths.py) or a bare list of lines (linked by distance)
   local given = data.lines and data.links
+  local rooms = data.room          -- per line {left, right} of pavement beside it (ped_paths.py)
   if data.lines then data = data.lines end
   lines, ends, grid = {}, {}, {}
   for i, l in ipairs(data) do
@@ -136,7 +141,7 @@ local function loadWalks()
       pts[k] = vec3(p[1], p[2], p[3])
       if k > 1 then len[k] = len[k - 1] + pts[k]:distance(pts[k - 1]) end
     end
-    lines[i] = {pts = pts, len = len, total = len[#len]}
+    lines[i] = {pts = pts, len = len, total = len[#len], room = rooms and rooms[i]}
     for k, p in ipairs(pts) do
       local key = math.floor(p.x / CELL) .. ',' .. math.floor(p.y / CELL)
       grid[key] = grid[key] or {}
@@ -333,7 +338,7 @@ local function stand(p, time)
 end
 
 local function walkOn(p)
-  p.state = 'walk'
+  p.state, p.face = 'walk', nil
   setShape(p, p.walk.shape)
 end
 
@@ -342,6 +347,23 @@ local function fastest(t)
   local f = t.walks[1]
   for _, w in ipairs(t.walks) do if w.speed > f.speed then f = w end end
   return f
+end
+
+-- walk at their fastest for `time` seconds (or until off the crossing when nil)
+local function hurry(p, time)
+  if p.state ~= 'walk' then walkOn(p) end
+  p.hurry, p.hurryTime = fastest(p.type), time
+  setShape(p, p.hurry.shape)
+end
+
+-- how far they may stand to the left (negative) and right of their line, facing their way: the pavement
+-- beside it as measured offline, else MAX_SIDE; on a crossing half a metre
+local function sideRoom(p)
+  if p.cross then return -0.5, 0.5 end
+  local r = lines[p.line].room
+  if not r then return -MAX_SIDE, MAX_SIDE end
+  if p.dir > 0 then return -r[1], r[2] end
+  return -r[2], r[1]
 end
 
 local function spawnNear(cam)
@@ -356,7 +378,7 @@ local function spawnNear(cam)
       local w = t.walks[math.random(#t.walks)]
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
                  dir = math.random() < 0.5 and 1 or -1, lane = (math.random() * 2 - 1) * LANE, side = 0,
-                 idleChance = t.idle and math.random() * 0.6 or 0, zTimer = 0, dodge = vec3(0, 0, 0)}
+                 idleChance = t.idle and math.random() * 0.6 or 0, zTimer = 0, dodgeSide = 0}
       if t.idle and opts.idling and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * 2 * IDLE_MAX) else walkOn(p) end
       return p
     end
@@ -491,9 +513,15 @@ local function updatePed(p, dt, vehicles, near)
       p.hurryCheck = 0.25
       local left = (1 - p.cross.t) * p.cross.len
       if not p.hurry and carComing(lerp(p.cross.from, p.cross.to, p.cross.t), p.cross.to, left / p.speed + GAP_MARGIN) then
-        p.hurry = fastest(p.type)
-        setShape(p, p.hurry.shape)
+        hurry(p, nil)
       end
+    end
+  end
+  if p.hurryTime then
+    p.hurryTime = p.hurryTime - dt
+    if p.hurryTime <= 0 then
+      p.hurryTime = nil
+      if not p.cross then p.hurry = nil setShape(p, p.walk.shape) end
     end
   end
   local speed = p.hurry and p.hurry.speed or p.speed
@@ -501,7 +529,10 @@ local function updatePed(p, dt, vehicles, near)
     if moving then p.cross.t = p.cross.t + dt * speed / p.cross.len end
     if p.cross.t >= 1 then
       p.cross = nil
-      if p.hurry then p.hurry = nil setShape(p, p.walk.shape) end
+      if p.hurry and not p.hurryTime then
+        p.hurry, speed = nil, p.speed
+        setShape(p, p.walk.shape)
+      end
     end
   end
   if p.cross then
@@ -509,7 +540,7 @@ local function updatePed(p, dt, vehicles, near)
     fwd = p.cross.to - p.cross.from
   else
     local line = lines[p.line]
-    if moving then p.s = p.s + p.dir * p.speed * dt end
+    if moving then p.s = p.s + p.dir * speed * dt end
     if p.s < 0 or p.s > line.total then
       p.s = clamp(p.s, 0, line.total)
       reachEnd(p)
@@ -519,11 +550,13 @@ local function updatePed(p, dt, vehicles, near)
     pos, d = pointAt(line, p.s)
     fwd = d * p.dir
     if p.link then fwd = p.link.to.p - p.link.from.p end   -- waiting: face the way across
+    if p.face and not moving then fwd = p.face - pos end    -- looking at a crash
   end
   fwd = vec3(fwd.x, fwd.y, 0)
   if fwd:length() > 1e-3 then fwd = fwd:normalized() end
   local side = vec3(fwd.y, -fwd.x, 0)   -- right of fwd
-  local base = pos + side * p.lane
+  local lo, hi = sideRoom(p)
+  local base = pos + side * clamp(p.lane, lo, hi)
 
   -- sideways: round cars standing in the way, and round other pedestrians (keep right when meeting)
   local want = 0
@@ -551,27 +584,62 @@ local function updatePed(p, dt, vehicles, near)
       end
     end
   end
-  want = clamp(want, -MAX_SIDE, MAX_SIDE)
-  p.side = p.side + clamp(want - p.side, -SIDESTEP_SPEED * dt, SIDESTEP_SPEED * dt)
-  pos = base + side * p.side
-
-  -- jump clear of fast cars coming at them
+  -- step back from the kerb as a fast car passes close (walking or standing)
+  local me = base + side * p.side
   for _, v in ipairs(vehicles) do
-    local rel = pos + p.dodge - v.pos
-    if rel:length() < DODGE_DIST and v.vel:length() > DODGE_SPEED and v.vel:dot(rel) > 0 then
-      local away = v.vel:cross(vec3(0, 0, 1)):normalized()
-      if away:dot(rel) < 0 then away = -away end
-      p.dodge = p.dodge + away * (dt * 6)
+    if v.vel:length() > KERB_SPEED then
+      local rel = v.pos - me
+      local lat = rel:dot(side)
+      if math.abs(lat) < KERB_DIST and math.abs(rel:dot(fwd)) < 8 then
+        local st = p.side + (lat > 0 and -KERB_STEP or KERB_STEP)
+        if math.abs(st) > math.abs(want) then want = st end
+      end
     end
   end
-  p.dodge = p.dodge * math.max(0, 1 - dt * 0.3)
-  if p.dodge:length() > 3 then p.dodge = p.dodge:normalized() * 3 end
-  pos = pos + p.dodge
+  -- never off the pavement: every sideways move stays within the room beside the line
+  local base_lane = clamp(p.lane, lo, hi)
+  want = clamp(want, lo - base_lane, hi - base_lane)
+  p.side = p.side + clamp(want - p.side, -SIDESTEP_SPEED * dt, SIDESTEP_SPEED * dt)
+
+  -- a car heading at them: jump aside (within the room) and hurry on for a few seconds
+  for _, v in ipairs(vehicles) do
+    local rel = base + side * (p.side + p.dodgeSide) - v.pos
+    if rel:length() < DODGE_DIST and v.vel:length() > DODGE_SPEED and v.vel:dot(rel) > 0 then
+      p.dodgeSide = p.dodgeSide + (rel:dot(side) >= 0 and 1 or -1) * dt * 6
+      if moving and not p.hurry then hurry(p, 3) end
+    end
+  end
+  p.dodgeSide = clamp(p.dodgeSide * math.max(0, 1 - dt * 0.3), lo - base_lane - p.side, hi - base_lane - p.side)
+  pos = pos + side * (base_lane + p.side + p.dodgeSide)
   p.zTimer = p.zTimer - dt
   if not p.z or p.zTimer <= 0 then p.z, p.zTimer = groundZ(pos), 0.3 end
   place(p.obj, vec3(pos.x, pos.y, p.z), fwd)
   p.pos, p.fwd = pos, fwd
   return pos
+end
+
+-- a crash at `at`: the nearest MAX_REACT pedestrians react; those within FLEE_DIST hurry away along their
+-- sidewalk, the rest within WATCH_DIST stop and look for a few seconds
+local function react(at)
+  local near = {}
+  for _, p in ipairs(peds) do
+    if p.pos and p.pos:distance(at) < WATCH_DIST then table.insert(near, p) end
+  end
+  table.sort(near, function(a, b) return a.pos:distance(at) < b.pos:distance(at) end)
+  for i = 1, math.min(#near, MAX_REACT) do
+    local p = near[i]
+    if not p.cross then
+      if p.pos:distance(at) < FLEE_DIST then
+        local _, d = pointAt(lines[p.line], p.s)
+        if (d * p.dir):dot(p.pos - at) < 0 then p.dir = -p.dir end   -- the way along the path that leads away
+        p.link = nil
+        hurry(p, 6)
+      elseif p.state == 'walk' then
+        stand(p, 3 + math.random() * 5)
+        p.face = at
+      end
+    end
+  end
 end
 
 -- how many may walk: the setting, lowered while the smoothed frame time is over budget
@@ -643,6 +711,9 @@ local function onUpdate(dtReal, dtSim)
     local vp = v:getPosition()
     if vp and vec3(vp):distance(cam) < DESPAWN then
       local car = {pos = vec3(vp), vel = vec3(v:getVelocity())}
+      local id = v:getId()
+      if lastVel[id] and dt > 0 and (car.vel - lastVel[id]):length() > CRASH_DV then react(car.pos) end
+      lastVel[id] = car.vel
       local box = v.getSpawnLocalAABB and v:getSpawnLocalAABB()
       if box then
         local mn, mx = box.minExtents, box.maxExtents
