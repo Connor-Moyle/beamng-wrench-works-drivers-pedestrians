@@ -161,9 +161,13 @@ local function signalFor(a, b)
     if d < bestD then best, bestD = j, d end
   end
   if not best then return end
+  -- the approach's arm (its bearing from the centre), as the map's tools/signals.py phases them: curving
+  -- lanes end up to 50 deg off their arm, so their heading picks the wrong phase
   local sig, bestDot = nil, 0.7
   for _, s in ipairs(best.signals) do
-    local d = math.abs(c.x * s.dir.x + c.y * s.dir.y)
+    local arm = vec3(s.pos.x - best.c.x, s.pos.y - best.c.y, 0)
+    if arm:length() > 3 then arm = arm:normalized() else arm = vec3(s.dir.x, s.dir.y, 0) end
+    local d = math.abs(c.x * arm.x + c.y * arm.y)
     if d > bestDot then sig, bestDot = s, d end
   end
   return sig
