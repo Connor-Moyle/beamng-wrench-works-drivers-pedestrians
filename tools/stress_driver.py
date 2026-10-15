@@ -39,7 +39,7 @@ def run(animated, record_to=None):
     M.setAnimated(animated)
     if record_to:
         M.startRecording(7)
-    worst = {"body": 0.0, "jump": 0.0}
+    worst = {"body": 0.0, "jump": 0.0, "reach": 0.0}
     prev = {}
     t = 0.0
     speed, steer = 0.0, 0.0
@@ -71,6 +71,7 @@ def run(animated, record_to=None):
         gear = 1 + int(speed // 15)
         g.shim_step(DT, speed, acc, steer, kerb, rpm, gear,
                     1.0 if acc > 0 else 0.0, min(1.0, -acc / 11) if acc < 0 else 0.0, 0.0)
+        worst["reach"] = max(worst["reach"], M.getState(7).reach or 0)
         parts = g.shim_parts_local()          # part -> {x, y, z} in the seat frame
         for name in parts:
             p = parts[name]
@@ -88,6 +89,7 @@ def run(animated, record_to=None):
             if not animated and name in prev:
                 assert math.dist(v, prev[name]) < 1e-4, ("moved while animation is off", name, t)
             prev[name] = v
+    assert worst["reach"] == 0, "an automatic reached for the gear lever"
     if record_to:
         n, rec = M.stopRecording(7, None)
         save_recording(rec, record_to)

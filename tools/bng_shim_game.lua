@@ -134,7 +134,8 @@ core_camera = {
   getActiveCamName = function() return 'orbit' end,
   getQuat = function() return nil end,
 }
-core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props, torsionHydros = torsionHydros}} end}
+local powertrain = {{type = SHIM_HPATTERN and 'manualGearbox' or 'automaticGearbox', name = 'gearbox'}}
+core_vehicle_manager = {getVehicleData = function() return {vdata = {nodes = nodes, props = props, torsionHydros = torsionHydros, powertrain = powertrain}} end}
 function shim_node_seat(cid)   -- a car node in the seat frame (x right, y forward, z up)
   local fwd, up, left = axes()
   local d = vec3(veh:getNodePositionXYZ(cid)) - vec3(veh:getNodePositionXYZ(1))

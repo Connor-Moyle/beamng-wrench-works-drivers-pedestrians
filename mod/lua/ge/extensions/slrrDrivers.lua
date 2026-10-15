@@ -37,7 +37,8 @@ local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this 
 local REGRIP_TIME = 0.22
 local REGRIP_LIFT = 0.07                -- the hand comes off the rim toward the driver while it moves
 local HAND_ROLL = 1.0                   -- share of the rim rotation the fist rolls with
-local SHIFT_TIME = 0.45
+local SHIFT_TIME = 0.35                -- s the hand is on the lever for a shift
+local SHIFT_GAP = 1.0                  -- s: a shift this soon after another is left to the car (auto-shift chains)
 local KNOB_GRIP = vec3(0, -0.02, 0.05)  -- the wrist relative to an H-pattern knob node (palm on top)
 local REACH_RPM = 0.82                  -- fraction of max rpm where the hand goes to the lever
 local CULL_DIST = 150
@@ -443,12 +444,21 @@ local function attach(vid)
     end
   end
   c.shifterNode = best and best.cid
+  -- the gearbox: automatic, DCT and CVT cars keep both hands on the wheel
+  c.manual = false
+  if vdata and vdata.vdata and vdata.vdata.powertrain then
+    for _, dev in pairs(vdata.vdata.powertrain) do
+      local t = type(dev) == 'table' and tostring(dev.type or '') or ''
+      if t == 'manualGearbox' or t == 'sequentialGearbox' then c.manual = true end
+    end
+  end
   -- H-pattern cars (BeamNG's propAnimation/hPattern): torsion hydros driven by hPatternAxisX/Y swing the
   -- lever, so their fourth node is the knob, moving through the gate on every shift
   if vdata and vdata.vdata and vdata.vdata.torsionHydros then
     for _, h in pairs(vdata.vdata.torsionHydros) do
       if type(h) == 'table' and (h.inputSource == 'hPatternAxisX' or h.inputSource == 'hPatternAxisY') and tonumber(h.id4) then
         c.knobNode = tonumber(h.id4)
+        c.manual = true
         break
       end
     end
@@ -678,7 +688,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     if c.shiftT > SHIFT_TIME + 0.15 then c.shiftT = nil end
   end
   -- no reaching for the lever while the wheel is turned well over (both hands are busy steering)
-  local revsHigh = e.maxrpm > 0 and e.rpm / e.maxrpm > REACH_RPM and e.gear > 0 and math.abs(e.steer) < 70
+  local revsHigh = c.manual and e.maxrpm > 0 and e.rpm / e.maxrpm > REACH_RPM and e.gear > 0 and math.abs(e.steer) < 70
   local want = (animated and (c.shiftT or revsHigh)) and 1 or 0
   c.reach = c.reach + clamp(want - c.reach, -dt * 3, dt * (c.shiftT and 12 or 4))
   local leverTarget = lever + knob + vec3(0, -0.03, 0.07)
@@ -797,7 +807,11 @@ local function feed(vid, steer, rpm, maxrpm, gear, throttle, brake, clutch)
   local c = cars[vid]
   if not c then return end
   local e = c.e
-  if gear ~= e.gear and e.maxrpm > 0 then c.shiftT, c.fromGear = 0, e.gear end
+  if gear ~= e.gear and e.maxrpm > 0 then
+    local now = c.clock or 0
+    if c.manual and math.abs(steer) < 70 and now - (c.lastShift or -10) > SHIFT_GAP then c.shiftT, c.fromGear = 0, e.gear end
+    c.lastShift = now
+  end
   e.steer, e.rpm, e.maxrpm, e.gear, e.throttle = steer, rpm, maxrpm, gear, throttle
   e.brake, e.clutch = brake or 0, clutch or 0
 end
