@@ -27,6 +27,7 @@ def main():
     slrr = sys.argv[1]
     run("convert_drivers.py", slrr, MOD)
     run("convert_peds.py", slrr, MOD)
+    run("convert_driver_walk.py", slrr)
     up = sys.argv[sys.argv.index("--upscaler") + 1] if "--upscaler" in sys.argv else None
     run("remaster_textures.py", *(["--upscaler", up] if up else []))
     run("make_tint_layers.py")       # clothing tint masks and the helmet, for setAppearance

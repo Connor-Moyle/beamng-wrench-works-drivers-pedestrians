@@ -1,0 +1,10 @@
+{
+ "cycle": 1.0,
+ "walks": {
+  "walk.dae": 0.97,
+  "walk_slow.dae": 0.873,
+  "walk_fast.dae": 1.067
+ },
+ "idle": "idle.dae",
+ "idleCycle": 3.0
+}
