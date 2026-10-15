@@ -686,7 +686,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     yaw = clamp(math.atan2(-lx, ly), -1.4, 1.4)
     pitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)), -0.6, 0.5)
   end
-  local hideHead = fp and core_camera.getPosition():distance(eye) > 0.1
+  local hideHead = fp and core_camera.getPosition():distance(eyeNow) > 0.1   -- the camera sits on the unled eye
   if hideHead ~= c.headHidden then c.parts.head:setHidden(hideHead) c.headHidden = hideHead end
   if not hideHead then
     c.headYaw = c.headYaw and (c.headYaw + clamp(yaw - c.headYaw, -dt * 6, dt * 6)) or yaw   -- no snapping
@@ -759,6 +759,7 @@ M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
 M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
+M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end
 
 M.onExtensionLoaded = function() loadDrivers() markAll() end
