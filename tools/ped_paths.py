@@ -492,7 +492,7 @@ def main():
     if "--fix" in sys.argv:
         lines = json.load(open(RAW))      # always from SLRR's own paths, so new pavement in the map is picked up
         before = sum(len(l) for l in lines)
-        lines = snap(lines, tris, mats)
+        lines = snap(snap(lines, tris, mats), tris, mats)   # a second pass settles lines the first moved
         km, comp = graph(lines)
         print("after snapping: %.1f km in %d connected parts (largest %.1f km; %d under 100 m)" % (
             km, len(comp), comp[0], sum(c < 0.1 for c in comp)))
