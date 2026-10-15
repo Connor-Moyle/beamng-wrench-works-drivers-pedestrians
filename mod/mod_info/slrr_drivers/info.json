@@ -1,0 +1,10 @@
+{
+  "name": "slrr_drivers",
+  "title": "Wrench Works: Drivers & Pedestrians",
+  "tagline": "Street Legal Racing Redline drivers in every car, and its pedestrians walking the city",
+  "description": "A driver sits in every car: hands on the wheel hand over hand, reaching for the gear lever at high revs, 90 kg in the car's physics, leaning with the car and bumping into the cabin. On Valo City, SLRR's pedestrians walk SLRR's own sidewalks with their walk animation and step round parked cars. Choose the driver in the Wrench Works garage (Services > Driver). Add your own drivers, skins and pedestrians as folders: see docs/MODDING.md.",
+  "author": "Connor Moyle",
+  "version": "1.0.0",
+  "game_version": "0.39",
+  "category": "mods_of_mods"
+}
