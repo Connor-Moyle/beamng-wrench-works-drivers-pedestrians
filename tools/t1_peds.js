@@ -2,7 +2,7 @@
 //   node tools/t1_peds.js [outDir]
 // 1. frame time with 0 / 30 / 60 pedestrians (auto-reduce off), 2. the traffic-signal state names seen,
 // 3. a screenshot over a sidewalk in 5 districts (K1), 4. a 40 s recording at junction_0 with traffic
-// (walk/idle swaps, crossings, cars) for tools/t1_report.py. Restores the pedestrian options afterwards.
+// (walk/idle swaps, crossings, cars) for tools/t1_report.py, 5. the injury voice clips played to listen to. Restores the pedestrian options afterwards.
 const fs = require('fs'), path = require('path');
 const OUT = process.argv[2] || 'C:/Dev/SLRR BeamNG Graph/review/t1';
 const WALK = path.join(__dirname, '..', 'mod', 'art', 'slrr_pedestrians', 'walk_slrr_valo_city.json');
@@ -94,6 +94,17 @@ function districtPoints() {
   await lua('slrrPedestrians.record(40, "/temp/slrr_peds_t1.json")');
   await sleep(45000);
   report.recording = '%LOCALAPPDATA%/BeamNG/BeamNG.drive/current/temp/slrr_peds_t1.json';
+
+  // 5. the injury add-on's voice clips, one every 2 s at the player's car, for a person to listen to
+  //    (needs addon_injury installed: mods/unpacked/slrr_driver_injuries -> addon_injury)
+  const clips = (await lua("local o = {} for _, f in ipairs(FS:findFiles('/art/sounds/slrr_injury/', '*.ogg', -1, true, false)) " +
+                           "do o[#o+1] = f end return table.concat(o, ',')")).split(',').filter(Boolean);
+  if (!clips.length) console.log('voice clips: add-on not installed, skipped');
+  for (const c of clips) {
+    console.log('playing', c, '- does it fit its name (hurt / wake / angry)?');
+    await lua(`local v = be:getPlayerVehicle(0) if v then v:queueLuaCommand("obj:playSFXOnce('${c}', 0, 1, 1)") end`);
+    await sleep(2000);
+  }
 
   await lua('slrrPedestrians.setOptions({autoReduce = true, maxCount = 60}) slrrPedestrians.setCount(30)');
   console.log('options after:', await lua('return jsonEncode(slrrPedestrians.getOptions())'));
