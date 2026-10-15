@@ -112,6 +112,7 @@ def remaster_folder(folder, size, upscaler, normal_px=1024):
         m["Stages"][0].update({"baseColorMap": rel + ".color.png", "normalMap": rel + ".normal.png",
                                "roughnessMap": rel + "_r.data.png", "ambientOcclusionMap": rel + "_ao.data.png"})
         m["Stages"][0].setdefault("metallicFactor", 0)
+        m["Stages"][0].pop("roughnessFactor", None)   # the converter's flat default; the map replaces it
     json.dump(mats, open(mats_path, "w"), indent=1)
     return True
 
