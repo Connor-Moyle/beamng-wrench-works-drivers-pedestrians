@@ -21,26 +21,11 @@ It works on its own, and it also plugs into
 [Wrench Works](https://github.com/Connor-Moyle/beamng-wrench-works): with both installed, the
 garage's Services drawer gets a **Driver** choice.
 
-## What you need
-
-- BeamNG.drive
-- Your own copy of **Street Legal Racing Redline** (Steam). The models, textures and animations are
-  converted from your install. None of SLRR's files are in this repository.
-- Python 3 with numpy, pillow and matplotlib, to run the converter once:
-  `pip install numpy pillow matplotlib`
-
 ## Install
 
-1. Download or clone this repository.
-2. Build the mod from your SLRR folder:
-
-   ```
-   python tools/build.py "C:/Program Files (x86)/Steam/steamapps/common/Street Legal Racing Redline"
-   ```
-
-   This writes `dist/slrr_drivers_and_pedestrians.zip`.
-3. Copy that zip into BeamNG's mods folder
-   (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods`) and start the game.
+1. Download `slrr_drivers_and_pedestrians.zip` from the latest release.
+2. Put it in BeamNG's mods folder (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods`). Don't unzip it.
+3. Start the game.
 
 Every car with a driver's camera gets a driver straight away. Props, trailers, the on-foot player and
 cars parked by traffic stay empty, as in SLRR.
@@ -108,7 +93,20 @@ you leave behind.
 - The arms are rigid pieces, so a thin seam can show at the elbows up close.
 - Pedestrians have no collision. Cars drive through them, and they only dodge.
 
+## Rebuilding from SLRR
+
+The converted models, textures and animations are already in `mod/art/`. To convert them again,
+for example after changing the seated pose or adding SLRR models to the converters, you need a
+copy of Street Legal Racing Redline and Python 3 with numpy, pillow and matplotlib
+(`pip install numpy pillow matplotlib`):
+
+```
+python tools/build.py "C:/Program Files (x86)/Steam/steamapps/common/Street Legal Racing Redline"
+```
+
+This rewrites `mod/art/` and packs `dist/slrr_drivers_and_pedestrians.zip`.
+
 ## Credits
 
 Driver and pedestrian models, textures, animations and sidewalk paths are from Street Legal Racing
-Redline and belong to their owners. This project ships only the code that converts and uses them.
+Redline and belong to their owners.

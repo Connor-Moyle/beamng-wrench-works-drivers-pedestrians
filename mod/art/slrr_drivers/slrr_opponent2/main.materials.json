@@ -1,0 +1,19 @@
+{
+ "slrr_opponent2_driver": {
+  "name": "slrr_opponent2_driver",
+  "mapTo": "slrr_opponent2_driver",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_drivers/slrr_opponent2/opponent2.dds",
+    "roughnessFactor": 0.8,
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

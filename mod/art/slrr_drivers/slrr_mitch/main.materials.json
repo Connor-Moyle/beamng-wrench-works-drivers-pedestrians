@@ -1,0 +1,19 @@
+{
+ "slrr_mitch_driver": {
+  "name": "slrr_mitch_driver",
+  "mapTo": "slrr_mitch_driver",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_drivers/slrr_mitch/Mitch_whole.dds",
+    "roughnessFactor": 0.8,
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

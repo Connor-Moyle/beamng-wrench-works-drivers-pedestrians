@@ -1,5 +1,4 @@
-# made from your own SLRR install by tools/build.py
-mod/art/
+# build output (attached to releases instead)
 dist/
 __pycache__/
 *.pyc
