@@ -1,10 +1,14 @@
 // Pedestrian game turn (T1), run against the game's MCP server with Valo City loaded:
-//   node tools/t1_peds.js [outDir]
+//   node tools/t1_peds.js [outDir] [--keep-addon]
 // 1. frame time with 0 / 30 / 60 pedestrians (auto-reduce off), 2. the traffic-signal state names seen,
 // 3. a screenshot over a sidewalk in 5 districts (K1), 4. a 40 s recording at junction_0 with traffic
 // (walk/idle swaps, crossings, cars) for tools/t1_report.py, 5. the injury voice clips played to listen to. Restores the pedestrian options afterwards.
-const fs = require('fs'), path = require('path');
-const OUT = process.argv[2] || 'C:/Dev/SLRR BeamNG Graph/review/t1';
+const fs = require('fs'), path = require('path'), {execSync} = require('child_process');
+// the injury add-on is linked into the game's mods for the turn and unlinked after (--keep-addon keeps it)
+const ADDON_LINK = path.join(process.env.LOCALAPPDATA, 'BeamNG', 'BeamNG.drive', 'current', 'mods', 'unpacked', 'slrr_driver_injuries');
+const ADDON_SRC = path.join(__dirname, '..', 'addon_injury');
+const KEEP_ADDON = process.argv.includes('--keep-addon');
+const OUT = process.argv.slice(2).find(a => !a.startsWith('--')) || 'C:/Dev/SLRR BeamNG Graph/review/t1';
 const WALK = path.join(__dirname, '..', 'mod', 'art', 'slrr_pedestrians', 'walk_slrr_valo_city.json');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -51,6 +55,14 @@ function districtPoints() {
   fs.mkdirSync(OUT, {recursive: true});
   const report = {};
   console.log('level:', await lua('return getCurrentLevelIdentifier()'));
+  let linked = false;
+  if (!fs.existsSync(ADDON_LINK)) {
+    execSync(`cmd /c mklink /J "${ADDON_LINK}" "${path.resolve(ADDON_SRC)}"`);
+    linked = true;
+  }
+  await lua("core_modmanager.initDB() core_modmanager.activateMod('slrr_driver_injuries')");
+  await sleep(3000);
+  console.log('injury add-on:', await lua("return tostring(slrrInjury ~= nil)"));
   const saved = await lua('return jsonEncode(slrrPedestrians.getOptions()) .. "|" .. slrrPedestrians.getCount()');
   console.log('options before:', saved);
   await lua('slrrPedestrians.setOptions({autoReduce = false, maxCount = 200, amount = "medium"})');
@@ -108,6 +120,11 @@ function districtPoints() {
 
   await lua('slrrPedestrians.setOptions({autoReduce = true, maxCount = 60}) slrrPedestrians.setCount(30)');
   console.log('options after:', await lua('return jsonEncode(slrrPedestrians.getOptions())'));
+  if (!KEEP_ADDON) {
+    await lua("core_modmanager.deactivateMod('slrr_driver_injuries')");
+    // rmdir on a junction removes only the link, never the folder it points to
+    if (linked) execSync(`cmd /c rmdir "${ADDON_LINK}"`);
+  }
   fs.writeFileSync(path.join(OUT, 't1.json'), JSON.stringify(report, null, 1));
   console.log('done ->', OUT, '; then: python tools/t1_report.py');
 })();
