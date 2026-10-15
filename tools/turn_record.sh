@@ -33,4 +33,20 @@ for car in "etk800:844_150_M" "wendover:" "vivace:ardente_230_DCT"; do
   lua "local perf, n = slrrDrivers.getPerf() local frames = slrrDrivers.stopRecording(M_rec, '/temp/slrr_rec_$model.json') be:getObjectByID(M_rec):delete() return string.format('$model: %d frames recorded, drivers %.2f ms/frame for %d cars', frames, perf, n)"
   inp brake 0
 done
+# J5: ten different layouts. Each car is spawned, settles, and reports what the driver found
+# (seat slide, wheel, pedal height, gear lever, gearbox), with 3 s of idle recorded for review
+for model in pickup van citybus bx etki moonhawk us_semi bolide autobello fullsize; do
+  lua "local q=quatFromDir(vec3(0,-1,0), vec3(0,0,1)) local v=core_vehicles.spawnNewVehicle('$model', {pos=vec3(2336.88,330,6.6), rot=q, autoEnterVehicle=true, cling=true}) M_rec=v:getId() return M_rec" >/dev/null
+  sleep 5
+  lua "slrrDrivers.startRecording(M_rec) return 1" >/dev/null
+  sleep 3
+  lua "local c=slrrDrivers.getState(M_rec) if not c then return '$model: NO DRIVER' end local frames=slrrDrivers.stopRecording(M_rec, '/temp/slrr_rec_j5_$model.json') local w=c.lastGrips and 'yes' or 'no' local out=string.format('$model: seat %.2f, wheel prop %s, pedalZ %.2f, lever %s, manual %s, rhd %s, %d frames', c.seat and c.seat.y or -1, tostring(c.wheelNode ~= nil), c.pedalZ or 0, tostring(c.knobNode or c.shifterNode), tostring(c.manual), tostring(c.rhd), frames) be:getObjectByID(M_rec):delete() return out"
+done
+
+# J6: the cost of every driver with 14 traffic cars around
+lua "gameplay_traffic.setupTraffic(14) return 'traffic'" >/dev/null
+sleep 20
+lua "local perf, n = slrrDrivers.getPerf() return string.format('J6: %d drivers cost %.2f ms per frame', n, perf)"
+lua "gameplay_traffic.deleteVehicles() return 'traffic off'" >/dev/null
+
 echo "recordings in %LOCALAPPDATA%/BeamNG/BeamNG.drive/current/temp/slrr_rec_*.json"
