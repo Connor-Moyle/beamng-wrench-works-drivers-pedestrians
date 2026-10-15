@@ -51,8 +51,8 @@ local FOOT_MOVE_TIME = 0.18             -- moving the right foot between throttl
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
 local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
 local SWAY_HZ = 1.6
-local ROLL_SPEED = 6                    -- rad/s the wrist may turn
-local JOINT_SPEED = 2.4                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
+local ROLL_SPEED = 4                    -- rad/s the wrist may turn
+local JOINT_SPEED = 2.2                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
 local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
 local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
@@ -114,6 +114,7 @@ local function getRig(model)
       local function v(t) return vec3(t[1], t[2], t[3]) end
       for k, p in pairs(r.parts) do r.parts[k] = v(p) end
       r.pelvis = r.pelvis and v(r.pelvis) or vec3(0, -0.1, -0.6)
+      if r.fist then for k, f in pairs(r.fist) do r.fist[k] = v(f) end end
       for _, leg in pairs(r.legs or {}) do
         for k, p in pairs(leg) do leg[k] = v(p) end
         leg.lt = (leg.knee - leg.hip):length()
@@ -556,11 +557,11 @@ end
 
 -- A joint target that moves smoothly: a low-pass that never moves faster than maxSpeed (m/s), and
 -- snaps straight there after a jump (respawn, reset) so the driver never trails off.
-local function follow(c, key, target, dt, maxSpeed)
+local function follow(c, key, target, dt, maxSpeed, smooth)
   c.smooth = c.smooth or {}
   local p = c.smooth[key]
   if not p or p:distance(target) > 0.5 or dt <= 0 then c.smooth[key] = target return target end
-  local step = (target - p) * math.min(1, dt * 45)
+  local step = (target - p) * math.min(1, dt * (smooth or 45))
   if step:length() > maxSpeed * dt then step = step:normalized() * (maxSpeed * dt) end
   p = p + step
   c.smooth[key] = p
@@ -741,25 +742,37 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local d = target - shoulder
     local over = d:length() - (arm.la + arm.lb) * REACH
     if over > 0 then shoulder = shoulder + d:normalized() * math.min(over * 0.6, SHOULDER_REACH) end
+    local fistAt = target                     -- where the middle of the fist belongs
     if side ~= c.shiftSide or c.reach < 1 then
-      local back = (shoulder - target):normalized() * HAND_LENGTH   -- fist on the rim, wrist behind it along the arm
+      local back = (shoulder - target):normalized() * HAND_LENGTH   -- first guess: the wrist behind it along the arm
       target = side == c.shiftSide and lerp(target + back, target, c.reach) or target + back
     end
-    target = follow(c, side .. 'Hand', target, dt, JOINT_SPEED)
-    local elbow, wrist = ik(shoulder, target, arm.la, arm.lb, arm.pole)
-    local n = (elbow - shoulder):cross(wrist - shoulder)
-    local Du = delta(basis(elbow - shoulder, n), arm.F0u)
-    local Df = delta(basis(wrist - elbow, n), arm.F0f)
-    place(c.parts[side .. '_upperarm'], world(shoulder), R, Du)
-    place(c.parts[side .. '_forearm'], world(elbow), R, Df)
     local roll = wrapAngle(grip.a - HOME[side]) * HAND_ROLL * (1 - c.reach * (side == c.shiftSide and 1 or 0))
     -- the wrist turns at most ROLL_SPEED (a fast re-grip or keyboard steering doesn't snap the fist round)
     c.roll = c.roll or {}
     local was = c.roll[side] or roll
     roll = was + clamp(wrapAngle(roll - was), -ROLL_SPEED * dt, ROLL_SPEED * dt)
     c.roll[side] = roll
-    -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
-    place(c.parts[side .. '_hand'], world(wrist), R, rotAbout(Df, (wrist - elbow):normalized(), roll))
+    local function solve(t)
+      local elbow, wrist = ik(shoulder, t, arm.la, arm.lb, arm.pole)
+      local n = (elbow - shoulder):cross(wrist - shoulder)
+      local Df = delta(basis(wrist - elbow, n), arm.F0f)
+      -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
+      return elbow, wrist, n, Df, rotAbout(Df, (wrist - elbow):normalized(), roll)
+    end
+    -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
+    -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
+    local holding = grip.lift == 0 and not (side == c.shiftSide and c.reach > 0.01)
+    if holding and rig.fist and rig.fist[side] then
+      -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
+      local _, _, _, _, handR = solve(target)
+      target = fistAt - rotate(handR, rig.fist[side])
+    end
+    target = follow(c, side .. 'Hand', target, dt, JOINT_SPEED, holding and 1e6 or 45)
+    local elbow, wrist, n, Df, handR = solve(target)
+    place(c.parts[side .. '_upperarm'], world(shoulder), R, delta(basis(elbow - shoulder, n), arm.F0u))
+    place(c.parts[side .. '_forearm'], world(elbow), R, Df)
+    place(c.parts[side .. '_hand'], world(wrist), R, handR)
   end
   place(c.parts.body, world(lean(vec3(0, 0, 0))), R, L)
   if rig.legs and rig.legs.r then updateLegs(c, wheel, world, R, dt) end

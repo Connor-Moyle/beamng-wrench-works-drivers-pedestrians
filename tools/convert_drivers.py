@@ -237,6 +237,8 @@ def bake(model):
         ball = np.array([front[:, 0].mean(), front[:, 1].mean(), front[:, 2].min() + 0.02])
         rig["legs"][s.lower()] = {k: [round(float(c), 5) for c in v]
                                   for k, v in (("hip", hip), ("knee", knee), ("ankle", ankle), ("ball", ball))}
+    # the middle of each fist relative to its wrist (hand piece frame): the point that holds the rim
+    rig["fist"] = {s: [round(float(c), 5) for c in np.mean(geo[s + "_hand"]["pos"], 0)] for s in ("r", "l")}
     json.dump(rig, open(os.path.join(mdir, "rig.json"), "w"), indent=1)
     # self-check: the arms keep their rest lengths and reach toward the wheel (short arms may fall short)
     for s in ("r", "l"):
