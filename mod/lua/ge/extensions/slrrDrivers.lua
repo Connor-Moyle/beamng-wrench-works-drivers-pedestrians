@@ -630,7 +630,7 @@ local function propPart(c, p)
     mj:setColumn(2, jb(m:getColumn(2)))
     if propConvention == 2 then mj:inverse() end
     p:setBaseTranslationGlobal(vec3(cam) + jb(d))
-    p:setBaseRotationGlobalQuat(quat(mj:toQuatF()))
+    p:setBaseRotationGlobalQuat(mj:toQuatF())   -- a QuatF: quat() would make cdata, which the prop rejects (B20)
   end
   function o:getTransform() return self.m end
   function o:setHidden(h) self.hidden = h p:setVisible(not h) end
@@ -1346,7 +1346,13 @@ local function onPreRender(dt, dtSim)
   local camPos = core_camera.getPosition()
   local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
   local t0 = os.clock()
-  for vid, c in pairs(cars) do updateCar(vid, c, dt, dtSim or dt, camPos, fpVid) end
+  for vid, c in pairs(cars) do
+    local ok, err = pcall(updateCar, vid, c, dt, dtSim or dt, camPos, fpVid)
+    if not ok then   -- one car's driver never takes the frame down: log it and let him go (B20)
+      log('E', 'slrrDrivers', 'driver update failed for ' .. tostring(vid) .. ', driver removed: ' .. tostring(err))
+      removeCar(vid)
+    end
+  end
   perfMs = perfMs + ((os.clock() - t0) * 1000 - perfMs) * 0.02   -- smoothed cost of all drivers per frame
 end
 

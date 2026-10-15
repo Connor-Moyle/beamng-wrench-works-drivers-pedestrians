@@ -148,6 +148,22 @@ function veh:getNodePositionXYZ(cid)
   local p = left * n.pos.x - fwd * n.pos.y + up * n.pos.z
   return p.x, p.y, p.z
 end
+-- the driver's parts as vehicle props (what slrrDriverMount adds at spawn), when SHIM_PROPS is set
+local shimProps = {}
+if SHIM_PROPS then
+  for i, part in ipairs({'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
+                         'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}) do
+    local p = {mesh = 'slrr_vin_' .. part, visible = true}
+    function p:getMeshName() return self.mesh end
+    function p:setVisible(v) self.visible = v end
+    function p:setMaterialOverride(_, to) self.material = to end
+    function p:setBaseTranslationGlobal(v) self.t = vec3(v) end
+    function p:setBaseRotationGlobalQuat(q) assert(q.isQuatF, 'expect userdata, got cdata') self.q = q end
+    shimProps[i] = p
+  end
+end
+function veh:getPropCount() return #shimProps end
+function veh:getProp(pid) return shimProps[pid + 1] end
 function veh:getSpawnLocalAABB() return {minExtents = vec3(-1, -2, 0), maxExtents = vec3(1, 2, 1.5)} end
 
 be = {
@@ -198,8 +214,26 @@ function shim_parts_local()
   local eye = car.pos + vec3(veh:getNodePositionXYZ(1))
   local out = {}
   for name, o in pairs(c.parts) do
-    local d = o.pos - eye
+    local d = o:getTransform():getPosition() - eye
     out[name] = {x = d:dot(right), y = d:dot(fwd), z = d:dot(up)}
   end
   return out
+end
+
+-- props: the worst distance between where a prop's base transform (jbeam space) puts a part and where the
+-- TSStatic path put it (world space), for positions and for the parts' axes
+function shim_prop_error()
+  local c = SHIM_M.getState(car.id)
+  local fwd, up, left = axes()
+  local function world(j) return left * j.x - fwd * j.y + up * j.z end   -- jbeam -> world, as getNodePositionXYZ
+  local ep, ea = 0, 0
+  for _, o in pairs(c.parts) do
+    if o.isProp then
+      local p, m = o.prop, o:getTransform()
+      ep = math.max(ep, (car.pos + world(p.t)):distance(m:getPosition()))
+      local cols = quatColumns(p.q)
+      for i = 0, 2 do ea = math.max(ea, world(cols[i]):distance(m:getColumn(i))) end
+    end
+  end
+  return ep, ea
 end

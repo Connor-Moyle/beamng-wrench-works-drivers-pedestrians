@@ -25,11 +25,12 @@ HAND_JUMP = 0.05         # m a hand or foot may move in one 60 Hz frame (QA gate
 DT = 1 / 60
 
 
-def run(animated, record_to=None, look=None):
+def run(animated, record_to=None, look=None, props=False):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
-    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
+    g.SHIM_PROPS = props          # the parts as vehicle props, drawn by the car (slrrDriverMount)
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g.SHIM_MOD = MOD.replace("\\", "/")
     g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     lua.execute("shim_setup()")
@@ -38,6 +39,8 @@ def run(animated, record_to=None, look=None):
     g.M = M
     lua.execute("shim_start(M)")
     M.setAnimated(animated)
+    assert bool(M.getState(7).drawnByCar) == props, "drawn by the car: %s" % M.getState(7).drawnByCar
+    worst_prop = 0.0
     if look:
         M.setAppearance(None, lua.table_from(look, recursive=True))
         g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)      # the driver is rebuilt with the new look
@@ -84,6 +87,10 @@ def run(animated, record_to=None, look=None):
                     1.0 if acc > 0 else 0.0, min(1.0, -acc / 11) if acc < 0 else 0.0, 0.0)
         worst["reach"] = max(worst["reach"], M.getState(7).reach or 0)
         worst["daze"] = max(worst.get("daze", 0), M.getState(7).dazeK or 0)
+        if props:                             # the prop base transforms put every part where the TSStatic path did
+            ep, ea = g.shim_prop_error()
+            worst_prop = max(worst_prop, ep, ea)
+            assert ep < 1e-6 and ea < 1e-6, ("prop transform off", round(t, 2), ep, ea)
         parts = g.shim_parts_local()          # part -> {x, y, z} in the seat frame
         for name in parts:
             p = parts[name]
@@ -108,6 +115,7 @@ def run(animated, record_to=None, look=None):
     if record_to:
         n, rec = M.stopRecording(7, None)
         save_recording(rec, record_to)
+    worst["prop"] = worst_prop
     return worst
 
 
@@ -355,6 +363,8 @@ if __name__ == "__main__":
     check_tints()
     check_bake()
     check_sizes()
+    w = run(True, props=True)
+    print("drawn by the car: body moved at most %.3f m, largest step %.3f m, prop transforms within %.1e m" % (w["body"], w["jump"], w["prop"]))
     for animated in (True, False):
         w = run(animated)
         print("animated=%s  body moved at most %.3f m  largest hand/foot step %.3f m per frame"
