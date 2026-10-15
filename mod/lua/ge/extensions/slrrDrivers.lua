@@ -439,10 +439,12 @@ local function attach(vid)
   if vdata and vdata.vdata and vdata.vdata.props then
     for _, p in pairs(vdata.vdata.props) do
       local f = type(p) == 'table' and tostring(p.func or '') or ''
-      if (f == 'throttle' or f == 'brake' or f == 'clutch') and type(p.rotation) == 'table' then
+      if f == 'throttle' or f == 'brake' or f == 'clutch' then
+        -- by now the jbeam rotation is a vec3 in radians (degrees in the file)
         local r = p.rotation
-        local a = math.max(math.abs(r.x or 0), math.abs(r.y or 0), math.abs(r.z or 0))
-        c.pedalAngle[f] = clamp(a > math.pi and math.rad(a) or a, math.rad(5), math.rad(35))
+        local a = r and math.max(math.abs(r.x or 0), math.abs(r.y or 0), math.abs(r.z or 0)) or 0
+        if a > math.pi then a = math.rad(a) end
+        c.pedalAngle[f] = a > 0 and clamp(a, math.rad(5), math.rad(35)) or math.rad(20)
       end
     end
   end
