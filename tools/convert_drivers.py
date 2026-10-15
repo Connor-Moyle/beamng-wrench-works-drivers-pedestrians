@@ -103,7 +103,7 @@ def two_bone_ik(root, target, la, lb, pole):
     return elbow, root + d * dist
 
 
-def pose_model(bones):
+def pose_model(bones, eye_from_head=EYE_FROM_HEAD):
     """Return per-bone (delta rotation, posed joint position) in the seat frame, rest positions too."""
     names = [b["name"] for b in bones]
     idx = {n: i for i, n in enumerate(names)}
@@ -146,7 +146,7 @@ def pose_model(bones):
             D[i] = Dp
     # arms: IK the posed shoulders onto the wheel after moving the model so the eye is the origin
     head = idx["Bip01 Head"]
-    eye = P[head] + D[head] @ EYE_FROM_HEAD
+    eye = P[head] + D[head] @ eye_from_head
     P = [p - eye for p in P]
     # short-armed bodies (police) slide forward in the seat until the hands reach the base wheel
     ua, fa, hd = idx["Bip01 R UpperArm"], idx["Bip01 R Forearm"], idx["Bip01 R Hand"]
@@ -171,9 +171,13 @@ def pose_model(bones):
 
 def bake(model):
     d = os.path.join(SLRR, "humans", "drivers")
-    bones = read_skl(os.path.join(d, model + ".skl"))
-    subs = read_skinned_scx(os.path.join(d, model + ".SCX"))
-    names, D, P, rest_p = pose_model(bones)
+    return bake_from(model, read_skl(os.path.join(d, model + ".skl")), read_skinned_scx(os.path.join(d, model + ".SCX")))
+
+
+def bake_from(model, bones, subs, eye_from_head=EYE_FROM_HEAD):
+    """Pose and split a Biped-named skeleton and skinned mesh (SLRR units and axes) into the parts and
+    rig.json under models/<model>/ (convert_hd.py feeds other characters through here)."""
+    names, D, P, rest_p = pose_model(bones, eye_from_head)
     part_of_bone = {}
     for part, bl in PARTS.items():
         for bn in bl:

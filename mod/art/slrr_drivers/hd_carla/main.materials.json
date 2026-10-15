@@ -1,0 +1,20 @@
+{
+ "hd_carla_driver": {
+  "name": "hd_carla_driver",
+  "mapTo": "hd_carla_driver",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_drivers/hd_carla/rp_carla_rigged_001.color.png",
+    "normalMap": "/art/slrr_drivers/hd_carla/rp_carla_rigged_001.normal.png",
+    "roughnessMap": "/art/slrr_drivers/hd_carla/rp_carla_rigged_001_r.data.png",
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

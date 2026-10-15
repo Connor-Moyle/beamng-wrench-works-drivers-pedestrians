@@ -1,0 +1,20 @@
+{
+ "hd_manuel_driver": {
+  "name": "hd_manuel_driver",
+  "mapTo": "hd_manuel_driver",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_drivers/hd_manuel/rp_manuel_animated_001.color.png",
+    "normalMap": "/art/slrr_drivers/hd_manuel/rp_manuel_animated_001.normal.png",
+    "roughnessMap": "/art/slrr_drivers/hd_manuel/rp_manuel_animated_001_r.data.png",
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}
