@@ -5,3 +5,8 @@ __pycache__/
 
 # Raw HD player model source (Renderpeople, royalty-free with credit): kept out of git for size; the converted shapes ship, credited in CREDITS.md
 HD Model/
+
+# conversion caches (HD model dumps)
+build/
+# Raw helmet sources (Connor-supplied, licence to confirm before shipping): kept out of git for size
+Helmet/
