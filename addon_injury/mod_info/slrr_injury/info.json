@@ -1,0 +1,10 @@
+{
+  "name": "slrr_injury",
+  "title": "Wrench Works: Driver Injuries",
+  "tagline": "Drivers get hurt in crashes",
+  "description": "An add-on for Wrench Works: Drivers & Pedestrians. Drivers are injured in crashes and react to them, with career hooks, controls and settings.",
+  "author": "Connor Moyle",
+  "version": "0.1.0",
+  "game_version": "0.39",
+  "category": "mods_of_mods"
+}
