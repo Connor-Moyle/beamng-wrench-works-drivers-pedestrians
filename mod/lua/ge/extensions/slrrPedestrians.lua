@@ -65,6 +65,7 @@ local frameAvg, cap, capTimer = 1 / 60, nil, 0
 local density               -- walk density by area (density_<level>.json), nil = even everywhere
 local share, shareTimer = 1, 0
 local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
+local retryTimer = 0
 local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
 -- spectators (spectators_<level>.json, tools/spectators.py): crowds at the venues and meets, standing at fixed spots
 local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}}}
@@ -134,6 +135,17 @@ local function loadWalks()
   lines, ends, grid, junctions = nil, nil, nil, nil
   local lvl = levelName()
   local data = lvl and jsonReadFile(ROOT .. 'walk_' .. lvl .. '.json')
+  -- a map without sidewalks of its own: the ones made from its roads (slrrWalkGen), made once while pedestrians are on
+  if lvl and not data then
+    data = jsonReadFile('/settings/slrr_pedestrians/walk_' .. lvl .. '.json')
+    if not data and wanted() > 0 and map and map.getMap and not (slrrWalkGen and slrrWalkGen.busy()) then
+      local nodes = map.getMap().nodes
+      if nodes and next(nodes) then
+        extensions.load('slrrWalkGen')
+        slrrWalkGen.start(lvl, nodes, function() loadWalks() end)
+      end
+    end
+  end
   density = lvl and jsonReadFile(ROOT .. 'density_' .. lvl .. '.json')
   local sp = lvl and jsonReadFile(ROOT .. 'spectators_' .. lvl .. '.json')
   specZones = sp and sp.zones
@@ -836,7 +848,15 @@ end
 local function onUpdate(dtReal, dtSim)
   if player then updatePlayer(dtSim or dtReal) end
   if rec then record(dtReal) end
-  if not lines then return end
+  if not lines then
+    -- no sidewalks yet: on a map without its own, look again now and then while pedestrians are wanted (the road
+    -- graph may not be ready at mission start, or pedestrians were off then)
+    if wanted() > 0 and not (slrrWalkGen and slrrWalkGen.busy()) then
+      retryTimer = retryTimer - dtReal
+      if retryTimer <= 0 then retryTimer = 5 loadWalks() end
+    end
+    return
+  end
   if wanted() <= 0 then
     if #peds > 0 then clear() end
     if #spectators > 0 then clearSpectators() end
