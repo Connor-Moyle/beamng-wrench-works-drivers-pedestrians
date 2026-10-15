@@ -107,6 +107,7 @@ def check(rec):
         # J1 rim
         for side in "rl":
             on_lever = fr.get("shiftSide") == side and fr.get("reach", 0) > 0.05
+            on_lever = on_lever or fr.get("revK", 0) > 0.05     # reversing: hands deliberately moved (seat back, top of rim)
             regrip = (fr.get("regrip") or {}).get(side, 0)
             if not on_lever and not regrip:
                 d = rim_dist(j[side + "_fist"], c)

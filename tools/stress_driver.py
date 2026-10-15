@@ -44,7 +44,7 @@ def run(animated, record_to=None):
     t = 0.0
     speed, steer, prev_steer = 0.0, 0.0, 0.0
     base = None
-    for frame in range(int(40 / DT)):
+    for frame in range(int(44 / DT)):
         t += DT
         # driving script: launch, top speed with kerb hits, hard braking, lock-to-lock at speed, a spin
         if t < 8:
@@ -72,6 +72,8 @@ def run(animated, record_to=None):
         kerb = 25.0 if (10 < t < 14 and frame % 37 == 0) else 0.0   # sharp vertical/lateral hits
         rpm = 1000 + (speed % 15) * 400
         gear = 1 + int(speed // 15)
+        if t >= 40:                                       # backing up at walking pace: he looks out of the back
+            speed, gear, steer, acc = 2.0, -1, 0.0, 0.0
         g.shim_step(DT, speed, acc, steer, kerb, rpm, gear,
                     1.0 if acc > 0 else 0.0, min(1.0, -acc / 11) if acc < 0 else 0.0, 0.0)
         worst["reach"] = max(worst["reach"], M.getState(7).reach or 0)
@@ -93,6 +95,9 @@ def run(animated, record_to=None):
                 assert math.dist(v, prev[name]) < 1e-4, ("moved while animation is off", name, t)
             prev[name] = v
     assert worst["reach"] == 0, "an automatic reached for the gear lever"
+    if animated:
+        st = M.getState(7)
+        assert st.revK > 0.99, "no look-back while reversing"
     if record_to:
         n, rec = M.stopRecording(7, None)
         save_recording(rec, record_to)

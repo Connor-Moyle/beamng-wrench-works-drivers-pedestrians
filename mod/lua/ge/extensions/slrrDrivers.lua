@@ -57,6 +57,10 @@ local REACH = 0.85                      -- hands on the wheel at this share of f
 local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
 local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(0.9)
+local REVERSE_LOOK_SPEED = 4            -- m/s: below this in reverse he looks out of the back
+local SEAT_BACK_REACH = vec3(0.5, -0.05, -0.12)   -- the hand on the passenger seat back (x toward the passenger)
+local REVERSE_TWIST = math.rad(17)      -- torso twist when looking back
+local REVERSE_HEAD = math.rad(80)       -- head turn on top of it (relative to the torso)
 local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
 local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undoes
 local SWAY_DAMP = 0.45
@@ -148,6 +152,7 @@ local IDENT = {x = vec3(1, 0, 0), y = vec3(0, 1, 0), z = vec3(0, 0, 1)}
 local function compose(A, B) return {x = rotate(A, B.x), y = rotate(A, B.y), z = rotate(A, B.z)} end
 local function rotX(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(1, 0, 0), y = vec3(0, c, s), z = vec3(0, -s, c)} end
 local function rotY(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(c, 0, -s), y = vec3(0, 1, 0), z = vec3(s, 0, c)} end
+local function rotZ(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(c, s, 0), y = vec3(-s, c, 0), z = vec3(0, 0, 1)} end
 
 local function ik(S, T, la, lb, pole)
   local d = T - S
@@ -499,6 +504,13 @@ local function attach(vid)
     end
   end
   c.hasClutch = c.pedalAngle.clutch ~= nil
+  -- the car's mirrors (BeamNG's mirror list), for glances
+  c.mirrors = {}
+  if vdata and vdata.vdata and vdata.vdata.mirrors then
+    for _, m in pairs(vdata.vdata.mirrors) do
+      if type(m) == 'table' and tonumber(m.idRef) then table.insert(c.mirrors, tonumber(m.idRef)) end
+    end
+  end
   local floorZ
   local nodes = vdata and vdata.vdata and vdata.vdata.nodes
   local cam0 = nodes and nodes[camNode] and nodes[camNode].pos
@@ -513,6 +525,10 @@ local function attach(vid)
     end
   end
   -- the lowest node in the footwell can be chassis under the floor: keep pedals where cars have them
+  -- which side of the car the seat is on: the eye against the car's reference node (jbeam +x is left)
+  local refs = vdata and vdata.vdata and vdata.vdata.refNodes and vdata.vdata.refNodes[0]
+  local centre = refs and nodes and nodes[refs.ref] and nodes[refs.ref].pos
+  if cam0 and centre and math.abs(cam0.x - centre.x) > 0.05 then c.seatLeft = cam0.x > centre.x else c.seatLeft = not c.rhd end
   c.pedalZ = clamp(floorZ and (floorZ + PEDAL_ABOVE_FLOOR) or -0.97, -1.08, -0.85)
   for side, leg in pairs(rig.legs or {}) do
     local sx = side == 'r' and 1 or -1
@@ -628,6 +644,7 @@ local function record(c, eye, R, dt, veh, wheel)
               brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {},
               reach = c.reach or 0, shiftSide = c.shiftSide, perfMs = perfMs,
               regrip = {r = c.hands and c.hands.r.t and 1 or 0, l = c.hands and c.hands.l.t and 1 or 0},
+              revK = c.revK or 0, revHand = (c.seatLeft and 'r' or 'l'),
               grip = c.lastGrips and {r = math.deg(c.lastGrips.r.a), l = math.deg(c.lastGrips.l.a)} or nil}
   for name, o in pairs(c.parts) do
     local m = o:getTransform()
@@ -670,6 +687,11 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local rig, e = c.rig, c.e
 
   local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos) or IDENT
+  -- reversing at walking pace: he twists round to look out of the back (not in the player's own view)
+  local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < REVERSE_LOOK_SPEED
+  c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
+  local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
+  if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
   if c.reachLean then L = compose(L, c.reachLean) end
   -- idle: slow breathing in the chest (and so the shoulders), always on when animated
   c.clock = (c.clock or math.random() * 10) + dt
@@ -738,6 +760,13 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local grip = grips[side]
     local target = rimPoint(wheel, grip.a, grip.lift) - wheelN * WRIST_BACK   -- the rim itself (+ the re-grip lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
+    if c.revK > 0 then
+      -- looking back: the passenger-side hand goes to the passenger seat back, the other steers from the top
+      local k = smootheststep(c.revK)
+      local passenger = back > 0 and 'l' or 'r'
+      if side == passenger then target = lerp(target, vec3(-back * SEAT_BACK_REACH.x, SEAT_BACK_REACH.y, SEAT_BACK_REACH.z), k)
+      else target = lerp(target, rimPoint(wheel, math.pi / 2, 0) - wheelN * WRIST_BACK, k) end
+    end
     local shoulder = lean(arm.shoulder)
     local d = target - shoulder
     local over = d:length() - (arm.la + arm.lb) * REACH
@@ -762,7 +791,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
     -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
-    local holding = grip.lift == 0 and not (side == c.shiftSide and c.reach > 0.01)
+    local holding = grip.lift == 0 and not (side == c.shiftSide and c.reach > 0.01) and c.revK < 0.01
     if holding and rig.fist and rig.fist[side] then
       -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
       local _, _, _, _, handR = solve(target)
@@ -787,10 +816,18 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local t = c.clock
     yaw = yaw + 0.03 * math.sin(0.31 * t) + 0.02 * math.sin(0.73 * t + 1.3)
     pitch = pitch + 0.02 * math.sin(0.43 * t + 0.4)
+    -- glances: at one of the car's mirrors (more often when moving), or aside when it has none
+    local moving = vec3(veh:getVelocity()):length() > 3
     c.glanceIn = (c.glanceIn or (6 + math.random() * 8)) - dt
     if c.glanceIn <= 0 then
-      c.glance = {t = 0, yaw = (math.random() < 0.5 and -1 or 1) * (0.35 + math.random() * 0.35), pitch = -0.05 + math.random() * 0.1}
-      c.glanceIn = 6 + math.random() * 8
+      local gy, gp = (math.random() < 0.5 and -1 or 1) * (0.35 + math.random() * 0.35), -0.05 + math.random() * 0.1
+      if #c.mirrors > 0 then
+        local m = toSeat(c.mirrors[math.random(#c.mirrors)])
+        gy = clamp(math.atan2(-m.x, m.y), -1.3, 1.3)
+        gp = clamp(math.atan2(m.z, math.sqrt(m.x * m.x + m.y * m.y)), -0.5, 0.5)
+      end
+      c.glance = {t = 0, yaw = gy, pitch = gp}
+      c.glanceIn = moving and (3 + math.random() * 5) or (6 + math.random() * 8)
     end
     if c.glance then
       c.glance.t = c.glance.t + dt
@@ -798,6 +835,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       yaw, pitch = yaw + c.glance.yaw * k, pitch + c.glance.pitch * k
       if c.glance.t >= GLANCE_TIME then c.glance = nil end
     end
+  end
+  if c.revK and c.revK > 0 then
+    local k = smootheststep(c.revK)
+    yaw, pitch = lerp(yaw, back * REVERSE_HEAD, k), lerp(pitch, 0.08, k)
   end
   -- the head stays level when the body leans (eyes on the road): undo most of the torso pitch
   pitch = pitch - LEVEL_HEAD * math.asin(clamp(L.y.z, -1, 1))
