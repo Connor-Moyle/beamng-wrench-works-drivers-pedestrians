@@ -1,19 +1,22 @@
 -- SLRR Drivers: the driver as part of the car. At every vehicle spawn (BeamNG's onJbeamLoadingPhase1 hook,
--- after node ids are assigned) this can add
+-- after node ids are assigned) this adds
 --   * props: the driver's 14 parts as vehicle props (meshes <skin>_<part> from vehicles/common), so
 --     the car draws them in its own render transform (exactly seat-locked, proper motion vectors);
---     slrrDrivers poses them every frame;
---   * a ragdoll (prototype): ~16 physics nodes at the seated joints, stiff bones, joint limits, soft
---     posture beams and tension-only seat belts that break in a huge crash.
--- Both are behind flags (off by default) and never break a spawn: any error only logs.
+--     slrrDrivers poses them (every car but the player's is drawn this way, W9), and in three cars in
+--     ten a passenger's 14 parts too, in another skin, at the seat beside the driver;
+--   * a ragdoll (prototype, behind a flag): ~16 physics nodes at the seated joints, stiff bones, joint
+--     limits, soft posture beams and tension-only seat belts that break in a huge crash.
+-- Nothing here breaks a spawn: any error only logs.
 local M = {}
 
 local jbeamUtils = require('jbeam/utils')
 
 local SETTINGS = '/settings/slrr_drivers_mount.json'
-local flags = {props = false, ragdoll = false, selfCollision = false}
+local flags = {ragdoll = false, selfCollision = false}   -- (the props are always on since W9; an old "props" key is ignored)
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
+local mounts = {}                  -- objID -> {driver = skin, passenger = skin, passengerAt = {x, y, z} (jbeam)}: what the car was given
+local PASSENGER_SHARE = 0.3
 
 local PARTS = {'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
                'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}
@@ -49,11 +52,57 @@ local function onPanel(n)
   return false
 end
 
+local function hasMeshes(skin) return FS:fileExists('/vehicles/common/slrr_drivers/' .. skin .. '_body.dae') end
+
+-- the skins with prop meshes (tools/prop_meshes.py), for the passengers
+local propSkins
+local function skinsWithProps()
+  if propSkins then return propSkins end
+  propSkins = {}
+  for _, d in ipairs(slrrDrivers and slrrDrivers.getDrivers and slrrDrivers.getDrivers() or {}) do
+    local info = jsonReadFile('/art/slrr_drivers/' .. d.id .. '/driver.json')
+    local skin = info and info.skin or d.id
+    if hasMeshes(skin) then propSkins[#propSkins + 1] = skin end
+  end
+  table.sort(propSkins)
+  return propSkins
+end
+
+-- the seat beside the driver: his eye mirrored across the car's middle, when the car has nodes (a seat)
+-- there and the driver does not sit in the middle
+local function passengerCam(vehicle, cam)
+  local minx, maxx = math.huge, -math.huge
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.pos and not onPanel(n) then minx, maxx = math.min(minx, n.pos.x), math.max(maxx, n.pos.x) end
+  end
+  if minx > maxx then return nil end
+  local p = {x = minx + maxx - cam.x, y = cam.y, z = cam.z}
+  if math.abs(p.x - cam.x) < 0.5 then return nil end
+  local seat = 0
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.pos and not onPanel(n) and math.abs(n.pos.x - p.x) < 0.45 and math.abs(n.pos.y - p.y) < 0.5
+       and n.pos.z > p.z - 0.9 and n.pos.z < p.z + 0.2 then seat = seat + 1 end
+  end
+  return seat >= 3 and p or nil
+end
+
+-- string keys on purpose: the vehicle's props.lua walks only the array part, so it never pushes its own
+-- visibility over these (hiding from the GE side works) and never animates them
+local function addParts(vehicle, key, skin, sp, at)
+  for _, part in ipairs(PARTS) do
+    vehicle.props[key .. part] = {
+      mesh = skin .. '_' .. part, func = 'slrr_driver', idRef = sp.idRef, idX = sp.idX, idY = sp.idY,
+      translation = {x = 0, y = 0, z = 0}, rotation = {x = 0, y = 0, z = 0},
+      baseTranslationGlobal = {x = at.x, y = at.y, z = at.z},
+      cid = jbeamUtils.increaseMax(vehicle, 'props'), slrrPart = part}
+  end
+end
+
 local function addProps(objID, vehicle, camCid)
   -- meshes per skin, with the skin's material named in the dae (tools/prop_meshes.py): a material override
   -- on a prop at runtime crashes the engine
   local _, skin = driverInfo(objID)
-  if not FS:fileExists('/vehicles/common/slrr_drivers/' .. skin .. '_body.dae') then return 0 end
+  if not hasMeshes(skin) then return 0 end
   local sp
   for _, p in pairs(vehicle.props or {}) do
     if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) and tonumber(p.idX) and tonumber(p.idY) then sp = p break end
@@ -61,16 +110,19 @@ local function addProps(objID, vehicle, camCid)
   if not sp then return 0 end
   local cam = byCid(vehicle)[camCid].pos
   vehicle.props = vehicle.props or {}
-  -- string keys on purpose: the vehicle's props.lua walks only the array part, so it never pushes its own
-  -- visibility over these (hiding from the GE side works) and never animates them
-  for _, part in ipairs(PARTS) do
-    vehicle.props['slrr_driver_' .. part] = {
-      mesh = skin .. '_' .. part, func = 'slrr_driver', idRef = sp.idRef, idX = sp.idX, idY = sp.idY,
-      translation = {x = 0, y = 0, z = 0}, rotation = {x = 0, y = 0, z = 0},
-      baseTranslationGlobal = {x = cam.x, y = cam.y, z = cam.z},
-      cid = jbeamUtils.increaseMax(vehicle, 'props'), slrrPart = part}
+  addParts(vehicle, 'slrr_driver_', skin, sp, cam)
+  local mount = {driver = skin}
+  -- a passenger in some cars (W9), in another skin
+  local pcam = objID % 100 < PASSENGER_SHARE * 100 and passengerCam(vehicle, cam)
+  local skins = pcam and skinsWithProps() or {}
+  if #skins > 1 then
+    local other = skins[objID % #skins + 1]
+    if other == skin then other = skins[(objID + 1) % #skins + 1] end
+    addParts(vehicle, 'slrr_pass_', other, sp, pcam)
+    mount.passenger, mount.passengerAt = other, {x = pcam.x, y = pcam.y, z = pcam.z}
   end
-  return #PARTS
+  mounts[objID] = mount
+  return #PARTS + (mount.passenger and #PARTS or 0)
 end
 
 -- the nearest car node to a point (jbeam space), not on a moving panel and not one of ours
@@ -156,13 +208,10 @@ local function addRagdoll(objID, vehicle, camCid)
 end
 
 local function onJbeamLoadingPhase1(progress, objID, vehicle)
-  if not (flags.props or flags.ragdoll or ragdollNext) then return end
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
     if not camCid or not byCid(vehicle)[camCid] then return end
-    if flags.props then
-      log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))
-    end
+    log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))
     if flags.ragdoll or ragdollNext then
       ragdollNext = false
       log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. addRagdoll(objID, vehicle, camCid))
@@ -211,13 +260,14 @@ M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if type(s) == 'table' then for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end end
 end
--- {props = bool, ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
+-- {ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
 M.setFlags = function(t)
   for k in pairs(flags) do if t[k] ~= nil then flags[k] = t[k] and true or false end end
   jsonWriteFile(SETTINGS, flags, true)
 end
 M.getFlags = function() return flags end
+M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.getRagdoll = function(objID) return ragdolls[objID] end
-M.onVehicleDestroyed = function(objID) ragdolls[objID] = nil end
+M.onVehicleDestroyed = function(objID) ragdolls[objID] = nil mounts[objID] = nil end
 return M

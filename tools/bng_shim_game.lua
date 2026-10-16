@@ -24,7 +24,11 @@ function simObjectExists(o) return o ~= nil and not o.deleted end
 
 FS = {
   findFiles = function(_, root, pattern)
-    if pattern == 'driver.json' then return {'/art/slrr_drivers/slrr_mitch/driver.json'} end
+    if pattern == 'driver.json' then
+      local list = {'/art/slrr_drivers/slrr_mitch/driver.json'}
+      if SHIM_PASSENGER then list[2] = '/art/slrr_drivers/slrr_opponent1/driver.json' end
+      return list
+    end
     if pattern:find('_shade') or pattern:find('_shirt') or pattern:find('_trousers') or pattern:find('_tint') then return {root .. pattern:gsub('%*', 'mitch_whole')} end
     return {}
   end,
@@ -33,7 +37,7 @@ FS = {
 
 function jsonReadFile(path)
   if path:find('rig%.json$') then return shim_decode(SHIM_RIG) end
-  if path:find('driver%.json$') then return {name = 'Mitch', model = 'vin', skin = 'slrr_mitch'} end
+  if path:find('driver%.json$') then local id = path:match('/([^/]+)/driver%.json$') return {name = id, model = 'vin', skin = id} end
   return nil
 end
 
@@ -151,17 +155,27 @@ function veh:getNodePositionXYZ(cid)
 end
 -- the driver's parts as vehicle props (what slrrDriverMount adds at spawn), when SHIM_PROPS is set
 local shimProps = {}
-if SHIM_PROPS then
-  for i, part in ipairs({'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
-                         'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}) do
-    local p = {mesh = 'slrr_mitch_' .. part, visible = true}
+local SHIM_PARTS = {'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
+                    'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}
+local function shimPropSet(skin)
+  for _, part in ipairs(SHIM_PARTS) do
+    local p = {mesh = skin .. '_' .. part, visible = true}
     function p:getMeshName() return self.mesh end
     function p:setVisible(v) self.visible = v end
     function p:setMaterialOverride() error('a material override on a prop crashes the game (slot 2026-10-16)') end
     function p:setBaseTranslationGlobal(v) self.t = vec3(v) end
     function p:setBaseRotationGlobalQuat(q) assert(q.isQuatF, 'expect userdata, got cdata') self.q = q end
-    shimProps[i] = p
+    shimProps[#shimProps + 1] = p
   end
+end
+if SHIM_PROPS then shimPropSet('slrr_mitch') end
+if SHIM_PASSENGER then shimPropSet('slrr_opponent1') end
+function shimPropsList() return shimProps end
+-- what slrrDriverMount gave the car: the driver's skin, and the passenger's seat 0.7 m to the car's right
+SHIM_PASSENGER_AT = {x = CAM.x - 0.7, y = CAM.y, z = CAM.z}
+if SHIM_PROPS then
+  slrrDriverMount = {getMount = function() return {driver = 'slrr_mitch', passenger = SHIM_PASSENGER and 'slrr_opponent1' or nil,
+                                                    passengerAt = SHIM_PASSENGER and SHIM_PASSENGER_AT or nil} end}
 end
 function veh:getPropCount() return #shimProps end
 function veh:getProp(pid) return shimProps[pid + 1] end

@@ -667,20 +667,64 @@ local function driverProps(veh, skin)
   return n >= #PARTS and found or nil
 end
 
+local function driverBySkin(skin)
+  for _, d in pairs(drivers) do if d.skin == skin then return d end end
+end
+
+-- the parts slrrDriverMount gave a car sit at its driver's eye until they are posed: out of sight unless used
+local function hideMount(vid)
+  local veh = be:getObjectByID(vid)
+  local mount = veh and slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
+  for _, skin in ipairs({mount and mount.driver, mount and mount.passenger}) do
+    for _, p in pairs(driverProps(veh, skin) or {}) do p:setVisible(false) end
+  end
+end
+
+-- the joint frames and poles a rig needs for posing, set once per rig
+local function prepRig(rig)
+  if rig.prepped then return end
+  rig.prepped = true
+  for side, leg in pairs(rig.legs or {}) do
+    local sx = side == 'r' and 1 or -1
+    leg.pole = vec3(0.15 * sx, 0.5, 1)   -- knees bend up and a little out
+    local n = (leg.knee - leg.hip):cross(leg.ankle - leg.hip)
+    leg.F0t = basis(leg.knee - leg.hip, n)
+    leg.F0c = basis(leg.ankle - leg.knee, n)
+  end
+  for side, arm in pairs(rig.arms) do
+    local sx = side == 'r' and 1 or -1
+    arm.pole = vec3(0.6 * sx, -0.2, -1)
+    arm.F0u = basis(arm.elbow - arm.shoulder, (arm.elbow - arm.shoulder):cross(arm.wrist - arm.shoulder))
+    arm.F0f = basis(arm.wrist - arm.elbow, (arm.elbow - arm.shoulder):cross(arm.wrist - arm.shoulder))
+  end
+end
+
 local function attach(vid)
   local id = wantedDriver(vid)
-  if not id then removeCar(vid) return true end
+  if not id then removeCar(vid) hideMount(vid) return true end
   local veh = be:getObjectByID(vid)
   if not veh then return true end
   local camNode, rhd = core_camera.getDriverDataById(vid)
   if not camNode then return false end   -- camera data not ready yet, or a trailer / prop
   local d = drivers[id]
+  -- every car but the player's is drawn by the car itself (W9): the prop driver slrrDriverMount gave it at
+  -- spawn, in the skin it was given, with no body physics and no injuries. The player's car keeps the full
+  -- driver (his own choice of skin), and its props stay hidden
+  local player = vid == be:getPlayerVehicleID(0)
+  local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
+  local props
+  if not player then
+    local pd = mount and mount.driver and driverBySkin(mount.driver) or d
+    props = driverProps(veh, pd.skin)
+    if props then d = pd end
+  end
   local rig = getRig(d.model)
   if not rig then log('E', 'slrrDrivers', 'missing rig for model ' .. tostring(d.model)) return true end
   local look = appearanceFor(vid)
   local size = clamp(tonumber(look.scale) or 1, 0.9, 1.1)
-  if math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) end
+  if math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) props = nil end   -- (props can't be scaled)
   removeCar(vid)
+  if not props then hideMount(vid) end
 
   if not group or not simObjectExists(group) then
     group = scenetree.findObject('slrrDriversGroup')
@@ -699,8 +743,6 @@ local function attach(vid)
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
   if look.helmet then table.insert(partList, 'helmet') end
-  -- drawn by the car when slrrDriverMount gave it this model's parts (props can't be scaled)
-  local props = math.abs(size - 1) < 1e-3 and driverProps(veh, d.skin)
   if props then
     local vd = core_vehicle_manager.getVehicleData(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
@@ -837,25 +879,28 @@ local function attach(vid)
       end
     end
   end
-  for side, leg in pairs(rig.legs or {}) do
-    local sx = side == 'r' and 1 or -1
-    leg.pole = vec3(0.15 * sx, 0.5, 1)   -- knees bend up and a little out
-    local n = (leg.knee - leg.hip):cross(leg.ankle - leg.hip)
-    leg.F0t = basis(leg.knee - leg.hip, n)
-    leg.F0c = basis(leg.ankle - leg.knee, n)
-  end
+  prepRig(rig)
   c.feet = {r = {pedal = 'throttle'}, l = {pedal = c.hasClutch and 'clutch' or 'rest'}}
   -- the hand nearest the middle of the car shifts
   c.shiftSide = c.rhd and 'l' or 'r'
   c.inward = c.rhd and -1 or 1
-  for side, arm in pairs(rig.arms) do
-    local sx = side == 'r' and 1 or -1
-    arm.pole = vec3(0.6 * sx, -0.2, -1)
-    arm.F0u = basis(arm.elbow - arm.shoulder, (arm.elbow - arm.shoulder):cross(arm.wrist - arm.shoulder))
-    arm.F0f = basis(arm.wrist - arm.elbow, (arm.elbow - arm.shoulder):cross(arm.wrist - arm.shoulder))
-  end
   c.mass = d.mass
   setupCollision(c, vid)
+  -- the passenger slrrDriverMount gave the car (W9): posed once beside the driver, then he rides with the car
+  local pd = mount and mount.passenger and mount.passengerAt and driverBySkin(mount.passenger)
+  local pp = pd and driverProps(veh, pd.skin)
+  local prig = pd and getRig(pd.model)
+  if pp and prig and cam0 then
+    local at = mount.passengerAt
+    -- the passenger's eye from the driver's, in the seat frame (jbeam x is the car's left, y its back)
+    local pc = {cam0 = vec3(at.x, at.y, at.z)}
+    c.passenger = {ctx = pc, rig = prig, offset = vec3(cam0.x - at.x, cam0.y - at.y, at.z - cam0.z)}
+    for _, p in ipairs(PARTS) do
+      local o = propPart(pc, pp[p])
+      o:setHidden(false)
+      c.parts['pass_' .. p] = o
+    end
+  end
   cars[vid] = c
   veh:queueLuaCommand(string.format('extensions.load("slrrDriverFeed") slrrDriverFeed.setDriverMass(%d, %g)', camNode, d.mass))
   return true
@@ -1123,6 +1168,36 @@ local function updateLook(c, vid, R, dt, fp, speed)
   c.lookYaw, c.lookPitch = c.lookYaw + c.lookVy * dt, c.lookPitch + c.lookVp * dt
 end
 
+-- the passenger: sat back, hands in the lap, feet on the floor; posed once, in the seat beside the driver
+local function posePassenger(c, R, eye)
+  local p = c.passenger
+  local rig = p.rig
+  prepRig(rig)
+  p.ctx.frameR, p.ctx.frameEye = R, eye + rotate(R, p.offset)
+  local function world(q) return p.ctx.frameEye + rotate(R, q) end
+  local function part(name) return c.parts['pass_' .. name] end
+  place(part('body'), world(vec3(0, 0, 0)), R, IDENT)
+  place(part('head'), world(rig.parts.head), R, IDENT)
+  for side, arm in pairs(rig.arms) do
+    local sx = side == 'r' and 1 or -1
+    local elbow, wrist = ik(arm.shoulder, vec3(0.14 * sx, 0.30, -0.42), arm.la, arm.lb, arm.pole)
+    local n = (elbow - arm.shoulder):cross(wrist - arm.shoulder)
+    local Df = delta(basis(wrist - elbow, n), arm.F0f)
+    place(part(side .. '_upperarm'), world(arm.shoulder), R, delta(basis(elbow - arm.shoulder, n), arm.F0u))
+    place(part(side .. '_forearm'), world(elbow), R, Df)
+    place(part(side .. '_hand'), world(wrist), R, Df)
+  end
+  for side, leg in pairs(rig.legs or {}) do
+    local sx = side == 'r' and 1 or -1
+    local knee, ankle = ik(leg.hip, vec3(0.16 * sx, 0.55, c.pedalZ - 0.08), leg.lt, leg.lc, leg.pole)
+    local n = (knee - leg.hip):cross(ankle - leg.hip)
+    place(part(side .. '_thigh'), world(leg.hip), R, delta(basis(knee - leg.hip, n), leg.F0t))
+    place(part(side .. '_calf'), world(knee), R, delta(basis(ankle - knee, n), leg.F0c))
+    place(part(side .. '_foot'), world(ankle), R, IDENT)
+  end
+  p.posed = true
+end
+
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local veh = be:getObjectByID(vid)
   if not veh then removeCar(vid) return end
@@ -1158,11 +1233,13 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   local R = basis(fwd, up)   -- seat frame -> world
   c.frameR, c.frameEye = R, eye   -- parts drawn by the car are posed relative to these
+  if c.passenger and not c.passenger.posed then posePassenger(c, R, eye) end
   local function world(p) return eye + rotate(R, c.seat and (p + c.seat) or p) end
   local rig, e = c.rig, c.e
 
   local t0 = prof.on and os.clock()
-  local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist) or IDENT
+  -- no body physics for a driver drawn by the car (W9: the cheap driver); the player's full driver keeps it
+  local L = animated and not c.drawnByCar and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist) or IDENT
   if t0 then prof.body = prof.body + os.clock() - t0 end
   -- reversing at walking pace: he twists round to look out of the back (not in the player's own view)
   local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < REVERSE_LOOK_SPEED
@@ -1372,16 +1449,22 @@ local function onPreRender(dt, dtSim)
       pending[vid] = tries + 1
     end
   end
-  if not next(cars) then return end
-  local camPos = core_camera.getPosition()
-  local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
   -- a car told to 'stop' (traffic parked by the pool) brakes, then ai.lua sets itself 'disabled' without the
-  -- hook: stopped cars are asked again every 2 s, so the driver leaves once it stands (B14)
+  -- hook: stopped cars are asked again every 2 s, so the driver leaves once it stands (B14). An empty car is
+  -- asked again too: a mode change missed around its spawn left pooled traffic empty for good (B48)
   stopAsk = stopAsk + dt
   if stopAsk > 2 then
     stopAsk = 0
     for vid in pairs(cars) do if aiModes[vid] == 'stop' then askMode(vid) end end
+    for i = 0, be:getObjectCount() - 1 do
+      local v = be:getObject(i)
+      local vid = v and v:getId()
+      if vid and not cars[vid] and not pending[vid] and aiModes[vid] ~= nil then askMode(vid) end
+    end
   end
+  if not next(cars) then return end
+  local camPos = core_camera.getPosition()
+  local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
   local t0 = os.clock()
   for vid, c in pairs(cars) do
     local ok, err = pcall(updateCar, vid, c, dt, dtSim or dt, camPos, fpVid)
@@ -1531,10 +1614,12 @@ M.onVehicleSwitched = function(old, new)   -- a car the player gets into gains a
       slrrPedestrians.followPlayer(nil)
     end
   end
+  -- both cars are done again: the one left turns into a prop driver, the one entered gets the full one (W9)
   for _, vid in ipairs({old, new}) do
-    if vid and vid ~= -1 and wantedDriver(vid) ~= M.getDriver(vid) then pending[vid] = 0 end
+    if vid and vid ~= -1 then pending[vid] = 0 end
   end
 end
+M.onVehicleActiveChanged = function(vid, active) if active then pending[vid] = 0 end end   -- a pooled car back in use
 M.onAiModeChange = function(vid, mode)
   local was = aiModes[vid]
   aiModes[vid] = mode

@@ -235,12 +235,11 @@ local function onUpdate(dtReal, dtSim)
   if mode == 'off' then return end
   local dt = dtSim or dtReal
   local cam = core_camera and core_camera.getPosition()
-  -- stub feed: the player's car and drivers' cars near the camera
+  -- stub feed: the player's car only (W9: the other cars' drivers are props, nobody else gets hurt)
   for i = 0, (be and be:getObjectCount() or 0) - 1 do
     local v = be:getObject(i)
     local id = v:getId()
-    local tracked = isPlayer(id) or (slrrDrivers and slrrDrivers.getDriver and slrrDrivers.getDriver(id)
-                    and cam and vec3(v:getPosition()):distance(cam) < TRACK_DIST)
+    local tracked = isPlayer(id)
     if tracked and not M.externalFeed then
       local s = sampleFromCar(v, dt)
       if s then feed(id, s) end

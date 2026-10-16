@@ -44,6 +44,12 @@ A car has a driver while it is being driven: the player's car while you're in it
 driving (traffic, racers, police). Parked, lot and garage cars, wrecks, props, trailers and the on-foot
 player stay empty, and a car empties as soon as you get out or its AI is switched off.
 
+Every car but yours is drawn by the car itself: at spawn the driver's fourteen parts are added to it as
+vehicle props, posed from the game side (no body physics, no injuries, next to free), and three cars in
+ten get a passenger in another skin beside him. Your own car keeps the full driver: body physics, the
+look, and the injury add-on. Get into another car and the full driver moves with you; the one you left
+becomes a prop driver.
+
 ## Drivers
 
 | id | Looks | SLRR body |

@@ -37,7 +37,13 @@ def run(animated, record_to=None, look=None, props=False):
     lua_src = os.environ.get("SLRR_DRIVERS_LUA") or os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")
     M = lua.execute(open(lua_src).read())     # SLRR_DRIVERS_LUA: run an older version for before/after renders
     g.M = M
+    if props:                     # W9: only a car that is not the player's is drawn by the car: a traffic car
+        lua.execute("be.getPlayerVehicleID = function() return -1 end")
     lua.execute("shim_start(M)")
+    if props:
+        M.onAiModeChange(7, "traffic")
+        for _ in range(3):
+            g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
     M.setAnimated(animated)
     assert bool(M.getState(7).drawnByCar) == props, "drawn by the car: %s" % M.getState(7).drawnByCar
     worst_prop = 0.0
@@ -133,22 +139,35 @@ def check_far():
     lua.execute("shim_start(M)")
 
     def drive(frames, steer):
-        hand = M.getState(7).parts.r_hand.prop
-        moved, t0 = 0.0, (hand.t.x, hand.t.y, hand.t.z)
+        # the right hand: its prop's base translation (drawn by the car) or its place in the seat frame
+        def hand():
+            o = M.getState(7).parts.r_hand
+            if o.prop is not None:
+                return (o.prop.t.x, o.prop.t.y, o.prop.t.z)
+            p = g.shim_parts_local().r_hand
+            return (p.x, p.y, p.z)
+        moved, t0 = 0.0, hand()
         for _ in range(frames):
             g.shim_step(DT, 20, 0, steer, 0, 3000, 3, 0.5, 0, 0)
-            moved = max(moved, math.dist(t0, (hand.t.x, hand.t.y, hand.t.z)))
+            moved = max(moved, math.dist(t0, hand()))
         return moved
     assert drive(60, 0) >= 0, "warm up"
+    assert M.getState(7).parts.r_hand.prop is None, "the player's car is drawn by the car (W9: it keeps the full driver)"
     lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 60 + vec3(0, 0, 2) end")
     # B47: the player's own car never goes by the camera distance (it is stale in the driver camera)
     assert drive(60, 300) > 0.05, "the player's driver froze with the camera reported 60 m away"
-    lua.execute("be.getPlayerVehicleID = function() return -1 end M.onAiModeChange(7, 'traffic')")
+    lua.execute("be.getPlayerVehicleID = function() return -1 end M.onVehicleSwitched(7, -1) M.onAiModeChange(7, 'traffic')")
+    for _ in range(3):
+        g.shim_step(DT, 20, 0, 0, 0, 3000, 3, 0.5, 0, 0)
+    assert M.getState(7).drawnByCar and M.getState(7).parts.r_hand.prop is not None, "a traffic car is not drawn by the car (W9)"
+    lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 5 + vec3(0, 0, 2) end")
+    assert drive(60, 300) > 0.05, "a traffic driver in range did not turn the wheel"
+    lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 60 + vec3(0, 0, 2) end")
     lua.execute("shim_step(1 / 60, 20, 0, 0, 0, 3000, 3, 0.5, 0, 0)")
     assert drive(120, 300) == 0, "a driver 60 m away kept animating"
     assert M.getPerf()[0] < 0.02, "a driver 60 m away still costs %.3f ms" % M.getPerf()[0]
     lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 5 + vec3(0, 0, 2) end")
-    assert drive(60, 300) > 0.05, "back in range, the hands did not turn the wheel"
+    assert drive(60, -300) > 0.05, "back in range, the hands did not turn the wheel"   # (the other way: he already holds 300)
     M.setDisplayMode("still")
     drive(5, 0)
     assert drive(60, 300) == 0, "a still driver drawn by the car was updated"
@@ -247,6 +266,42 @@ def check_presence():
         g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
     assert driver(), "a car whose camera data came late never got its driver"
     print("presence ok")
+
+
+def check_passenger():
+    """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.SHIM_PROPS, g.SHIM_PASSENGER = True, True
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("be.getPlayerVehicleID = function() return -1 end")
+    lua.execute("shim_start(M)")
+    M.onAiModeChange(7, "traffic")
+    for _ in range(5):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    c = M.getState(7)
+    assert c.drawnByCar and c.passenger and c.passenger.posed, "no posed passenger"
+    drv, pas = c.parts.body.prop.t, c.parts.pass_body.prop.t
+    at = g.SHIM_PASSENGER_AT        # his body sits at his own eye point, 0.7 m to the car's right of the driver's
+    assert abs(pas.x - at.x) < 0.02 and abs(pas.y - at.y) < 0.02 and abs(pas.z - at.z) < 0.02 and abs((drv.x - pas.x) - 0.7) < 0.02, \
+        "the passenger is not at his seat: %s, driver %s" % ((pas.x, pas.y, pas.z), (drv.x, drv.y, drv.z))
+    names = ["body", "head", "r_upperarm", "r_forearm", "r_hand", "l_upperarm", "l_forearm", "l_hand", "r_thigh", "r_calf", "r_foot", "l_thigh", "l_calf", "l_foot"]
+    for n in names:
+        t = c.parts["pass_" + n].prop.t
+        assert all(math.isfinite(v) for v in (t.x, t.y, t.z)), ("passenger part not finite", n)
+        assert c.parts["pass_" + n].prop.visible, ("passenger part hidden", n)
+    hands = c.parts.pass_r_hand.prop.t
+    assert hands.z < pas.z - 0.3 and hands.y < pas.y + 0.1, "the passenger's hand is not in his lap: %s" % ((hands.x, hands.y, hands.z),)
+    M.onAiModeChange(7, "disabled")
+    g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+    assert M.getState(7) is None, "the car kept its driver"
+    for p in list(g.shimPropsList().values()):
+        assert not p.visible, "a prop stayed visible on an empty car: %s" % p.mesh
+    print("passenger ok: beside the driver, hands in the lap, gone with the driver")
 
 
 def check_damage():
@@ -415,6 +470,7 @@ if __name__ == "__main__":
         print("recorded"); sys.exit()
     check_modes()
     check_presence()
+    check_passenger()
     check_far()
     check_damage()
     check_look()
