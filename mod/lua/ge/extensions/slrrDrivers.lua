@@ -622,6 +622,7 @@ end
 -- <skin>_<part>). Each becomes an object with the calls slrrDrivers makes on a TSStatic; a pose is
 -- turned into the car's own jbeam frame, so the car renders it with the seat, with no lag and no blur.
 local propConvention = 1   -- how a pose maps onto the prop's base transform (setPropConvention, for calibration)
+local PROP_STILL = 0.0002  -- m (and per axis unit): a smaller move leaves the prop where it is
 local function propPart(c, p)
   local o = {isProp = true, prop = p, hidden = false, m = MatrixF(true)}
   function o:setTransform(m)
@@ -631,12 +632,17 @@ local function propPart(c, p)
     local t0 = prof.on and os.clock()
     local d = m:getPosition() - eye
     local function jb(v) return vec3(-v:dot(R.x), -v:dot(R.y), v:dot(R.z)) end   -- world -> seat -> jbeam axes
+    local t, x, y = vec3(cam) + jb(d), jb(m:getColumn(0)), jb(m:getColumn(1))
+    -- the two engine calls only when the part moved: at a steady pose most parts sit still (J6)
+    local last = self.last
+    if last and last.t:distance(t) < PROP_STILL and last.x:distance(x) < PROP_STILL and last.y:distance(y) < PROP_STILL then return end
+    self.last = {t = t, x = x, y = y}
     local mj = MatrixF(true)
-    mj:setColumn(0, jb(m:getColumn(0)))
-    mj:setColumn(1, jb(m:getColumn(1)))
+    mj:setColumn(0, x)
+    mj:setColumn(1, y)
     mj:setColumn(2, jb(m:getColumn(2)))
     if propConvention == 2 then mj:inverse() end
-    p:setBaseTranslationGlobal(vec3(cam) + jb(d))
+    p:setBaseTranslationGlobal(t)
     p:setBaseRotationGlobalQuat(mj:toQuatF())   -- a QuatF: quat() would make cdata, which the prop rejects (B20)
     if t0 then prof.place = prof.place + os.clock() - t0 end
   end
