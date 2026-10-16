@@ -12,7 +12,10 @@ local M = {}
 local jbeamUtils = require('jbeam/utils')
 
 local SETTINGS = '/settings/slrr_drivers_mount.json'
-local flags = {ragdoll = false, selfCollision = false}   -- (the props are always on since W9; an old "props" key is ignored)
+-- (the props are always on since W9; an old "props" key is ignored). noCamera: props on cars without a driver
+-- camera (the pooled simple traffic, their seat guessed); passengers: the passenger props. Both for bisecting a
+-- crash in game: slrrDriverMount.setFlags({noCamera = false})
+local flags = {ragdoll = false, selfCollision = false, noCamera = true, passengers = true}
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
 local mounts = {}                  -- objID -> {driver = skin, passenger = skin, passengerAt = {x, y, z} (jbeam)}: what the car was given
@@ -164,13 +167,14 @@ local function addProps(objID, vehicle, camCid)
   local sp = steeringProp(vehicle)
   if not sp then log('W', 'slrrDriverMount', objID .. ': no steering prop with three nodes, no props') return 0 end
   local cam, seat = camCid and byCid(vehicle)[camCid].pos or nil, nil
+  if not cam and not flags.noCamera then log('I', 'slrrDriverMount', objID .. ': no driver camera and noCamera is off, no props') return 0 end
   if not cam then cam, seat = seatGuess(vehicle, sp) end
   if not cam then log('W', 'slrrDriverMount', objID .. ': no driver camera and no seat could be guessed, no props') return 0 end
   vehicle.props = vehicle.props or {}
   addParts(vehicle, 'slrr_driver_', skin, sp, cam)
   local mount = {driver = skin, seat = seat}
   -- a passenger in some cars (W9), in another skin
-  local pcam = objID % 100 < PASSENGER_SHARE * 100 and passengerCam(vehicle, cam)
+  local pcam = flags.passengers and objID % 100 < PASSENGER_SHARE * 100 and passengerCam(vehicle, cam)
   local skins = pcam and skinsWithProps() or {}
   if #skins > 1 then
     local other = skins[objID % #skins + 1]

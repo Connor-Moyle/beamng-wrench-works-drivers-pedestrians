@@ -94,6 +94,11 @@ def run(animated, record_to=None, look=None, props=False):
         worst["reach"] = max(worst["reach"], M.getState(7).reach or 0)
         worst["daze"] = max(worst.get("daze", 0), M.getState(7).dazeK or 0)
         if props:                             # the prop base transforms put every part where the TSStatic path did
+            for name, o in list(M.getState(7).parts.items()):
+                if o.prop is not None and o.prop.t is not None:
+                    cols = g.quatColumns(o.prop.q)
+                    vals = [o.prop.t.x, o.prop.t.y, o.prop.t.z] + [getattr(cols[i], a) for i in range(3) for a in "xyz"]
+                    assert all(math.isfinite(v) for v in vals), ("non-finite prop transform", name, round(t, 2))
             ep, ea = g.shim_prop_error()
             worst_prop = max(worst_prop, ep, ea)
             assert ep < 5e-4 and ea < 5e-4, ("prop transform off", round(t, 2), ep, ea)   # a prop sits still under 0.2 mm of pose change
@@ -314,6 +319,14 @@ def check_passenger():
         assert c.parts["pass_" + n].prop.visible, ("passenger part hidden", n)
     hands = c.parts.pass_r_hand.prop.t
     assert hands.z < pas.z - 0.3 and hands.y < pas.y + 0.1, "the passenger's hand is not in his lap: %s" % ((hands.x, hands.y, hands.z),)
+    for n in names:
+        p = c.parts["pass_" + n].prop
+        cols = g.quatColumns(p.q)
+        assert all(math.isfinite(getattr(cols[i], a)) for i in range(3) for a in "xyz"), ("passenger rotation not finite", n)
+    # a pose with a NaN in it is refused, never written (a NaN matrix hangs the GPU)
+    before = M.getPerf()[2]
+    lua.execute("local c = M.getState(7) local m = MatrixF(true) m:setPosition(vec3(0/0, 0, 0)) c.parts.r_hand:setTransform(m)")
+    assert M.getPerf()[2] == before + 1 and all(math.isfinite(v) for v in (c.parts.r_hand.prop.t.x, c.parts.r_hand.prop.t.y)), "a NaN transform reached the prop"
     M.onAiModeChange(7, "disabled")
     g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
     assert M.getState(7) is None, "the car kept its driver"

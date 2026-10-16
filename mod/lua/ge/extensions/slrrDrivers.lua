@@ -621,6 +621,10 @@ end
 -- The driver drawn by the car itself: slrrDriverMount adds his parts as vehicle props at spawn (meshes
 -- <skin>_<part>). Each becomes an object with the calls slrrDrivers makes on a TSStatic; a pose is
 -- turned into the car's own jbeam frame, so the car renders it with the seat, with no lag and no blur.
+-- a vector with every component a finite number (a NaN or inf in a transform hangs the GPU: never written)
+local function finite(v) return v.x == v.x and v.y == v.y and v.z == v.z and math.abs(v.x) < 1e6 and math.abs(v.y) < 1e6 and math.abs(v.z) < 1e6 end
+local badWrites = 0           -- transforms refused (getPerf's third value, for QA)
+
 local propConvention = 1   -- how a pose maps onto the prop's base transform (setPropConvention, for calibration)
 local PROP_STILL = 0.0002  -- m (and per axis unit): a smaller move leaves the prop where it is
 local function propPart(c, p)
@@ -633,6 +637,7 @@ local function propPart(c, p)
     local d = m:getPosition() - eye
     local function jb(v) return vec3(-v:dot(R.x), -v:dot(R.y), v:dot(R.z)) end   -- world -> seat -> jbeam axes
     local t, x, y = vec3(cam) + jb(d), jb(m:getColumn(0)), jb(m:getColumn(1))
+    if not (finite(t) and finite(x) and finite(y)) then badWrites = badWrites + 1 return end
     -- the two engine calls only when the part moved: at a steady pose most parts sit still (J6)
     local last = self.last
     if last and last.t:distance(t) < PROP_STILL and last.x:distance(x) < PROP_STILL and last.y:distance(y) < PROP_STILL then return end
@@ -944,6 +949,7 @@ local function markAll()
 end
 
 local function place(o, pos, R, axes)
+  if not (finite(pos) and finite(axes.x) and finite(axes.y) and finite(axes.z)) then badWrites = badWrites + 1 return end
   local m = MatrixF(true)
   m:setColumn(0, rotate(R, axes.x))
   m:setColumn(1, rotate(R, axes.y))
@@ -1591,7 +1597,7 @@ M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
 M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
-M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n end   -- ms per frame, drivers
+M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n, badWrites end   -- ms per frame, drivers, transforms refused
 -- ms per frame by section since the last call (body physics, the prop calls, everything), then reset
 M.getProfile = function()
   local f = math.max(1, prof.frames)

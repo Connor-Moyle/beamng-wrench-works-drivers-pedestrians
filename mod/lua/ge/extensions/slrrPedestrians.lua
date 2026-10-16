@@ -331,7 +331,8 @@ end
 
 local function place(o, pos, fwd)
   fwd = vec3(fwd.x, fwd.y, 0)
-  if fwd:length() < 1e-3 then fwd = vec3(0, 1, 0) end
+  if not (fwd.x == fwd.x and fwd.y == fwd.y) or fwd:length() < 1e-3 then fwd = vec3(0, 1, 0) end
+  if not (pos.x == pos.x and pos.y == pos.y and pos.z == pos.z) then return end   -- (a NaN transform hangs the GPU)
   fwd = fwd:normalized()
   local m = MatrixF(true)
   m:setColumn(0, fwd:cross(vec3(0, 0, 1)))   -- shapes face +y
