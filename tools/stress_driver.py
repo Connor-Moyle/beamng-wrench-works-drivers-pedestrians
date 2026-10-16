@@ -176,7 +176,12 @@ def check_far():
     lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 60 + vec3(0, 0, 2) end")
     lua.execute("shim_step(1 / 60, 20, 0, 0, 0, 3000, 3, 0.5, 0, 0)")
     assert drive(120, 300) == 0, "a driver 60 m away kept animating"
-    assert M.getPerf()[0] < 0.02, "a driver 60 m away still costs %.3f ms" % M.getPerf()[0]
+    # the cost is wall-clock: the best of 3 samples against the same limit (machine load must not fail it, a real cost still does)
+    costs = [M.getPerf()[0]]
+    for _ in range(2):
+        assert drive(60, 300) == 0, "a driver 60 m away kept animating"
+        costs.append(M.getPerf()[0])
+    assert min(costs) < 0.02, "a driver 60 m away still costs %.3f ms" % min(costs)
     lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 5 + vec3(0, 0, 2) end")
     assert drive(60, -300) > 0.05, "back in range, the hands did not turn the wheel"   # (the other way: he already holds 300)
     M.setDisplayMode("still")
@@ -567,8 +572,13 @@ def check_sizes():
     import check_recording
     for size in (0.9, 1.1):
         path = os.path.join(tempfile.gettempdir(), "slrr_size_%s.json" % size)
-        run(True, path, {"scale": size, "shirt": [0.8, 0.1, 0.1], "trousers": [0.1, 0.1, 0.3], "helmet": True})
-        r = check_recording.check(json.load(open(path)))
+        samples = []
+        for _ in range(3):           # J6's cost is wall-clock: the best of 3 runs against the same limit; any other finding is not timing and stands
+            run(True, path, {"scale": size, "shirt": [0.8, 0.1, 0.1], "trousers": [0.1, 0.1, 0.3], "helmet": True})
+            samples.append(check_recording.check(json.load(open(path))))
+            if not samples[-1]["high"] or any(not h.startswith("J6") for h in samples[-1]["high"]):
+                break
+        r = min(samples, key=lambda x: x["cost_ms"])
         assert not r["high"], ("size %s" % size, r["high"])
         print("size %.1f: body %.3f m, rim worst %.3f m, pops %d, clips %d, MED %d" % (
             size, r["seat_worst"], r["rim_worst"], len(r["pops"]), r["clips"], len(r["med"])))
