@@ -20,6 +20,9 @@ local ragdollNext = false          -- one-shot: the next vehicle with a driver c
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
 local mounts = {}                  -- objID -> {driver = skin, passenger = skin, passengerAt = {x, y, z} (jbeam)}: what the car was given
 local PASSENGER_SHARE = 0.3
+-- models that never get a passenger: the Truck shop's midtruck pickup (28 props, a passenger) was the car the engine died on
+-- 0.8 s after (WCUSA 2026-10-17 06:06, access violation); the cause is not found, so the second figure is refused there
+local NO_PASSENGER = {midtruck = true}
 
 local PARTS = {'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
                'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}
@@ -174,7 +177,13 @@ local function addProps(objID, vehicle, camCid)
   addParts(vehicle, 'slrr_driver_', skin, sp, cam)
   local mount = {driver = skin, seat = seat}
   -- a passenger in some cars (W9), in another skin
-  local pcam = flags.passengers and objID % 100 < PASSENGER_SHARE * 100 and passengerCam(vehicle, cam)
+  local wantPassenger = flags.passengers and objID % 100 < PASSENGER_SHARE * 100
+  local model = tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
+  if wantPassenger and model and NO_PASSENGER[model] then
+    log('I', 'slrrDriverMount', objID .. ': no passenger in a ' .. model)
+    wantPassenger = false
+  end
+  local pcam = wantPassenger and passengerCam(vehicle, cam)
   local skins = pcam and skinsWithProps() or {}
   if #skins > 1 then
     local other = skins[objID % #skins + 1]
@@ -257,7 +266,15 @@ local function addRagdoll(objID, vehicle, camCid)
   return #belts
 end
 
+-- The career's own cars nobody drives with AI (a lot's display cars, the player's fleet) are spawned after
+-- noPropsNext(): the next vehicle to load, and every rebuild of it, gets no props at all (the player's driver is a full one,
+-- not a prop). Armed for 5 s; whatever loads first takes it.
+local skipUntil, noProps = 0, {}
+M.noPropsNext = function() skipUntil = os.clock() + 5 end
+
 local function onJbeamLoadingPhase1(progress, objID, vehicle)
+  if not noProps[objID] and os.clock() < skipUntil then skipUntil = 0 noProps[objID] = true end
+  if noProps[objID] then log('I', 'slrrDriverMount', 'no props for ' .. tostring(objID) .. ': a car nobody drives') return end
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
     if camCid and not byCid(vehicle)[camCid] then camCid = nil end
@@ -320,5 +337,5 @@ M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.getRagdoll = function(objID) return ragdolls[objID] end
-M.onVehicleDestroyed = function(objID) ragdolls[objID] = nil mounts[objID] = nil end
+M.onVehicleDestroyed = function(objID) ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M

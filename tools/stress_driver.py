@@ -361,8 +361,8 @@ def check_mount():
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
     g = lua.globals()
-    errors = []
-    g.py_log = lambda level, tag, msg: errors.append("%s %s: %s" % (level, tag, msg)) if level == "E" else None
+    errors, infos = [], []
+    g.py_log = lambda level, tag, msg: (errors.append("%s %s: %s" % (level, tag, msg)) if level == "E" else infos.append(msg))
     lua.execute("""
       function log(level, tag, msg) py_log(level, tag, msg) end
       package.preload['jbeam/utils'] = function() return {increaseMax = function(v, k) v.maxIDs = v.maxIDs or {} v.maxIDs[k] = (v.maxIDs[k] or 0) + 1 return v.maxIDs[k] end} end
@@ -394,8 +394,28 @@ def check_mount():
             assert mount.seat and mount.seat.node and mount.seat.offset, ("no seat for the car without a camera", errors)
             seat = v.props["slrr_driver_body"].baseTranslationGlobal
             assert abs(seat.y - (-0.342 + 0.56)) < 1e-6 and abs(seat.z - (0.829 + 0.30)) < 1e-6, "the eye is not behind and above the wheel"
+    # a car nobody drives (a lot's display car, rebuilt once): no props, its rebuild neither; the next car gets them
+    M.noPropsNext()
+    v = g.shim_vehicle(True)
+    M.onJbeamLoadingPhase1(0.5, 31, v)
+    M.onJbeamLoadingPhase1(0.5, 31, v)
+    assert not [k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_")] and M.getMount(31) is None, "a car nobody drives got props"
+    v = g.shim_vehicle(True)
+    M.onJbeamLoadingPhase1(0.5, 32, v)
+    assert len([k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_driver_")]) == 14, "the car after it did not get its props"
+    M.onVehicleDestroyed(31)
+    # the midtruck never gets a passenger (a log line says so); another model's roll is left alone
+    v = g.shim_vehicle(True)
+    v.vehicleDirectory = "/vehicles/midtruck/"
+    M.onJbeamLoadingPhase1(0.5, 21, v)
+    assert any("no passenger in a midtruck" in m for m in infos) and not [k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_pass_")], "the midtruck was not refused a passenger"
+    v = g.shim_vehicle(True)
+    v.vehicleDirectory = "/vehicles/etk800/"
+    infos.clear()
+    M.onJbeamLoadingPhase1(0.5, 21, v)
+    assert not any("no passenger" in m for m in infos), "another model was refused a passenger"
     assert not errors, errors
-    print("mount ok: 14 props with a camera, 14 from the wheel without one, no errors")
+    print("mount ok: 14 props with a camera, 14 from the wheel without one, none for a car nobody drives, no passenger in a midtruck, no errors")
 
 
 def check_feed_mass():
