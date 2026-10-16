@@ -36,9 +36,10 @@ local LANE = 0.4            -- each pedestrian walks up to this far either side 
 local PERSONAL = 0.7        -- sideways room kept from another pedestrian
 local PED_AHEAD = 2.0       -- metres ahead another pedestrian is noticed
 local MAX_SIDE = 1.5        -- furthest a pedestrian strays from its line
-local IDLE_MIN, IDLE_MAX = 4, 15         -- seconds standing at a corner or along the way
-local STOP_RATE = 1 / 90                 -- chance per second (times the pedestrian's idle chance) to stop mid-walk
-local SPAWN_STANDING = 0.15              -- share spawned standing
+local IDLE_MIN, IDLE_MAX = 2, 7          -- seconds standing at a corner or along the way (a look round, not a pose)
+local STOP_RATE = 1 / 120                -- chance per second (times the pedestrian's idle chance) to stop mid-walk
+local SPAWN_STANDING = 0.05              -- share spawned standing (for a few seconds)
+local WAIT_MAX = 20                      -- seconds at a kerb for a gap or a light; then they turn back along the pavement instead of standing on
 local CROSS_MIN = 5         -- a link this long or more crosses a road
 local JUNCTION_REACH = 35   -- a crossing this close to a signalled junction's centre obeys its lights
 local GREEN, RED = 'greenTrafficLight', 'redTrafficLight'
@@ -385,11 +386,12 @@ end
 -- stand still (idle animation) for `time` seconds, or until a signal lets them go when `time` is nil
 local function stand(p, time)
   p.state, p.timer = time and 'idle' or 'wait', time
+  if time then p.waited = nil end
   setShape(p, p.type.idle or p.walk.shape)
 end
 
 local function walkOn(p)
-  p.state, p.face = 'walk', nil
+  p.state, p.face, p.waited = 'walk', nil, nil
   setShape(p, p.walk.shape)
 end
 
@@ -441,7 +443,7 @@ local function spawnNear(cam)
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
                  dir = math.random() < 0.5 and 1 or -1, lane = (math.random() * 2 - 1) * LANE, side = 0,
                  idleChance = t.idle and math.random() * 0.6 or 0, zTimer = 0, dodgeSide = 0}
-      if t.idle and opts.idling and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * 2 * IDLE_MAX) else walkOn(p) end
+      if t.idle and opts.idling and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN)) else walkOn(p) end
       return p
     end
   end
@@ -547,6 +549,15 @@ local function updateStanding(p, dt)
   if p.state == 'idle' then
     p.timer = opts.idling and p.timer - dt or 0
     if p.timer > 0 then return end
+  end
+  if p.state == 'wait' then
+    -- nobody stands at a kerb for ever (a busy road, a light that never gives them a gap): after WAIT_MAX they turn back
+    p.waited = (p.waited or 0) + dt
+    if p.waited > WAIT_MAX then
+      p.link, p.dir = nil, -p.dir
+      walkOn(p)
+      return
+    end
   end
   if p.link and p.state == 'wait' then        -- waiting at the kerb: look again 4 times a second
     p.check = (p.check or 0) - dt

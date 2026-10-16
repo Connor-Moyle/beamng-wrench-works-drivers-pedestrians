@@ -114,6 +114,7 @@ def main():
         k = min(max(int(np.searchsorted(c, d, side="right")) - 1, 0), len(l) - 2)
         t = (d - c[k]) / max(c[k + 1] - c[k], 1e-6)
         return l[k] + (l[k + 1] - l[k]) * t
+    walk_frames, longest_stand = [0, 0], [0.0, '']
     worst_side = 0.0
     spawns = in_view_spawns = 0
     road_starts = car_conflicts = 0
@@ -127,6 +128,12 @@ def main():
             slow_count = len(peds)
         for p in peds:
             states.add(p.state)
+            # how much of the time they walk, and the longest any one stands (T35)
+            walk_frames[0] += p.state == "walk"
+            walk_frames[1] += 1
+            p._still = (p._still or 0) + dt if p.state != "walk" else 0
+            if p._still > longest_stand[0]:
+                longest_stand[0], longest_stand[1] = p._still, p.state
             c = p.cross
             if c is not None and c.t <= dt * p.speed / c.len + 1e-9 and seen.get(id(c)) is None:
                 seen[id(c)] = True
@@ -178,6 +185,9 @@ def main():
                     close += 1
     end_state = M.getState()
     end_count, share = len(list(end_state.peds.values())), end_state.share
+    print("walking %.1f%% of the time; longest standing %.0f s (%s)" % (100 * walk_frames[0] / max(1, walk_frames[1]), longest_stand[0], longest_stand[1]))
+    assert walk_frames[0] / walk_frames[1] > 0.92, "pedestrians stand about too much: walking only %.1f%% of the time" % (100 * walk_frames[0] / walk_frames[1])
+    assert longest_stand[0] <= 30, "somebody stood still for %.0f s (%s)" % (longest_stand[0], longest_stand[1])
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
     print("furthest beyond the pavement room beside the line: %.3f m" % worst_side)
