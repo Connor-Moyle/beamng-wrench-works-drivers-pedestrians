@@ -337,7 +337,21 @@ def check_passenger():
     assert M.getState(7) is None, "the car kept its driver"
     for p in list(g.shimPropsList().values()):
         assert not p.visible, "a prop stayed visible on an empty car: %s" % p.mesh
-    print("passenger ok: beside the driver, hands in the lap, gone with the driver")
+    # the same car becomes the player's (bought on a lot, entered): no passenger, his props hidden; traffic again, he is back
+    lua.execute("be.getPlayerVehicleID = function() return 7 end M.onVehicleSwitched(-1, 7) M.onAiModeChange(7, 'traffic')")
+    for _ in range(5):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    c = M.getState(7)
+    assert c is not None and not c.drawnByCar and not c.passenger, "the player's car has a passenger"
+    assert not lua.eval("(function() for k in pairs(M.getState(7).parts) do if tostring(k):find('^pass_') then return true end end end)()"), "the player's car has passenger parts"
+    for p in list(g.shimPropsList().values()):
+        assert not p.visible or "pass" not in str(p.mesh), "a passenger prop is visible in the player's car: %s" % p.mesh
+    lua.execute("be.getPlayerVehicleID = function() return -1 end M.onVehicleSwitched(7, -1)")
+    for _ in range(5):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    c = M.getState(7)
+    assert c is not None and c.drawnByCar and c.passenger, "a car left to traffic did not get its passenger back"
+    print("passenger ok: beside the driver, hands in the lap, gone with the driver, never in the player's car")
 
 
 def check_mount():

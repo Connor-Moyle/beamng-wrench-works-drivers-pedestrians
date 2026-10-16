@@ -921,8 +921,9 @@ local function attach(vid)
   c.inward = c.rhd and -1 or 1
   c.mass = d.mass
   setupCollision(c, vid)
-  -- the passenger slrrDriverMount gave the car (W9): posed once beside the driver, then he rides with the car
-  local pd = mount and mount.passenger and mount.passengerAt and driverBySkin(mount.passenger)
+  -- the passenger slrrDriverMount gave the car (W9): posed once beside the driver, then he rides with the car.
+  -- Never in the player's car (it keeps the full driver, its props stay hidden): a car bought on a lot got its roll at spawn
+  local pd = not player and mount and mount.passenger and mount.passengerAt and driverBySkin(mount.passenger)
   local pp = pd and driverProps(veh, pd.skin)
   local prig = pd and getRig(pd.model)
   if pp and prig and cam0 then
