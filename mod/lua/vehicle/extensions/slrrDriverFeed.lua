@@ -21,8 +21,31 @@ local function onPanel(n)
   return part:find('door') or part:find('hood') or part:find('trunk') or part:find('tailgate') or part:find('hatch')
 end
 
+-- the nodes of the car's door latches and other couplers (advancedCouplerControl's couplerNodes): they
+-- carry no extra mass either, or the latch breaks when the weight arrives (the driver's door hung open)
+local function couplerCids()
+  local out = {}
+  local function add(name)
+    local cid = type(name) == 'string' and beamstate.nodeNameMap[name]
+    if cid then out[cid] = true end
+  end
+  for _, d in pairs(v.data) do
+    if type(d) == 'table' and type(d.couplerNodes) == 'table' then
+      for _, row in ipairs(tableFromHeaderTable(d.couplerNodes)) do
+        add(row.cid1)
+        add(row.forceCid1)
+        for _, key in ipairs({'cid2', 'forceCid2'}) do
+          if type(row[key]) == 'table' then for _, n in ipairs(row[key]) do add(n) end else add(row[key]) end
+        end
+      end
+    end
+  end
+  return out
+end
+
 local function setDriverMass(camCid, kg)
   removeMass()
+  local coupled = couplerCids()
   local cam = v.data.nodes[camCid] and v.data.nodes[camCid].pos
   if not cam or not kg or kg <= 0 then return end
   local seat = vec3(cam.x, cam.y + 0.1, cam.z - 0.55)   -- hips: below and a little behind the eye (car faces -y)
@@ -30,7 +53,7 @@ local function setDriverMass(camCid, kg)
   for _, radius in ipairs({0.45, 0.7, 1.0, 1.5}) do
     picked, total = {}, 0
     for _, n in pairs(v.data.nodes) do
-      if n.cid and n.pos and not onPanel(n) and vec3(n.pos):distance(seat) < radius then
+      if n.cid and n.pos and not onPanel(n) and not coupled[n.cid] and vec3(n.pos):distance(seat) < radius then
         local m = obj:getNodeMass(n.cid)
         picked[n.cid] = m
         total = total + m

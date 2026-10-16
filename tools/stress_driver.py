@@ -379,6 +379,42 @@ def check_mount():
     print("mount ok: 14 props with a camera, 14 from the wheel without one, no errors")
 
 
+def check_feed_mass():
+    """The driver's 90 kg goes on the nodes around the seat, but never on a door panel or on a coupler's nodes
+    (the door latch broke when the weight arrived: a body-side latch node sits right beside the seat)."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute("""
+      tableSize = function(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
+      tableFromHeaderTable = function(t)
+        local out, head = {}, t[1]
+        for i = 2, #t do local row = {} for j, k in ipairs(head) do row[k] = t[i][j] end out[#out + 1] = row end
+        return out
+      end
+      local pos = {a = {0, 0, 0}, b = {0.2, 0.1, 0}, c = {-0.2, 0, 0.1}, d = {0, 0.2, -0.1}, e = {0.1, -0.1, 0.1}, f = {0.2, 0.2, 0.1}, latch = {0.3, 0.1, -0.1}, door = {0.4, 0.1, -0.1}}
+      beamstate = {nodeNameMap = {}}
+      v = {data = {nodes = {}, door_L_coupler = {couplerNodes = {{'cid1', 'cid2', 'breakGroup'}, {'latch', 'door', 'x'}}}}}
+      mass = {}
+      local cid = 0
+      for name, p in pairs(pos) do
+        beamstate.nodeNameMap[name] = cid
+        v.data.nodes[cid] = {cid = cid, name = name, pos = {x = p[1], y = p[2], z = p[3] + 0.55 - 0.0}, partOrigin = name == 'door' and 'covet_door_L' or 'covet_body'}
+        mass[cid] = 5
+        cid = cid + 1
+      end
+      v.data.nodes[99] = {cid = 99, pos = {x = 0, y = 0, z = 0.55}, partOrigin = 'covet_body'}
+      mass[99] = 5
+      obj = {getNodeMass = function(_, c) return mass[c] end, setNodeMass = function(_, c, m) mass[c] = m end}
+      LATCH, DOOR = beamstate.nodeNameMap.latch, beamstate.nodeNameMap.door
+    """)
+    lua.execute("package.path = '%s/?.lua;' .. package.path" % os.path.join(MOD, "lua/vehicle/extensions").replace("\\", "/"))
+    lua.execute("F = require('slrrDriverFeed') F.setDriverMass(99, 90)")
+    g = lua.globals()
+    assert g.mass[g.LATCH] == 5 and g.mass[g.DOOR] == 5, "the driver's weight landed on a coupler node (door latch %s, door %s)" % (g.mass[g.LATCH], g.mass[g.DOOR])
+    assert abs(lua.eval("F.addedMass()") - 90) < 1e-6, "the driver's mass was not all placed"
+    print("feed mass ok: 90 kg on the seat's nodes, none on the door latch")
+
+
 def check_damage():
     """A steering column pushed in by a crash brings the rim, and the hands, closer: live, without a pop."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -548,6 +584,7 @@ if __name__ == "__main__":
     check_passenger()
     check_mount()
     check_far()
+    check_feed_mass()
     check_damage()
     check_look()
     check_tints()
