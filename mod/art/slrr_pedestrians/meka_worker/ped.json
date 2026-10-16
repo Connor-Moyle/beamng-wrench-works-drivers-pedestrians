@@ -1,0 +1,11 @@
+{
+ "kind": "worker",
+ "cycle": 1.2,
+ "walks": {
+  "meka_worker.dae": 0.92,
+  "meka_worker_slow.dae": 0.828,
+  "meka_worker_fast.dae": 1.012
+ },
+ "idle": "meka_worker_idle.dae",
+ "idleCycle": 3.0
+}

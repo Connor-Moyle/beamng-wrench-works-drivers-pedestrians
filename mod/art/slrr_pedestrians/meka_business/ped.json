@@ -1,0 +1,11 @@
+{
+ "kind": "business",
+ "cycle": 1.2,
+ "walks": {
+  "meka_business.dae": 0.92,
+  "meka_business_slow.dae": 0.828,
+  "meka_business_fast.dae": 1.012
+ },
+ "idle": "meka_business_idle.dae",
+ "idleCycle": 3.0
+}

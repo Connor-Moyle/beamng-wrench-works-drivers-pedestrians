@@ -1,0 +1,11 @@
+{
+ "kind": "business",
+ "cycle": 1.2,
+ "walks": {
+  "hooley_business.dae": 0.94,
+  "hooley_business_slow.dae": 0.846,
+  "hooley_business_fast.dae": 1.034
+ },
+ "idle": "hooley_business_idle.dae",
+ "idleCycle": 3.0
+}

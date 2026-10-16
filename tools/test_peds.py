@@ -191,6 +191,14 @@ def main():
     w = {name: M.weightAt(x, y) for name, (x, y) in {"downtown": (0, 500), "beachfront": (0, 950), "south end": (0, -800),
                                                     "industrial": (1000, -300), "outskirts": (3000, 3000)}.items()}
     print("density weights:", w)
+    # types per area (W8): an area's "types" picks among the pedestrian kinds; elsewhere the level's, else any
+    kinds = sorted({t.kind for t in list(M.getTypes().values())})
+    M.setDensity(to_lua(lua, {"default": 1, "types": ["casual"], "areas": [{"box": [0, 0, 100, 100], "weight": 1, "types": ["worker", "business"]}]}))
+    picked = {M.pickType(50, 50).kind for _ in range(200)}
+    assert picked and picked <= {"worker", "business"} and len(picked) == len({"worker", "business"} & set(kinds)), ("area types", picked, kinds)
+    assert {M.pickType(500, 500).kind for _ in range(100)} == {"casual"}, "outside the area the level's types"
+    M.setDensity(None)
+    print("types per area ok:", sorted(picked))
     assert states >= {"walk", "idle", "wait"}, states
     assert crossings["other"] == 0 and crossings["crossed traffic red"] > 0, crossings
     assert road_starts > 0 and car_conflicts == 0, (road_starts, car_conflicts)

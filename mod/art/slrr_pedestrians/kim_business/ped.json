@@ -1,0 +1,11 @@
+{
+ "kind": "business",
+ "cycle": 1.2,
+ "walks": {
+  "kim_business.dae": 0.85,
+  "kim_business_slow.dae": 0.765,
+  "kim_business_fast.dae": 0.935
+ },
+ "idle": "kim_business_idle.dae",
+ "idleCycle": 3.0
+}

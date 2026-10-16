@@ -8,5 +8,6 @@
  "idle": "meka_idle.dae",
  "idleCycle": 3.0,
  "cheer": "meka_cheer.dae",
- "cheerCycle": 2.9
+ "cheerCycle": 2.9,
+ "kind": "casual"
 }

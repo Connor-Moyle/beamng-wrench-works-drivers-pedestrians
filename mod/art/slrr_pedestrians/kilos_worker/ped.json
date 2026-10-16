@@ -1,0 +1,11 @@
+{
+ "kind": "worker",
+ "cycle": 1.2,
+ "walks": {
+  "kilos_worker.dae": 0.8,
+  "kilos_worker_slow.dae": 0.72,
+  "kilos_worker_fast.dae": 0.88
+ },
+ "idle": "kilos_worker_idle.dae",
+ "idleCycle": 3.0
+}

@@ -8,5 +8,6 @@
  "idle": "kilos_idle.dae",
  "idleCycle": 3.0,
  "cheer": "kilos_cheer.dae",
- "cheerCycle": 0.5
+ "cheerCycle": 0.5,
+ "kind": "casual"
 }

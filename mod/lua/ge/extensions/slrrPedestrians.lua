@@ -12,7 +12,8 @@
 -- They keep apart (keep right when meeting, pass on the free side), step round parked cars and jump out
 -- of the way of fast ones. Fewer walk while the frame time is over budget. An optional
 -- density_<level>.json weights areas (downtown busy, outskirts quiet): spawns favour busy spots, and the
--- count round the camera is the budget times the area's weight.
+-- count round the camera is the budget times the area's weight; an area's "types" says which kinds of
+-- pedestrian walk there (ped.json "kind": worker, business, casual; tools/ped_variants.py makes them).
 --
 -- API: slrrPedestrians.setCount(n) (saved), slrrPedestrians.getCount()
 
@@ -123,7 +124,7 @@ local function loadTypes()
     local dir, folder, stem = f:match('^(.*/([^/]+)/)([^/]+)%.dae$')
     if folder and folder:lower() == stem:lower() then
       local info = jsonReadFile(dir .. 'ped.json') or {}
-      local t = {walks = {}, idle = info.idle and dir .. info.idle, cheer = info.cheer and dir .. info.cheer}
+      local t = {walks = {}, idle = info.idle and dir .. info.idle, cheer = info.cheer and dir .. info.cheer, kind = info.kind or 'casual'}
       for shape, speed in pairs(info.walks or {}) do table.insert(t.walks, {shape = dir .. shape, speed = speed}) end
       if #t.walks == 0 then t.walks[1] = {shape = f, speed = DEFAULT_SPEED} end
       table.insert(types, t)
@@ -276,6 +277,29 @@ local function weightAt(x, y)
   return w
 end
 
+-- the kinds of pedestrian wanted here (the density file's "types", per area or for the level), nil = any
+local function kindsAt(x, y)
+  if not density or not opts.busyAreas then return nil end
+  local kinds = density.types
+  for _, a in ipairs(density.areas or {}) do
+    local b = a.box
+    if a.types and x >= b[1] and x <= b[3] and y >= b[2] and y <= b[4] then kinds = a.types end
+  end
+  return kinds
+end
+
+local function pickType(x, y)
+  local kinds = kindsAt(x, y)
+  if kinds then
+    local list = {}
+    for _, t in ipairs(types) do
+      for _, k in ipairs(kinds) do if t.kind == k then list[#list + 1] = t break end end
+    end
+    if #list > 0 then return list[math.random(#list)] end
+  end
+  return types[math.random(#types)]
+end
+
 -- the share of the count for the area round the camera: mean weight on the spawn ring
 local function localShare(cam)
   local sum, n = 0, 0
@@ -411,7 +435,7 @@ local function spawnNear(cam)
     local at = pick and lines[pick.line].pts[pick.k]
     if at and not inView(at, cam, look) and at:distance(cam) > SPAWN_MIN
         and math.random() < weightAt(q.x, q.y) then   -- busier areas take more
-      local t = types[math.random(#types)]
+      local t = pickType(at.x, at.y)
       local w = t.walks[math.random(#t.walks)]
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
                  dir = math.random() < 0.5 and 1 or -1, lane = (math.random() * 2 - 1) * LANE, side = 0,
@@ -733,7 +757,9 @@ local function updateSpectators(dt, cam, budget)
       local spot = specZone.spots[math.random(#specZone.spots)]
       local at = vec3(spot[1], spot[2], spot[3])
       if not used[spot] and (at:distance(cam) > SPEC_FAR or not inView(at, cam, look)) then
-        local sp = {spot = spot, type = types[math.random(#types)], cheer = 0}
+        local able = {}       -- a spectator needs a cheer shape (the clothing variants have none)
+        for _, t in ipairs(types) do if t.cheer then able[#able + 1] = t end end
+        local sp = {spot = spot, type = (#able > 0 and able or types)[math.random(#able > 0 and #able or #types)], cheer = 0}
         specSet(sp, false)
         table.insert(spectators, sp)
         break
@@ -975,6 +1001,9 @@ M.onUpdate = function(dtReal, dtSim)
     clear()
   end
 end
+M.pickType, M.kindsAt = pickType, kindsAt       -- (tests)
+M.getTypes = function() return types end
+M.setDensity = function(d) density = d end      -- a density table in place of the level's file (tests, mod makers)
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
 M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) end
 -- a race finishing (Valo City's races): the crowd cheers

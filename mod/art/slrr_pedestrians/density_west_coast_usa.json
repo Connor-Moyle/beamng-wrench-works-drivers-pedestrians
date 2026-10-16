@@ -1,0 +1,18 @@
+{
+ "note": "Pedestrian density by area on West Coast USA (W8): boxes [xmin, ymin, xmax, ymax] in world metres, weight 0..1, types = the pedestrian kinds (ped.json \"kind\") that walk there; where boxes overlap the later one wins. Boxes read off the stock level's parking spots and spawn points (connor-52, 2026-10-16); the countryside is the default.",
+ "default": 0.08,
+ "types": ["casual"],
+ "areas": [
+  { "name": "Belasco City (centre, north, west, south)", "box": [-980, 150, -600, 880], "weight": 1.0, "types": ["business", "casual"] },
+  { "name": "Riverway Plaza and the offices", "box": [-660, -170, -180, 400], "weight": 0.8, "types": ["business", "casual", "worker"] },
+  { "name": "Chinatown", "box": [-800, 480, -640, 660], "weight": 1.0, "types": ["casual", "business"] },
+  { "name": "the docks", "box": [-110, 620, 80, 870], "weight": 0.5, "types": ["worker"] },
+  { "name": "Sealbrik industrial", "box": [-680, -90, -470, 110], "weight": 0.4, "types": ["worker"] },
+  { "name": "logistics and the commercial garage", "box": [-400, -270, -150, 20], "weight": 0.4, "types": ["worker"] },
+  { "name": "the refinery", "box": [-720, 1860, -420, 2010], "weight": 0.3, "types": ["worker"] },
+  { "name": "Hotrolled steel yard", "box": [-1540, -1100, -1100, -460], "weight": 0.25, "types": ["worker"] },
+  { "name": "the suburbs", "box": [-780, -980, -100, -420], "weight": 0.45, "types": ["casual"] },
+  { "name": "the quarry", "box": [360, -980, 830, -770], "weight": 0.2, "types": ["worker"] },
+  { "name": "the race track paddock", "box": [180, -360, 340, -260], "weight": 0.4, "types": ["casual", "worker"] }
+ ]
+}

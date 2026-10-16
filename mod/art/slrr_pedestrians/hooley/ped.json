@@ -8,5 +8,6 @@
  "idle": "hooley_idle.dae",
  "idleCycle": 3.0,
  "cheer": "hooley_cheer.dae",
- "cheerCycle": 2.1
+ "cheerCycle": 2.1,
+ "kind": "casual"
 }

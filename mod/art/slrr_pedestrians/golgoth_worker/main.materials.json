@@ -1,0 +1,21 @@
+{
+ "slrr_ped_golgoth_worker": {
+  "name": "slrr_ped_golgoth_worker",
+  "mapTo": "slrr_ped_golgoth_worker",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_pedestrians/golgoth_worker/golgoth_worker.color.png",
+    "normalMap": "/art/slrr_pedestrians/golgoth/golgoth.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/golgoth/golgoth_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/golgoth/golgoth_ao.data.png",
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

@@ -1,0 +1,21 @@
+{
+ "slrr_ped_kim_worker": {
+  "name": "slrr_ped_kim_worker",
+  "mapTo": "slrr_ped_kim_worker",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_pedestrians/kim_worker/kim_worker.color.png",
+    "normalMap": "/art/slrr_pedestrians/kim/kim.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/kim/kim_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/kim/kim_ao.data.png",
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

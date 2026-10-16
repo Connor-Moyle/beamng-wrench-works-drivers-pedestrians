@@ -99,6 +99,9 @@ slrrPedestrians.setCount(0)    -- none
 ```
 
 Other maps can get pedestrians too: see *Sidewalks for other maps* in [docs/MODDING.md](docs/MODDING.md).
+On West Coast USA they walk the pavements made from its roads (never the road itself), busiest in Belasco
+City and Chinatown, sparse in the suburbs and out of town; workers in hi-vis in the industrial areas, the docks
+and the quarry, business people in the centre, the rest casual (clothing variants recoloured from SLRR's six).
 
 ## How it works
 

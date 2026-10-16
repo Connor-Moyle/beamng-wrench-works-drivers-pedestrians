@@ -1,0 +1,11 @@
+{
+ "kind": "worker",
+ "cycle": 1.0,
+ "walks": {
+  "gambler_worker.dae": 1.11,
+  "gambler_worker_slow.dae": 0.999,
+  "gambler_worker_fast.dae": 1.221
+ },
+ "idle": "gambler_worker_idle.dae",
+ "idleCycle": 3.0
+}

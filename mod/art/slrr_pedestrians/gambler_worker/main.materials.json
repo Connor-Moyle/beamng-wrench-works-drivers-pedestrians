@@ -1,0 +1,21 @@
+{
+ "slrr_ped_gambler_worker": {
+  "name": "slrr_ped_gambler_worker",
+  "mapTo": "slrr_ped_gambler_worker",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "baseColorMap": "/art/slrr_pedestrians/gambler_worker/gambler_worker.color.png",
+    "normalMap": "/art/slrr_pedestrians/gambler/gambler.normal.png",
+    "roughnessMap": "/art/slrr_pedestrians/gambler/gambler_r.data.png",
+    "ambientOcclusionMap": "/art/slrr_pedestrians/gambler/gambler_ao.data.png",
+    "metallicFactor": 0
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}

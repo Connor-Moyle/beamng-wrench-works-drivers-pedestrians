@@ -8,5 +8,6 @@
  "idle": "kim_idle.dae",
  "idleCycle": 3.0,
  "cheer": "kim_cheer.dae",
- "cheerCycle": 1.5
+ "cheerCycle": 1.5,
+ "kind": "casual"
 }

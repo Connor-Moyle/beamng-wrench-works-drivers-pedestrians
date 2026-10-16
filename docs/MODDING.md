@@ -194,6 +194,11 @@ The shape must:
 Add a `main.materials.json` for its textures, the same as for a driver skin (any material name). The
 remaster tool works on pedestrian folders too.
 
+A density file can also say who walks where: an area's `"types": ["worker"]` (or the file's own `"types"`
+for the whole level) picks among the folders whose `ped.json` has that `"kind"` (`casual` when it has none);
+`tools/ped_variants.py` makes `worker` (hi-vis) and `business` (dark suit) variants of every pedestrian by
+recolouring its clothes. West Coast USA ships `density_west_coast_usa.json` this way.
+
 Optionally add a `ped.json` next to the shape:
 
 ```json

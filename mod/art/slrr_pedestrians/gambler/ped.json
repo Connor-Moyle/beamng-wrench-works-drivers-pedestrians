@@ -8,5 +8,6 @@
  "idle": "gambler_idle.dae",
  "idleCycle": 3.0,
  "cheer": "gambler_cheer.dae",
- "cheerCycle": 2.2
+ "cheerCycle": 2.2,
+ "kind": "casual"
 }

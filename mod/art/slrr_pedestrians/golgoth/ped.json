@@ -8,5 +8,6 @@
  "idle": "golgoth_idle.dae",
  "idleCycle": 3.0,
  "cheer": "golgoth_cheer.dae",
- "cheerCycle": 0.6
+ "cheerCycle": 0.6,
+ "kind": "casual"
 }

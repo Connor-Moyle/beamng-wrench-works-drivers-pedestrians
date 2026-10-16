@@ -1,0 +1,11 @@
+{
+ "kind": "business",
+ "cycle": 1.0,
+ "walks": {
+  "gambler_business.dae": 1.11,
+  "gambler_business_slow.dae": 0.999,
+  "gambler_business_fast.dae": 1.221
+ },
+ "idle": "gambler_business_idle.dae",
+ "idleCycle": 3.0
+}

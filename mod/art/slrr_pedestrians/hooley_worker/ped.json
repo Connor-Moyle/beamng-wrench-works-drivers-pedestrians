@@ -1,0 +1,11 @@
+{
+ "kind": "worker",
+ "cycle": 1.2,
+ "walks": {
+  "hooley_worker.dae": 0.94,
+  "hooley_worker_slow.dae": 0.846,
+  "hooley_worker_fast.dae": 1.034
+ },
+ "idle": "hooley_worker_idle.dae",
+ "idleCycle": 3.0
+}
