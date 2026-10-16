@@ -141,6 +141,9 @@ def check_far():
         return moved
     assert drive(60, 0) >= 0, "warm up"
     lua.execute("core_camera.getPosition = function() local v = be:getObjectByID(7) return v:getPosition() - v:getDirectionVector() * 60 + vec3(0, 0, 2) end")
+    # B47: the player's own car never goes by the camera distance (it is stale in the driver camera)
+    assert drive(60, 300) > 0.05, "the player's driver froze with the camera reported 60 m away"
+    lua.execute("be.getPlayerVehicleID = function() return -1 end M.onAiModeChange(7, 'traffic')")
     lua.execute("shim_step(1 / 60, 20, 0, 0, 0, 3000, 3, 0.5, 0, 0)")
     assert drive(120, 300) == 0, "a driver 60 m away kept animating"
     assert M.getPerf()[0] < 0.02, "a driver 60 m away still costs %.3f ms" % M.getPerf()[0]
@@ -233,6 +236,16 @@ def check_presence():
     assert asks() == n + 1, "a stopping car was asked %d times in 2.5 s, want 1" % (asks() - n)
     M.onAiModeChange(7, "disabled")
     assert not driver(), "a car that came to a stop kept its driver"
+    # B48: a pooled traffic car whose driver-camera data comes late (after the 5 s of fast retries) still gets him
+    lua.execute("core_camera.getDriverDataById = function() return nil end")
+    M.onAiModeChange(7, "traffic")
+    for _ in range(400):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    assert not driver(), "a car without camera data got a driver"
+    lua.execute("core_camera.getDriverDataById = function() return 1, false end")
+    for _ in range(130):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    assert driver(), "a car whose camera data came late never got its driver"
     print("presence ok")
 
 

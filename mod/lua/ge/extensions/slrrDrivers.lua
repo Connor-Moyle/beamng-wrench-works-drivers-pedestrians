@@ -103,6 +103,7 @@ local displayMode = 'full'
 local carMode = {}       -- vehId -> mode
 local animated = true    -- set per car each frame from its mode
 local perfMs = 0         -- smoothed ms per frame spent placing all drivers (getPerf)
+local prof = {on = false, body = 0, place = 0, total = 0, frames = 0}   -- where the frame goes (getProfile)
 local stopAsk = 0        -- seconds since cars in 'stop' mode were last asked for their AI mode
 local group
 
@@ -536,7 +537,7 @@ end
 -- Upper body: a spring-damper point (the head) on the hips, thrown around by the car's acceleration,
 -- held by a seatbelt, and stopped by the car's nodes. Hard contacts push back on the car.
 -- Returns the lean rotation about the pelvis.
-local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
+local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist)
   local b = c.body
   if not b then b = {d = vec3(0, 0, 0), v = vec3(0, 0, 0)} c.body = b end
   local rig = c.rig
@@ -569,7 +570,7 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
   local function leanOf(d) return rotBetween(c.head0 - rig.pelvis, c.head0 + d - rig.pelvis) end
   local L = leanOf(b.d)
 
-  if c.colNodes and #c.colNodes > 0 and eyeNow:distance(camPos) < COLLIDE_DIST then
+  if c.colNodes and #c.colNodes > 0 and camDist < COLLIDE_DIST then
     local vpos = veh:getPosition()
     local pts = {}
     for i, cid in ipairs(c.colNodes) do
@@ -627,6 +628,7 @@ local function propPart(c, p)
     self.m = m
     local R, eye, cam = c.frameR, c.frameEye, c.cam0
     if not (R and eye and cam) then return end
+    local t0 = prof.on and os.clock()
     local d = m:getPosition() - eye
     local function jb(v) return vec3(-v:dot(R.x), -v:dot(R.y), v:dot(R.z)) end   -- world -> seat -> jbeam axes
     local mj = MatrixF(true)
@@ -636,6 +638,7 @@ local function propPart(c, p)
     if propConvention == 2 then mj:inverse() end
     p:setBaseTranslationGlobal(vec3(cam) + jb(d))
     p:setBaseRotationGlobalQuat(mj:toQuatF())   -- a QuatF: quat() would make cdata, which the prop rejects (B20)
+    if t0 then prof.place = prof.place + os.clock() - t0 end
   end
   function o:getTransform() return self.m end
   function o:setHidden(h) self.hidden = h p:setVisible(not h) end
@@ -1122,7 +1125,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local mode = carMode[vid] or displayMode
   animated = mode == 'full' or mode == 'hideFirstPerson'
   local fpView = vid == fpVid
-  local off = eye:distance(camPos) > CULL_DIST or mode == 'hidden' or (mode == 'hideFirstPerson' and fpView)
+  -- the player's own car is always near: in the driver camera core_camera.getPosition() stays where the
+  -- camera was last placed, which culled and froze him after 40-150 m of driving (B47)
+  local camDist = (fpView or vid == be:getPlayerVehicleID(0)) and 0 or eye:distance(camPos)
+  local off = camDist > CULL_DIST or mode == 'hidden' or (mode == 'hideFirstPerson' and fpView)
   if off ~= c.hidden then
     for _, o in pairs(c.parts) do o:setHidden(off) end
     c.hidden, c.headHidden = off, off
@@ -1130,7 +1136,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if off then return end
   -- drawn by the car and still, or further than ANIM_DIST from the camera: his last pose rides with the car
   -- at no cost (the props keep their base transforms), which is what pays for 14 traffic drivers (J6)
-  if c.drawnByCar and c.posed and (not animated or eye:distance(camPos) > ANIM_DIST) then return end
+  if c.drawnByCar and c.posed and (not animated or camDist > ANIM_DIST) then return end
   local fwd = vec3(veh:getDirectionVector()):normalized()
   local up = vec3(veh:getDirectionVectorUp())
   local eyeNow, Rnow = eye, basis(fwd, up)   -- for measuring the car's own nodes
@@ -1149,7 +1155,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local function world(p) return eye + rotate(R, c.seat and (p + c.seat) or p) end
   local rig, e = c.rig, c.e
 
-  local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos) or IDENT
+  local t0 = prof.on and os.clock()
+  local L = animated and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist) or IDENT
+  if t0 then prof.body = prof.body + os.clock() - t0 end
   -- reversing at walking pace: he twists round to look out of the back (not in the player's own view)
   local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < REVERSE_LOOK_SPEED
   c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
@@ -1350,7 +1358,13 @@ end
 local function onPreRender(dt, dtSim)
   if next(bakeJobs) then runBakes() end
   for vid, tries in pairs(pending) do
-    if attach(vid) or tries > 300 then pending[vid] = nil else pending[vid] = tries + 1 end
+    -- every frame for 5 s, then once every 2 s: a pooled traffic car's camera data can come late, and a car
+    -- given up on stayed empty for good (B48)
+    if tries < 300 or tries % 120 == 0 then
+      if attach(vid) then pending[vid] = nil else pending[vid] = tries + 1 end
+    else
+      pending[vid] = tries + 1
+    end
   end
   if not next(cars) then return end
   local camPos = core_camera.getPosition()
@@ -1371,6 +1385,7 @@ local function onPreRender(dt, dtSim)
     end
   end
   perfMs = perfMs + ((os.clock() - t0) * 1000 - perfMs) * 0.02   -- smoothed cost of all drivers per frame
+  if prof.on then prof.total, prof.frames = prof.total + os.clock() - t0, prof.frames + 1 end
 end
 
 -- called by slrrDriverFeed (vehicle Lua) every frame
@@ -1458,6 +1473,24 @@ M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
 M.getState = function(vid) return cars[vid] end   -- for debugging
 M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n end   -- ms per frame, drivers
+-- ms per frame by section since the last call (body physics, the prop calls, everything), then reset
+M.getProfile = function()
+  local f = math.max(1, prof.frames)
+  local out = {body = prof.body / f * 1000, place = prof.place / f * 1000, total = prof.total / f * 1000, frames = prof.frames}
+  prof.on, prof.body, prof.place, prof.total, prof.frames = true, 0, 0, 0, 0
+  return out
+end
+-- every vehicle: its AI mode as known here, whether a driver is pending, which driver sits in it, and whether
+-- the game has driver-camera data for it (B48: which step keeps a car empty)
+M.getPresence = function()
+  local out = {}
+  for _, v in ipairs(getAllVehicles()) do
+    local vid = v:getId()
+    out[vid] = {jbeam = v:getJBeamFilename(), ai = aiModes[vid], pending = pending[vid], driver = cars[vid] and cars[vid].id or false,
+                cam = core_camera.getDriverDataById(vid) ~= nil, player = vid == be:getPlayerVehicleID(0)}
+  end
+  return out
+end
 M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
 M.setPropConvention = function(k) propConvention = k end   -- calibrating parts drawn by the car
 -- pose recording for tools/render_pose.py
