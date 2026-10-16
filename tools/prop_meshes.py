@@ -29,10 +29,15 @@ def main():
         skin, model = info.get("skin", d), info["model"]
         for part in PARTS:
             src = os.path.join(OUT, "slrr_%s_%s.dae" % (model, part))
+            dst = os.path.join(OUT, "%s_%s.dae" % (skin, part))
             text = open(src, encoding="utf-8").read()
-            assert text.count('name="base_driver"') == 1 and text.count("slrr_%s_%s" % (model, part)) >= 1, src
-            text = text.replace("slrr_%s_%s" % (model, part), "%s_%s" % (skin, part)).replace('name="base_driver"', 'name="%s_driver"' % skin)
-            open(os.path.join(OUT, "%s_%s.dae" % (skin, part)), "w", encoding="utf-8", newline="\n").write(text)
+            assert text.count("slrr_%s_%s" % (model, part)) >= 1, src
+            if src != dst:   # a skin named after its model (slrr_police) is its own source: only the material changes
+                assert text.count('name="base_driver"') == 1, src
+                text = text.replace("slrr_%s_%s" % (model, part), "%s_%s" % (skin, part))
+            text = text.replace('name="base_driver"', 'name="%s_driver"' % skin)
+            open(dst, "w", encoding="utf-8", newline="
+").write(text)
             n += 1
     print("%d prop meshes written to %s" % (n, os.path.relpath(OUT)))
 
