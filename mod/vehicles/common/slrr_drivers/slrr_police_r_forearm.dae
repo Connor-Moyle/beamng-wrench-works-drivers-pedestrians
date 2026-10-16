@@ -3,7 +3,7 @@
 <library_effects>
 <effect id="fx0"><profile_COMMON><technique sid="common"><phong><diffuse><color>1 1 1 1</color></diffuse></phong></technique></profile_COMMON></effect>
 </library_effects><library_materials>
-<material id="mat0" name="base_driver"><instance_effect url="#fx0"/></material>
+<material id="mat0" name="slrr_police_driver"><instance_effect url="#fx0"/></material>
 </library_materials><library_geometries>
 <geometry id="g0" name="slrr_police_r_forearm"><mesh>
 <source id="g0-p"><float_array id="g0-p-a" count="69">0.055237 0.034735 -0.00072623 -0.015904 0.24945 0.053049 0.027439 0.029757 0.043176 -0.014021 0.02919 0.055137 -0.046773 0.24417 0.064984 -0.066141 0.24357 0.055988 -0.051449 0.032558 0.034858 -0.043339 0.028924 -0.024663 -0.055744 0.2486 0.03219 -0.0011713 0.25585 0.02376 0.046219 0.036381 -0.028522 -0.024353 0.25518 0.012695 -0.0024571 0.033394 -0.046655 -0.0024571 0.033394 -0.046655 -0.024353 0.25518 0.012695 -0.015178 -0.018515 0.051454 0.025155 -0.017001 0.03823 -0.049133 -0.027354 0.03723 -0.040339 -0.024806 -0.021745 -0.003678 -0.023775 -0.041886 0.047095 -0.002675 -0.029765 -0.003678 -0.023775 -0.041886 0.053657 3.3518e-05 -0.00738</float_array><technique_common><accessor source="#g0-p-a" count="23" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>

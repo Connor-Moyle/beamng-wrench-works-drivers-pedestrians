@@ -1,6 +1,6 @@
 -- SLRR Drivers: the driver as part of the car. At every vehicle spawn (BeamNG's onJbeamLoadingPhase1 hook,
 -- after node ids are assigned) this can add
---   * props: the driver's 14 parts as vehicle props (meshes slrr_<model>_<part> from vehicles/common), so
+--   * props: the driver's 14 parts as vehicle props (meshes <skin>_<part> from vehicles/common), so
 --     the car draws them in its own render transform (exactly seat-locked, proper motion vectors);
 --     slrrDrivers poses them every frame;
 --   * a ragdoll (prototype): ~16 physics nodes at the seated joints, stiff bones, joint limits, soft
@@ -35,11 +35,13 @@ local function driverCamera(vehicle)
   end
 end
 
-local function driverModel()
-  local id = slrrDrivers and slrrDrivers.getDefaultDriver and slrrDrivers.getDefaultDriver() or 'slrr_mitch'
+local function driverInfo(objID)   -- the car's driver (chosen for it, else the default): model and skin
+  local id = slrrDrivers and ((slrrDrivers.getDriver and objID and slrrDrivers.getDriver(objID))
+    or (slrrDrivers.getDefaultDriver and slrrDrivers.getDefaultDriver())) or 'slrr_mitch'
   local d = jsonReadFile('/art/slrr_drivers/' .. id .. '/driver.json')
-  return d and d.model or 'vin'
+  return d and d.model or 'vin', d and d.skin or id
 end
+local function driverModel(objID) return (driverInfo(objID)) end
 
 local function onPanel(n)
   local part = string.lower(tostring(n.partOrigin or ''))
@@ -47,8 +49,11 @@ local function onPanel(n)
   return false
 end
 
-local function addProps(vehicle, camCid)
-  local model = driverModel()
+local function addProps(objID, vehicle, camCid)
+  -- meshes per skin, with the skin's material named in the dae (tools/prop_meshes.py): a material override
+  -- on a prop at runtime crashes the engine
+  local _, skin = driverInfo(objID)
+  if not FS:fileExists('/vehicles/common/slrr_drivers/' .. skin .. '_body.dae') then return 0 end
   local sp
   for _, p in pairs(vehicle.props or {}) do
     if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) and tonumber(p.idX) and tonumber(p.idY) then sp = p break end
@@ -60,7 +65,7 @@ local function addProps(vehicle, camCid)
   -- visibility over these (hiding from the GE side works) and never animates them
   for _, part in ipairs(PARTS) do
     vehicle.props['slrr_driver_' .. part] = {
-      mesh = 'slrr_' .. model .. '_' .. part, func = 'slrr_driver', idRef = sp.idRef, idX = sp.idX, idY = sp.idY,
+      mesh = skin .. '_' .. part, func = 'slrr_driver', idRef = sp.idRef, idX = sp.idX, idY = sp.idY,
       translation = {x = 0, y = 0, z = 0}, rotation = {x = 0, y = 0, z = 0},
       baseTranslationGlobal = {x = cam.x, y = cam.y, z = cam.z},
       cid = jbeamUtils.increaseMax(vehicle, 'props'), slrrPart = part}
@@ -81,7 +86,7 @@ local function nearestNode(vehicle, p, skip)
 end
 
 local function addRagdoll(objID, vehicle, camCid)
-  local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel() .. '/rig.json')
+  local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel(objID) .. '/rig.json')
   if not rig then return 0 end
   local cam = vec3(byCid(vehicle)[camCid].pos)
   local sx = 1                                   -- seat frame x is right
@@ -156,7 +161,7 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
     local camCid = driverCamera(vehicle)
     if not camCid or not byCid(vehicle)[camCid] then return end
     if flags.props then
-      log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(vehicle, camCid))
+      log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))
     end
     if flags.ragdoll or ragdollNext then
       ragdollNext = false

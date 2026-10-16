@@ -154,10 +154,10 @@ local shimProps = {}
 if SHIM_PROPS then
   for i, part in ipairs({'body', 'head', 'r_upperarm', 'r_forearm', 'r_hand', 'l_upperarm', 'l_forearm', 'l_hand',
                          'r_thigh', 'r_calf', 'r_foot', 'l_thigh', 'l_calf', 'l_foot'}) do
-    local p = {mesh = 'slrr_vin_' .. part, visible = true}
+    local p = {mesh = 'slrr_mitch_' .. part, visible = true}
     function p:getMeshName() return self.mesh end
     function p:setVisible(v) self.visible = v end
-    function p:setMaterialOverride(_, to) self.material = to end
+    function p:setMaterialOverride() error('a material override on a prop crashes the game (slot 2026-10-16)') end
     function p:setBaseTranslationGlobal(v) self.t = vec3(v) end
     function p:setBaseRotationGlobalQuat(q) assert(q.isQuatF, 'expect userdata, got cdata') self.q = q end
     shimProps[i] = p

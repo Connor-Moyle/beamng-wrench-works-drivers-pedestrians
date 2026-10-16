@@ -38,7 +38,9 @@ calib)
   powershell -NoProfile -File "C:/Dev/SLRR map for beam ng/tools/launch.ps1" -Restart
   lua "for _,n in ipairs({'bd_sea_north','bd_sea_south','bd_sea_west','bd_sea_east'}) do local o=scenetree.findObject(n) if o then o:setField('gridElementSize',0,'200') o:postApply() end end slrrDriverMount.setFlags({props=true, ragdoll=false}) slrrDrivers.setDisplayMode('full') return 'ready, props on'"
   for conv in 1 2; do
-    V=$(spawn etk800); sleep 8
+    V=$(spawn etk800); sleep 12
+    if (node bng.js get_status 2>&1 | grep -q "no server"); then echo "DEAD: the game crashed within 12 s of the spawn with props on (stop here, write it up)"; exit 1; fi
+    echo "alive 12 s after the spawn"
     lua "slrrDrivers.setPropConvention($conv) local c=slrrDrivers.getState($V) return 'conv $conv: drawn by car '..tostring(c and c.drawnByCar)"
     sleep 1; xray "$V" "mount_calib_conv$conv.jpg"
     lua "be:getObjectByID($V):delete() return 1" >/dev/null

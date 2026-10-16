@@ -618,7 +618,7 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camPos)
 end
 
 -- The driver drawn by the car itself: slrrDriverMount adds his parts as vehicle props at spawn (meshes
--- slrr_<model>_<part>). Each becomes an object with the calls slrrDrivers makes on a TSStatic; a pose is
+-- <skin>_<part>). Each becomes an object with the calls slrrDrivers makes on a TSStatic; a pose is
 -- turned into the car's own jbeam frame, so the car renders it with the seat, with no lag and no blur.
 local propConvention = 1   -- how a pose maps onto the prop's base transform (setPropConvention, for calibration)
 local function propPart(c, p)
@@ -644,10 +644,12 @@ local function propPart(c, p)
   return o
 end
 
--- the props slrrDriverMount gave this car for a model, part -> prop (nil unless all are there)
-local function driverProps(veh, model)
+-- the props slrrDriverMount gave this car for a skin, part -> prop (nil unless all are there). Their
+-- material is in the mesh: a material override on a prop crashes the engine, so clothing tints
+-- (tinted materials) don't reach a driver drawn by the car
+local function driverProps(veh, skin)
   local found, n = {}, 0
-  local prefix = 'slrr_' .. model .. '_'
+  local prefix = skin .. '_'
   for pid = 0, (veh.getPropCount and veh:getPropCount() or 0) - 1 do
     local p = veh:getProp(pid)
     local mesh = p and p:getMeshName() or ''
@@ -689,7 +691,7 @@ local function attach(vid)
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
   if look.helmet then table.insert(partList, 'helmet') end
   -- drawn by the car when slrrDriverMount gave it this model's parts (props can't be scaled)
-  local props = math.abs(size - 1) < 1e-3 and driverProps(veh, d.model)
+  local props = math.abs(size - 1) < 1e-3 and driverProps(veh, d.skin)
   if props then
     local vd = core_vehicle_manager.getVehicleData(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
@@ -699,7 +701,6 @@ local function attach(vid)
   for _, p in ipairs(partList) do
     if props and props[p] then
       local o = propPart(c, props[p])
-      props[p]:setMaterialOverride('base_driver', c.material)
       o:setHidden(false)
       c.parts[p] = o
       goto continue
