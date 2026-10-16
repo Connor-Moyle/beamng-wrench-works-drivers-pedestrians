@@ -3,8 +3,9 @@
 # the criteria in C:/Dev/SLRR BeamNG Graph/qa_reports/2026-10-16_driver.md.
 #   bash tools/turn_mount.sh calib        # restart the game (so vehicles/common loads), props on, x-ray both
 #                                         # pose conventions: pick the one with the driver seated, hands on the wheel
-#   bash tools/turn_mount.sh run [conv]   # props on, speed runs with 6-shot bursts at 30/50/70 m/s (chase + first
-#                                         # person), a pose recording, then J6 with 14 traffic cars
+#   bash tools/turn_mount.sh run [conv]   # props on, an etk800 (CAR=) at 30 and 45 m/s (SPEEDS=) with 6-shot bursts from a
+#                                         # side orbit camera and first person, a pose recording, then J6 with 14 traffic
+#                                         # cars around the player's car (presence and profile printed)
 #   bash tools/turn_mount.sh off          # flags off
 # Every phase ends with the flags off (game and settings file), however it ends: a saved props=true spawns
 # the props for everyone's turn.
@@ -15,7 +16,7 @@ USER_TEMP="$LOCALAPPDATA/BeamNG/BeamNG.drive/current/temp"
 LOG="$LOCALAPPDATA/BeamNG/BeamNG.drive/current/beamng.log"
 lua() { node bng.js run_lua "$1"; }
 inp() { node bng.js inject_input "{\"event\":\"$1\",\"value\":$2}" >/dev/null; }
-shot() { SHOT="$REVIEW/$1" node bng.js screenshot_image >/dev/null; }
+shot() { SHOT="$REVIEW/$1" node bng.js screenshot_image >/dev/null; sleep 0.3; SHOT="$REVIEW/$1" node bng.js screenshot_image >/dev/null; }   # one call captures, the next saves
 spawn() {   # model, y: on Valo City's long straight, facing -y, player in it
   lua "local q=quatFromDir(vec3(0,-1,0), vec3(0,0,1)) local v=core_vehicles.spawnNewVehicle('$1', {pos=vec3(2336.88,${2:-330},6.6), rot=q, autoEnterVehicle=true, cling=true}) return v:getId()"
 }
@@ -35,7 +36,7 @@ trap flagsoff EXIT
 
 case "${1:-}" in
 calib)
-  powershell -NoProfile -File "C:/Dev/SLRR map for beam ng/tools/launch.ps1" -Restart
+  [ -z "$SKIP_LAUNCH" ] && powershell -NoProfile -File "C:/Dev/SLRR map for beam ng/tools/launch.ps1" -Restart   # SKIP_LAUNCH=1: the game is already up with the meshes on disk
   lua "for _,n in ipairs({'bd_sea_north','bd_sea_south','bd_sea_west','bd_sea_east'}) do local o=scenetree.findObject(n) if o then o:setField('gridElementSize',0,'200') o:postApply() end end slrrDriverMount.setFlags({props=true, ragdoll=false}) slrrDrivers.setDisplayMode('full') return 'ready, props on'"
   for conv in 1 2; do
     V=$(spawn etk800); sleep 12
@@ -49,31 +50,35 @@ calib)
   echo "look at $REVIEW/mount_calib_conv1.jpg and conv2.jpg, then: bash tools/turn_mount.sh run <conv>"
   ;;
 run)
-  CONV=${2:-1}
+  CONV=${2:-2}; CAR=${CAR:-etk800}; SPEEDS=${SPEEDS:-30 45}
   RUNLOG="$REVIEW/mount_run.log"; : > "$RUNLOG"
-  lua "slrrDriverMount.setFlags({props=true}) slrrDrivers.setPropConvention($CONV) slrrDrivers.setDisplayMode('full') return 1" >/dev/null
-  V=$(spawn scintilla); sleep 8
-  lua "local c=slrrDrivers.getState($V) return 'conv $CONV: drawn by car '..tostring(c and c.drawnByCar)" | tee -a "$RUNLOG"
-  lua "commands.setGameCamera() core_camera.setByName(0,'orbit') slrrDrivers.startRecording($V) return 1" >/dev/null
+  lua "slrrDriverMount.setFlags({props=true}) slrrDrivers.setPropConvention($CONV) return 1" >/dev/null
+  V=$(spawn $CAR); sleep 8
+  # the mode per car: the Wrench Works garage re-applies its saved Driver setting (hideFirstPerson) on every spawn
+  lua "slrrDrivers.setDisplayMode('full', $V) local c=slrrDrivers.getState($V) return '$CAR conv $CONV: drawn by car '..tostring(c and c.drawnByCar)..', mode '..tostring(slrrDrivers.getDisplayMode($V))" | tee -a "$RUNLOG"
+  # the orbit camera from the driver's side, close: the driver visible through the window at speed
+  lua "commands.setGameCamera() core_camera.setByName(0,'orbit') core_camera.setDefaultRotation($V, vec3(100, -6, 0)) core_camera.setDefaultDistance($V, 4) pcall(function() core_camera.resetCamera(0) end) slrrDrivers.startRecording($V) return 1" >/dev/null
   node bng.js run_lua_vehicle '{"code":"controller.mainController.setGearboxMode(\"arcade\") return 1"}' >/dev/null
+  sleep 2; shot "mount_${CAR}_side_still.jpg"
   inp parkingbrake 0; inp brake 0; inp throttle 1
-  for target in 30 50 70; do
+  for target in $SPEEDS; do
     for i in $(seq 1 50); do s=$(speed "$V"); awk "BEGIN{exit !($s >= $target)}" && break; sleep 0.5; done
     echo "target $target m/s: at $s m/s" | tee -a "$RUNLOG"
-    for k in 1 2 3 4 5 6; do shot "mount_${target}_chase_$k.jpg"; done
-    echo "  chase burst ended at $(speed "$V") m/s" | tee -a "$RUNLOG"
+    for k in 1 2 3 4 5 6; do shot "mount_${target}_side_$k.jpg"; done
+    echo "  side burst ended at $(speed "$V") m/s" | tee -a "$RUNLOG"
     lua "core_camera.setByName(0,'driver') return 1" >/dev/null; sleep 1
     shot "mount_${target}_fp_1.jpg"; shot "mount_${target}_fp_2.jpg"
     lua "core_camera.setByName(0,'orbit') return 1" >/dev/null
-    ffmpeg -y -loglevel error -framerate 3 -i "$REVIEW/mount_${target}_chase_%d.jpg" -vf "scale=960:-1" "$REVIEW/driver_mount_${target}.gif"
+    ffmpeg -y -loglevel error -framerate 3 -i "$REVIEW/mount_${target}_side_%d.jpg" -vf "scale=960:-1" "$REVIEW/driver_mount_${target}.gif"
   done
   inp throttle 0; inp brake 1; sleep 8; inp brake 0
   lua "local perf = slrrDrivers.getPerf() return string.format('recorded %d frames, one driver %.2f ms per frame', slrrDrivers.stopRecording($V, '/temp/slrr_rec_mount.json'), perf)" | tee -a "$RUNLOG"
-  lua "be:getObjectByID($V):delete() return 1" >/dev/null
-  echo "== J6: 14 traffic cars"
-  lua "gameplay_traffic.setupTraffic(14) return 1" >/dev/null; sleep 25
-  lua "local perf, n = slrrDrivers.getPerf() local drawn = 0 for _, v in ipairs(getAllVehicles()) do local c = slrrDrivers.getState(v:getId()) if c and c.drawnByCar then drawn = drawn + 1 end end return string.format('J6: %d drivers (%d drawn by the car) cost %.2f ms per frame', n, drawn, perf)" | tee -a "$RUNLOG"
-  lua "gameplay_traffic.deleteVehicles() return 1" >/dev/null
+  echo "== J6: 14 traffic cars around the player's car, 30 s"
+  lua "core_camera.setDefaultRotation($V, vec3(0, -17, 0)) core_camera.setDefaultDistance($V, 5) gameplay_traffic.setupTraffic(14) return 1" >/dev/null; sleep 30
+  lua "slrrDrivers.getProfile() return 1" >/dev/null; sleep 5
+  lua "local perf, n = slrrDrivers.getPerf() local pr = slrrDrivers.getProfile() local t = {all = 0, driver = 0, drawn = 0, pending = 0, nocam = 0, off = 0} for vid, p in pairs(slrrDrivers.getPresence()) do t.all = t.all + 1 if p.driver then t.driver = t.driver + 1 end local c = slrrDrivers.getState(vid) if c and c.drawnByCar then t.drawn = t.drawn + 1 end if p.pending then t.pending = t.pending + 1 end if not p.cam then t.nocam = t.nocam + 1 end if p.ai == false or p.ai == 'disabled' then t.off = t.off + 1 end end return string.format('J6: %d vehicles, %d drivers (%d drawn by the car), %d pending, %d without camera data, %d AI off/unknown; cost %.2f ms per frame; profile over %d frames: body %.3f, prop calls %.3f, total %.3f ms', t.all, n, t.drawn, t.pending, t.nocam, t.off, perf, pr.frames, pr.body, pr.place, pr.total)" | tee -a "$RUNLOG"
+  lua "local out = {} for vid, p in pairs(slrrDrivers.getPresence()) do if not p.driver and not p.player then out[#out+1] = string.format('%d %s ai=%s pending=%s cam=%s', vid, p.jbeam, tostring(p.ai), tostring(p.pending), tostring(p.cam)) end end return #out == 0 and 'every vehicle has a driver' or table.concat(out, '; ')" | tee -a "$RUNLOG"
+  lua "gameplay_traffic.deleteVehicles() be:getObjectByID($V):delete() return 1" >/dev/null
   echo "errors in the log: $(errors)" | tee -a "$RUNLOG"
   python check_recording.py "$USER_TEMP/slrr_rec_mount.json" | tee -a "$RUNLOG"
   echo "shots and GIFs: $REVIEW/mount_*; log: $RUNLOG"
