@@ -98,10 +98,36 @@ local function addParts(vehicle, key, skin, sp, at)
   end
 end
 
+-- a node reference as the jbeam phase has it: a cid, or still the node's name
+local function nodeCid(vehicle, ref)
+  if tonumber(ref) then return tonumber(ref) end
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.cid and (n.name == ref or n.id == ref) then return n.cid end
+  end
+end
+
 local function steeringProp(vehicle)
   for _, p in pairs(vehicle.props or {}) do
-    if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) and tonumber(p.idX) and tonumber(p.idY) then return p end
+    if type(p) == 'table' and p.func == 'steering' then
+      local r, x, y = nodeCid(vehicle, p.idRef), nodeCid(vehicle, p.idX), nodeCid(vehicle, p.idY)
+      if r and x and y then return {idRef = r, idX = x, idY = y, baseTranslationGlobal = p.baseTranslationGlobal} end
+    end
   end
+end
+
+-- the eye from the car's own extents when the wheel's hub is not in the jbeam: a third of the way across from
+-- the left (jbeam +x), a little ahead of the middle, a third of a metre under the roof
+local function seatFromExtents(vehicle)
+  local lo, hi
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.pos and not onPanel(n) then
+      local p = vec3(n.pos)
+      lo = lo and vec3(math.min(lo.x, p.x), math.min(lo.y, p.y), math.min(lo.z, p.z)) or p
+      hi = hi and vec3(math.max(hi.x, p.x), math.max(hi.y, p.y), math.max(hi.z, p.z)) or p
+    end
+  end
+  if not lo then return nil end
+  return vec3(lo.x + (hi.x - lo.x) * 0.7, lo.y + (hi.y - lo.y) * 0.45, hi.z - 0.33)
 end
 
 -- a car with no driver camera (the pooled simple traffic): the eye is where a driver sits behind the steering
@@ -109,8 +135,8 @@ end
 -- offset from the nearest car node so slrrDrivers can follow it
 local function seatGuess(vehicle, sp)
   local hub = sp and sp.baseTranslationGlobal
-  if not (hub and tonumber(hub.x) and tonumber(hub.y) and tonumber(hub.z)) then return nil end
-  local cam = vec3(hub.x, hub.y + 0.56, hub.z + 0.30)
+  local cam = hub and tonumber(hub.x) and tonumber(hub.y) and tonumber(hub.z) and vec3(hub.x, hub.y + 0.56, hub.z + 0.30) or seatFromExtents(vehicle)
+  if not cam then return nil end
   local cid = nearestNode(vehicle, cam, {})
   local n = cid and byCid(vehicle)[cid]
   if not n then return nil end
@@ -122,12 +148,12 @@ local function addProps(objID, vehicle, camCid)
   -- meshes per skin, with the skin's material named in the dae (tools/prop_meshes.py): a material override
   -- on a prop at runtime crashes the engine
   local _, skin = driverInfo(objID)
-  if not hasMeshes(skin) then return 0 end
+  if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no prop meshes for skin ' .. tostring(skin)) return 0 end
   local sp = steeringProp(vehicle)
-  if not sp then return 0 end
+  if not sp then log('W', 'slrrDriverMount', objID .. ': no steering prop with three nodes, no props') return 0 end
   local cam, seat = camCid and byCid(vehicle)[camCid].pos or nil, nil
   if not cam then cam, seat = seatGuess(vehicle, sp) end
-  if not cam then return 0 end
+  if not cam then log('W', 'slrrDriverMount', objID .. ': no driver camera and no seat could be guessed, no props') return 0 end
   vehicle.props = vehicle.props or {}
   addParts(vehicle, 'slrr_driver_', skin, sp, cam)
   local mount = {driver = skin, seat = seat}

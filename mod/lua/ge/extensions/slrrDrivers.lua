@@ -671,6 +671,30 @@ local function driverBySkin(skin)
   for _, d in pairs(drivers) do if d.skin == skin then return d end end
 end
 
+-- a car with no driver camera (the pooled simple traffic): the eye 0.56 m behind and 0.30 m above the steering
+-- wheel's hub, as an offset from the nearest car node (jbeam): the node id, then the offset
+local function guessSeat(vid)
+  local vd = core_vehicle_manager.getVehicleData(vid)
+  local vdata = vd and vd.vdata
+  if not (vdata and vdata.nodes and vdata.props) then return nil end
+  local hub
+  for _, p in pairs(vdata.props) do
+    if type(p) == 'table' and p.func == 'steering' and type(p.baseTranslationGlobal) == 'table' then hub = p.baseTranslationGlobal break end
+  end
+  if not (hub and tonumber(hub.x)) then return nil end
+  local cam = vec3(hub.x, hub.y + 0.56, hub.z + 0.30)
+  local best, bd
+  for cid, n in pairs(vdata.nodes) do
+    if type(cid) == 'number' and n.pos then
+      local d = vec3(n.pos):distance(cam)
+      if not bd or d < bd then best, bd = cid, d end
+    end
+  end
+  if not best then return nil end
+  local p = vec3(vdata.nodes[best].pos)
+  return best, {x = cam.x - p.x, y = cam.y - p.y, z = cam.z - p.z}
+end
+
 -- the parts slrrDriverMount gave a car sit at its driver's eye until they are posed: out of sight unless used
 local function hideMount(vid)
   local veh = be:getObjectByID(vid)
@@ -708,6 +732,7 @@ local function attach(vid)
   local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
   local seatOff            -- jbeam offset from camNode to the eye: a car with no driver camera (slrrDriverMount's guess)
   if not camNode and mount and mount.seat then camNode, seatOff = mount.seat.node, mount.seat.offset end
+  if not camNode then camNode, seatOff = guessSeat(vid) end   -- (no mount seat either: from the wheel here, so the car is never left empty)
   if not camNode then return false end   -- camera data not ready yet, or a trailer / prop
   local d = drivers[id]
   -- every car but the player's is drawn by the car itself (W9): the prop driver slrrDriverMount gave it at
