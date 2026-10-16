@@ -85,6 +85,7 @@ local SWAY_DAMP = 0.45
 local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
 local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
 local COLLIDE_DIST = 40                 -- only drivers this close to the camera collide (it costs node reads)
+local FAR_SKIP = 8                     -- frames between looks at a far driver drawn by the car
 local ANIM_DIST = 40                    -- drivers drawn by the car animate only this close to the camera
 local LEAD_FRAMES = 0                   -- render lead (frames of velocity); 0 until the driver is drawn by the car itself (overshot in play)
 
@@ -1234,6 +1235,8 @@ local function posePassenger(c, R, eye)
 end
 
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
+  -- a still, far driver is re-checked every FAR_SKIP frames (the vehicle queries below are most of his cost)
+  if c.farWait and c.farWait > 0 then c.farWait = c.farWait - 1 return end
   local veh = be:getObjectByID(vid)
   if not veh then removeCar(vid) return end
   local vpos = veh:getPosition()
@@ -1253,7 +1256,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if off then return end
   -- drawn by the car and still, or further than ANIM_DIST from the camera: his last pose rides with the car
   -- at no cost (the props keep their base transforms), which is what pays for 14 traffic drivers (J6)
-  if c.drawnByCar and c.posed and (not animated or camDist > ANIM_DIST) then return end
+  if c.drawnByCar and c.posed and (not animated or camDist > ANIM_DIST) then
+    c.farWait = camDist > ANIM_DIST + 10 and FAR_SKIP or 0   -- (a car moves FAR_SKIP frames before it is looked at again)
+    return
+  end
   local fwd = vec3(veh:getDirectionVector()):normalized()
   local up = vec3(veh:getDirectionVectorUp())
   local eyeNow, Rnow = eye, basis(fwd, up)   -- for measuring the car's own nodes
@@ -1509,7 +1515,7 @@ local function onPreRender(dt, dtSim)
       removeCar(vid)
     end
   end
-  perfMs = perfMs + ((os.clock() - t0) * 1000 - perfMs) * 0.02   -- smoothed cost of all drivers per frame
+  perfMs = perfMs + ((os.clock() - t0) * 1000 - perfMs) * 0.05   -- smoothed cost of all drivers per frame
   if prof.on then prof.total, prof.frames = prof.total + os.clock() - t0, prof.frames + 1 end
 end
 
