@@ -1,6 +1,6 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
-## Unreleased (release 1 candidate; proposed version 1.4.0, now 1.3.0)
+## 1.4.0 (release 1 candidate, not yet released)
 
 What is new since 1.3.0, for players:
 
