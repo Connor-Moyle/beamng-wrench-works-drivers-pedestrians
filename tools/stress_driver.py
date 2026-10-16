@@ -403,6 +403,12 @@ def check_mount():
     v = g.shim_vehicle(True)
     M.onJbeamLoadingPhase1(0.5, 32, v)
     assert len([k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_driver_")]) == 14, "the car after it did not get its props"
+    M.noPropsNext()                    # armed, but the spawn call returned without a load taking it: cleared, the next car keeps its props
+    M.noPropsDone()
+    v = g.shim_vehicle(True)
+    M.onJbeamLoadingPhase1(0.5, 33, v)
+    assert len([k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_driver_")]) == 14, "a cleared flag still took a car's props"
+    M.onVehicleDestroyed(33)
     M.onVehicleDestroyed(31)
     # the midtruck never gets a passenger (a log line says so); another model's roll is left alone
     v = g.shim_vehicle(True)

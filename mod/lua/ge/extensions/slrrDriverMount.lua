@@ -268,9 +268,11 @@ end
 
 -- The career's own cars nobody drives with AI (a lot's display cars, the player's fleet) are spawned after
 -- noPropsNext(): the next vehicle to load, and every rebuild of it, gets no props at all (the player's driver is a full one,
--- not a prop). Armed for 5 s; whatever loads first takes it.
+-- not a prop). The spawner clears it with noPropsDone() when the spawn call returns (the hook runs inside the call), so a
+-- traffic car loading later keeps its props; 5 s is only the backstop.
 local skipUntil, noProps = 0, {}
 M.noPropsNext = function() skipUntil = os.clock() + 5 end
+M.noPropsDone = function() skipUntil = 0 end
 
 local function onJbeamLoadingPhase1(progress, objID, vehicle)
   if not noProps[objID] and os.clock() < skipUntil then skipUntil = 0 noProps[objID] = true end
