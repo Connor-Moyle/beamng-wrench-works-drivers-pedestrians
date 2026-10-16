@@ -963,7 +963,18 @@ M.getState = function()   -- internal state, for debugging
   return {peds = peds, cap = cap, share = share, frameMs = frameAvg * 1000, junctions = junctions and #junctions,
           spectators = spectators, specZone = specZone and specZone.id, luaKB = collectgarbage('count')}
 end
-M.onUpdate = onUpdate
+-- an error in a frame logs once and turns the pedestrians off until the next level (B46: a per-frame error
+-- floods the log and kills the game's control server)
+local broken = false
+M.onUpdate = function(dtReal, dtSim)
+  if broken then return end
+  local ok, err = pcall(onUpdate, dtReal, dtSim)
+  if not ok then
+    broken = true
+    log('E', 'slrrPedestrians', 'pedestrians stopped for this level: ' .. tostring(err))
+    clear()
+  end
+end
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
 M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) end
 -- a race finishing (Valo City's races): the crowd cheers
@@ -974,7 +985,7 @@ M.followPlayer = followPlayer
 M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
 end
-M.onClientStartMission = function() group = nil peds = {} loadWalks() end
+M.onClientStartMission = function() broken = false group = nil peds = {} loadWalks() end
 M.onClientEndMission = function()
   group, peds, lines, junctions, player, spectators, specZone, specZones = nil, {}, nil, nil, nil, {}, nil, nil
 end

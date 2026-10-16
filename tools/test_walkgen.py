@@ -56,6 +56,25 @@ def main():
     print("%d sidewalks, %d points, made in %d slices" % (len(lines), sum(len(l) for l in lines), slices))
     assert slices > 1, "not sliced"
 
+    # B46: a job survives nothing it should not. The level ends: the job is dropped. An error in a slice (the
+    # road graph cleared under it, as the level change did on smallgrid): one log line, the job dropped, and
+    # the level never generated again.
+    logs = []
+    lua.execute("function log(level, tag, msg) logged(level .. ' ' .. tag .. ': ' .. msg) end")
+    g.logged = lambda line: logs.append(line)
+    assert G.start("town2", g.nodes, lambda path: None) and G.busy()
+    G.onClientEndMission()
+    assert not G.busy(), "a job outlived its level"
+    assert G.start("town3", g.nodes, lambda path: None) and G.busy()
+    lua.execute("for k in pairs(nodes) do nodes[k] = nil end")
+    for _ in range(50):
+        G.onUpdate()
+    assert not G.busy(), "a failing job kept running"
+    errors = [line for line in logs if line.startswith("E slrrWalkGen")]
+    assert len(errors) == 1, errors
+    assert G.start("town3", g.nodes, lambda path: None) is False, "a failed level was generated again"
+    lua.execute("function log() end")
+
     streets = []
     for i in range(4):
         for j in range(4):

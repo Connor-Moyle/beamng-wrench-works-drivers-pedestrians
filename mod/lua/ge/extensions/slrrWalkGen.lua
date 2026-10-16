@@ -20,6 +20,7 @@ local SLICE = 0.0004        -- seconds of work per frame
 local MIN_LINE = 10         -- metres: shorter pieces are dropped
 
 local job                   -- the generation in progress
+local failed = {}           -- level -> true after an error in step: never tried again on that level (B46)
 
 -- roads, each once: those worth a pavement, or (all = true) every road, to keep pavement off them
 local function edges(nodes, all)
@@ -144,11 +145,13 @@ end
 
 -- start generating for a level: nodes as map.getMap().nodes; done(path) when written
 local function start(level, nodes, done)
+  if failed[level] then return false end
   local es = edges(nodes)
   local cs, deg = chains(nodes, es)
   job = {level = level, nodes = nodes, grid = roadGrid(nodes, edges(nodes, true)), chains = cs, deg = deg, ci = 1, side = 1,
          pts = nil, pi = 1, piece = {}, lines = {}, done = done}
   log('I', 'slrrWalkGen', string.format('%s: %d roads in %d chains, making sidewalks', level, #es, #cs))
+  return true
 end
 
 local function flush()
@@ -197,7 +200,18 @@ local function step()
 end
 
 M.start = start
-M.onUpdate = function() if job then step() end end
+-- an error in a slice logs once and ends the generation for this level: thrown every frame it flooded the
+-- log until the game's control server died (B46)
+M.onUpdate = function()
+  if not job then return end
+  local ok, err = pcall(step)
+  if not ok then
+    failed[job.level] = true
+    log('E', 'slrrWalkGen', job.level .. ': sidewalk generation stopped: ' .. tostring(err))
+    job = nil
+  end
+end
+M.onClientEndMission = function() job = nil end   -- the road graph goes with the level: a stale job threw every frame (B46)
 M.busy = function() return job ~= nil end
 -- for tests
 M._edges, M._chains, M._sides, M._step = edges, chains, sides, step
