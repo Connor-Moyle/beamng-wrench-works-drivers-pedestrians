@@ -36,8 +36,7 @@ def main():
                 assert text.count('name="base_driver"') == 1, src
                 text = text.replace("slrr_%s_%s" % (model, part), "%s_%s" % (skin, part))
             text = text.replace('name="base_driver"', 'name="%s_driver"' % skin)
-            open(dst, "w", encoding="utf-8", newline="
-").write(text)
+            open(dst, "w", encoding="utf-8", newline="\n").write(text)
             n += 1
     print("%d prop meshes written to %s" % (n, os.path.relpath(OUT)))
 
