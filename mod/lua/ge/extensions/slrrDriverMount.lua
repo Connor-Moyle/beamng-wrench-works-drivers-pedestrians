@@ -98,20 +98,39 @@ local function addParts(vehicle, key, skin, sp, at)
   end
 end
 
+local function steeringProp(vehicle)
+  for _, p in pairs(vehicle.props or {}) do
+    if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) and tonumber(p.idX) and tonumber(p.idY) then return p end
+  end
+end
+
+-- a car with no driver camera (the pooled simple traffic): the eye is where a driver sits behind the steering
+-- wheel's hub (slrrDrivers' WHEEL_CENTER: the wheel 0.56 m ahead of and 0.30 m below the eyes), kept as an
+-- offset from the nearest car node so slrrDrivers can follow it
+local function seatGuess(vehicle, sp)
+  local hub = sp and sp.baseTranslationGlobal
+  if not (hub and tonumber(hub.x) and tonumber(hub.y) and tonumber(hub.z)) then return nil end
+  local cam = vec3(hub.x, hub.y + 0.56, hub.z + 0.30)
+  local cid = nearestNode(vehicle, cam, {})
+  local n = cid and byCid(vehicle)[cid]
+  if not n then return nil end
+  local p = vec3(n.pos)
+  return cam, {node = cid, offset = {x = cam.x - p.x, y = cam.y - p.y, z = cam.z - p.z}}
+end
+
 local function addProps(objID, vehicle, camCid)
   -- meshes per skin, with the skin's material named in the dae (tools/prop_meshes.py): a material override
   -- on a prop at runtime crashes the engine
   local _, skin = driverInfo(objID)
   if not hasMeshes(skin) then return 0 end
-  local sp
-  for _, p in pairs(vehicle.props or {}) do
-    if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) and tonumber(p.idX) and tonumber(p.idY) then sp = p break end
-  end
+  local sp = steeringProp(vehicle)
   if not sp then return 0 end
-  local cam = byCid(vehicle)[camCid].pos
+  local cam, seat = camCid and byCid(vehicle)[camCid].pos or nil, nil
+  if not cam then cam, seat = seatGuess(vehicle, sp) end
+  if not cam then return 0 end
   vehicle.props = vehicle.props or {}
   addParts(vehicle, 'slrr_driver_', skin, sp, cam)
-  local mount = {driver = skin}
+  local mount = {driver = skin, seat = seat}
   -- a passenger in some cars (W9), in another skin
   local pcam = objID % 100 < PASSENGER_SHARE * 100 and passengerCam(vehicle, cam)
   local skins = pcam and skinsWithProps() or {}
@@ -210,8 +229,9 @@ end
 local function onJbeamLoadingPhase1(progress, objID, vehicle)
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
-    if not camCid or not byCid(vehicle)[camCid] then return end
-    log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))
+    if camCid and not byCid(vehicle)[camCid] then camCid = nil end
+    log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))   -- (no camera: a seat guessed from the wheel)
+    if not camCid then return end
     if flags.ragdoll or ragdollNext then
       ragdollNext = false
       log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. addRagdoll(objID, vehicle, camCid))

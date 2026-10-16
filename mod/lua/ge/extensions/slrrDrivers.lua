@@ -521,7 +521,7 @@ local function setupCollision(c, vid)
   c.colNodes = {}
   local vd = core_vehicle_manager.getVehicleData(vid)
   local nodes = vd and vd.vdata and vd.vdata.nodes
-  local cam = nodes and nodes[c.camNode] and nodes[c.camNode].pos
+  local cam = c.cam0 or (nodes and nodes[c.camNode] and nodes[c.camNode].pos)
   if not cam then return end
   for cid, n in pairs(nodes) do
     if type(cid) == 'number' and n.pos and cid ~= c.camNode then
@@ -705,13 +705,15 @@ local function attach(vid)
   local veh = be:getObjectByID(vid)
   if not veh then return true end
   local camNode, rhd = core_camera.getDriverDataById(vid)
+  local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
+  local seatOff            -- jbeam offset from camNode to the eye: a car with no driver camera (slrrDriverMount's guess)
+  if not camNode and mount and mount.seat then camNode, seatOff = mount.seat.node, mount.seat.offset end
   if not camNode then return false end   -- camera data not ready yet, or a trailer / prop
   local d = drivers[id]
   -- every car but the player's is drawn by the car itself (W9): the prop driver slrrDriverMount gave it at
   -- spawn, in the skin it was given, with no body physics and no injuries. The player's car keeps the full
   -- driver (his own choice of skin), and its props stay hidden
   local player = vid == be:getPlayerVehicleID(0)
-  local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
   local props
   if not player then
     local pd = mount and mount.driver and driverBySkin(mount.driver) or d
@@ -736,7 +738,8 @@ local function attach(vid)
     end
   end
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
-             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0}
+             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0,
+             eyeOff = seatOff and vec3(-seatOff.x, -seatOff.y, seatOff.z) or nil}   -- (seat frame: x right, y forward)
   c.material = tintMaterial(d, look)
   if not c.material then return false end   -- a tint texture is still baking: try again next frame
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
@@ -746,7 +749,7 @@ local function attach(vid)
   if props then
     local vd = core_vehicle_manager.getVehicleData(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
-    c.cam0 = n and vec3(n.pos)
+    c.cam0 = n and (vec3(n.pos) + (seatOff and vec3(seatOff.x, seatOff.y, seatOff.z) or vec3(0, 0, 0)))
     if not c.cam0 then props = nil end
   end
   for _, p in ipairs(partList) do
@@ -844,6 +847,7 @@ local function attach(vid)
   local floorZ
   local nodes = vdata and vdata.vdata and vdata.vdata.nodes
   local cam0 = nodes and nodes[camNode] and nodes[camNode].pos
+  if cam0 and seatOff then cam0 = {x = cam0.x + seatOff.x, y = cam0.y + seatOff.y, z = cam0.z + seatOff.z} end
   if cam0 then
     for cid, n in pairs(nodes) do
       if type(cid) == 'number' and n.pos then
@@ -1203,6 +1207,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if not veh then removeCar(vid) return end
   local vpos = veh:getPosition()
   local eye = vec3(vpos) + vec3(veh:getNodePositionXYZ(c.camNode))
+  if c.eyeOff then eye = eye + rotate(basis(vec3(veh:getDirectionVector()):normalized(), vec3(veh:getDirectionVectorUp())), c.eyeOff) end
   local mode = carMode[vid] or displayMode
   animated = mode == 'full' or mode == 'hideFirstPerson'
   local fpView = vid == fpVid

@@ -265,6 +265,18 @@ def check_presence():
     for _ in range(130):
         g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
     assert driver(), "a car whose camera data came late never got its driver"
+    # a car with no driver camera at all (the pooled simple traffic): the seat slrrDriverMount guessed from the wheel
+    M.onAiModeChange(7, "disabled")
+    g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+    lua.execute("core_camera.getDriverDataById = function() return nil end")
+    lua.execute("slrrDriverMount = {getMount = function() return {driver = 'slrr_mitch', seat = {node = 2, offset = {x = 0.35 - 0.35, y = 0.1 + 0.55, z = 1.15 - 0.85}}} end}")
+    M.onAiModeChange(7, "traffic")
+    for _ in range(3):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    assert driver() and M.getState(7).eyeOff is not None, "a car without a driver camera got no driver from the guessed seat"
+    body = g.shim_parts_local().body
+    assert abs(body.x) < 0.05 and abs(body.y) < 0.25 and abs(body.z) < 0.05, ("the guessed seat is off the eye", body.x, body.y, body.z)   # (y: the seat slide)
+    lua.execute("slrrDriverMount = nil core_camera.getDriverDataById = function() return 1, false end")
     print("presence ok")
 
 
