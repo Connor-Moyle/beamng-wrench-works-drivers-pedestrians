@@ -136,20 +136,26 @@ def check_far():
     g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
     g.M = M
+    lua.execute("math.randomseed(7)")      # (glances and re-grips draw on math.random: the same run every time)
     lua.execute("shim_start(M)")
 
     def drive(frames, steer):
-        # the right hand: its prop's base translation (drawn by the car) or its place in the seat frame
-        def hand():
-            o = M.getState(7).parts.r_hand
-            if o.prop is not None:
-                return (o.prop.t.x, o.prop.t.y, o.prop.t.z)
-            p = g.shim_parts_local().r_hand
-            return (p.x, p.y, p.z)
-        moved, t0 = 0.0, hand()
+        # the hands: their props' base translations (drawn by the car) or their places in the seat frame; the
+        # larger move of the two counts (hand over hand, one of them can sit still through a turn)
+        def hands():
+            out = []
+            for side in ("r_hand", "l_hand"):
+                o = M.getState(7).parts[side]
+                if o.prop is not None:
+                    out.append((o.prop.t.x, o.prop.t.y, o.prop.t.z))
+                else:
+                    p = g.shim_parts_local()[side]
+                    out.append((p.x, p.y, p.z))
+            return out
+        moved, t0 = 0.0, hands()
         for _ in range(frames):
             g.shim_step(DT, 20, 0, steer, 0, 3000, 3, 0.5, 0, 0)
-            moved = max(moved, math.dist(t0, hand()))
+            moved = max([moved] + [math.dist(a, b) for a, b in zip(t0, hands())])
         return moved
     assert drive(60, 0) >= 0, "warm up"
     assert M.getState(7).parts.r_hand.prop is None, "the player's car is drawn by the car (W9: it keeps the full driver)"
@@ -314,6 +320,50 @@ def check_passenger():
     for p in list(g.shimPropsList().values()):
         assert not p.visible, "a prop stayed visible on an empty car: %s" % p.mesh
     print("passenger ok: beside the driver, hands in the lap, gone with the driver")
+
+
+def check_mount():
+    """slrrDriverMount's jbeam hook offline: a car with a driver camera and one without (the pooled simple traffic)
+    both get their 14 props; the hook logs no error (a missing global shows up here, not on every spawn in game)."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    errors = []
+    g.py_log = lambda level, tag, msg: errors.append("%s %s: %s" % (level, tag, msg)) if level == "E" else None
+    lua.execute("""
+      function log(level, tag, msg) py_log(level, tag, msg) end
+      package.preload['jbeam/utils'] = function() return {increaseMax = function(v, k) v.maxIDs = v.maxIDs or {} v.maxIDs[k] = (v.maxIDs[k] or 0) + 1 return v.maxIDs[k] end} end
+      slrrDrivers = {getDriver = function() return nil end, getDefaultDriver = function() return 'slrr_mitch' end, getDrivers = function() return {} end}
+    """)
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDriverMount.lua")).read())
+    g.M = M
+    M.onExtensionLoaded()
+    # a simple traffic car: body nodes by name, a steering prop still naming its nodes, no onboard cameras
+    lua.execute("""
+      function shim_vehicle(withCamera)
+        local v = {nodes = {}, props = {}, cameras = withCamera and {onboard = {{name = 'driver', camNodeID = 4}}} or nil}
+        local function node(cid, name, x, y, z) v.nodes[#v.nodes + 1] = {cid = cid, name = name, pos = {x = x, y = y, z = z}} end
+        node(1, 'b1', 0, -0.89, 0.18) node(2, 'b1l', 0.85, -0.89, 0.18) node(3, 'b2', 0, 0.15, 0.18)
+        node(4, 'cam', 0.35, 0.1, 1.15) node(5, 'roof', 0, 0, 1.4) node(6, 'rr', -0.85, 0.9, 0.18)
+        v.props[1] = {func = 'steering', mesh = 'wheel', idRef = withCamera and 1 or 'b1', idX = withCamera and 2 or 'b1l', idY = withCamera and 3 or 'b2',
+                      baseTranslationGlobal = {x = 0.356, y = -0.342, z = 0.829}}
+        return v
+      end
+    """)
+    for with_camera, objid in ((True, 11), (False, 12)):
+        v = g.shim_vehicle(with_camera)
+        M.onJbeamLoadingPhase1(0.5, objid, v)
+        props = [k for k in list(v.props.keys()) if isinstance(k, str) and k.startswith("slrr_driver_")]
+        assert len(props) == 14, ("driver props on the car (camera=%s)" % with_camera, len(props), errors)
+        mount = M.getMount(objid)
+        assert mount and mount.driver == "slrr_mitch", ("mount record", with_camera)
+        if not with_camera:
+            assert mount.seat and mount.seat.node and mount.seat.offset, ("no seat for the car without a camera", errors)
+            seat = v.props["slrr_driver_body"].baseTranslationGlobal
+            assert abs(seat.y - (-0.342 + 0.56)) < 1e-6 and abs(seat.z - (0.829 + 0.30)) < 1e-6, "the eye is not behind and above the wheel"
+    assert not errors, errors
+    print("mount ok: 14 props with a camera, 14 from the wheel without one, no errors")
 
 
 def check_damage():
@@ -483,6 +533,7 @@ if __name__ == "__main__":
     check_modes()
     check_presence()
     check_passenger()
+    check_mount()
     check_far()
     check_damage()
     check_look()

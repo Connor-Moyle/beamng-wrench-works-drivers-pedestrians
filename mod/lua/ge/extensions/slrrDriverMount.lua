@@ -52,6 +52,18 @@ local function onPanel(n)
   return false
 end
 
+-- the nearest car node to a point (jbeam space), not on a moving panel and not one of ours
+local function nearestNode(vehicle, p, skip)
+  local best, bd
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) then
+      local d = vec3(n.pos):distance(p)
+      if not bd or d < bd then best, bd = n.cid, d end
+    end
+  end
+  return best, bd
+end
+
 local function hasMeshes(skin) return FS:fileExists('/vehicles/common/slrr_drivers/' .. skin .. '_body.dae') end
 
 -- the skins with prop meshes (tools/prop_meshes.py), for the passengers
@@ -170,17 +182,6 @@ local function addProps(objID, vehicle, camCid)
   return #PARTS + (mount.passenger and #PARTS or 0)
 end
 
--- the nearest car node to a point (jbeam space), not on a moving panel and not one of ours
-local function nearestNode(vehicle, p, skip)
-  local best, bd
-  for _, n in pairs(vehicle.nodes) do
-    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) then
-      local d = vec3(n.pos):distance(p)
-      if not bd or d < bd then best, bd = n.cid, d end
-    end
-  end
-  return best, bd
-end
 
 local function addRagdoll(objID, vehicle, camCid)
   local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel(objID) .. '/rig.json')
