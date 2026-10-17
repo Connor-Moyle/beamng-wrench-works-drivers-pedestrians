@@ -16,7 +16,9 @@ slrrInjury.heal()
 For other mods: `onSlrrDriverInjured(vehId, injuries)` once per crash that hurts, and
 `onSlrrDriverDied(vehId, cause, detail)` once. See the design in the project notes (DESIGN_injury.md).
 
-Death is deliberate: the head over 200 g or the chest over 150 g sustained 25 ms; any force must last two
+Death is a setting: only 'full' ("Injuries and death") and a Hardcore career (`slrrInjury.setDeathOverride(true)`, set by Street Legal) allow it; in 'injuries' the worst a crash does is knock the driver out, and he slumps over the wheel until he wakes (`slrrDrivers.setSlump`). Only the player's own driver is tracked; traffic drivers are props and nobody else gets hurt.
+
+When it counts, death is deliberate: the head over 200 g or the chest over 150 g sustained 25 ms; any force must last two
 physics steps to count; nothing counts for 3 s after a spawn, reset, teleport or vehicle switch, or on a step
 where the car jumps (a glitch).
 

@@ -729,6 +729,10 @@ local function prepRig(rig)
   end
 end
 
+-- slumped over the wheel (the injury add-on: knocked out, or dead): the torso leans forward from the pelvis, the head hangs
+local slumped = {}
+local SLUMP_TORSO, SLUMP_HEAD, SLUMP_TIME = 0.5, -0.75, 0.9      -- rad forward, rad of head pitch, s to get there
+
 local function attach(vid)
   local id = wantedDriver(vid)
   if not id then removeCar(vid) hideMount(vid) return true end
@@ -772,7 +776,7 @@ local function attach(vid)
     end
   end
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
-             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0,
+             e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0, slumped = slumped[vid],
              eyeOff = seatOff and vec3(-seatOff.x, -seatOff.y, seatOff.z) or nil}   -- (seat frame: x right, y forward)
   c.material = tintMaterial(d, look)
   if not c.material then return false end   -- a tint texture is still baking: try again next frame
@@ -1296,6 +1300,8 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (LOOK_HEAD + LOOK_TORSO) * (1 - (c.revK or 0))
   if math.abs(lookTorso) > 1e-4 then L = compose(L, rotZ(lookTorso)) end
   if c.reachLean then L = compose(L, c.reachLean) end
+  c.slumpK = clamp((c.slumpK or 0) + clamp((c.slumped and 1 or 0) - (c.slumpK or 0), -dt / SLUMP_TIME, dt / SLUMP_TIME), 0, 1)
+  if c.slumpK > 0 and animated then L = compose(L, rotX(-SLUMP_TORSO * smootheststep(c.slumpK))) end
   -- idle: slow breathing in the chest (and so the shoulders), always on when animated
   c.clock = (c.clock or math.random() * 10) + dt
   if animated then L = compose(L, rotX(BREATH_ANGLE * math.sin(2 * math.pi * BREATH_HZ * c.clock))) end
@@ -1458,6 +1464,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   -- the head stays level when the body leans (eyes on the road): undo most of the torso pitch
   pitch = pitch - LEVEL_HEAD * math.asin(clamp(L.y.z, -1, 1))
+  if c.slumpK and c.slumpK > 0 and animated and not fp then pitch = lerp(pitch, SLUMP_HEAD, smootheststep(c.slumpK)) end
   if fp and animated then
     local q = core_camera.getQuat()
     local look = q and (q * vec3(0, 1, 0)) or R.y
@@ -1601,6 +1608,11 @@ M.setDisplayMode = function(mode, vid)
     if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch, c.posed = nil, nil, nil, nil, 0, nil, nil, nil end
   end
 end
+-- slrrDrivers.setSlump(vehId, true): the full driver slumps over the wheel (knocked out, dead); false sits him up
+M.setSlump = function(vid, on)
+  slumped[vid] = on and true or nil
+  if cars[vid] then cars[vid].slumped = on and true or nil end
+end
 M.getDisplayMode = function(vid) return (vid and carMode[vid]) or displayMode end
 -- shortcut kept from 1.2: true = "full", false = "still"
 M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
@@ -1686,7 +1698,7 @@ M.onAiModeChange = function(vid, mode)
   aiModes[vid] = mode
   if was ~= mode then pending[vid] = 0 end
 end
-M.onVehicleDestroyed = function(vid) aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
+M.onVehicleDestroyed = function(vid) slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
 M.onClientStartMission = function() group = nil cars = {} markAll() end
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 

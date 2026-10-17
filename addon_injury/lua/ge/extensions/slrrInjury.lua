@@ -38,6 +38,7 @@ local BLOCK = {'accelerate', 'brake', 'accelerate_brake', 'steer_left', 'steer_r
                'parkingbrake', 'parkingbrake_toggle'}
 
 local mode = 'injuries'
+local deathOverride = false     -- a Hardcore career: death counts whatever the setting (the career sets it, it is not saved)
 local state = {}           -- vehId -> per-driver state
 local now = 0
 local clips                -- {hurt = {...}, angry = {...}, wake = {...}}
@@ -96,6 +97,11 @@ local function setControls(vehId, on)
   core_input_actionFilter.addAction(0, 'slrrInjuryOut', not on)
   local v = be:getObjectByID(vehId)
   if v and not on then v:queueLuaCommand("input.event('throttle', 0, 1) input.event('steering', 0, 1)") end
+end
+
+-- the player's driver slumps over the wheel while he is out (SLRR Drivers draws it)
+local function slump(vehId, on)
+  if isPlayer(vehId) and slrrDrivers and slrrDrivers.setSlump then slrrDrivers.setSlump(vehId, on) end
 end
 
 -- driving with a broken limb: the vehicle's own input is capped (one hand: less lock; right leg: 70 % pedal)
@@ -169,9 +175,11 @@ local function feed(vehId, s)
     st.lastHit, st.peakG, st.speed = now, math.max(st.peakG, s.head or 0, s.chest or 0), math.max(st.speed, s.speed or 0)
   end
   -- death only on forces sustained past DEATH_TIME, never a single spike
+  -- (death is a setting: 'Injuries and death' (mode full), or a Hardcore career; otherwise the worst a crash does is knock him out)
+  local mortal = mode == 'full' or deathOverride
   st.hotHead = (s.head or 0) > DEATH_HEAD and st.hotHead + s.dt or 0
   st.hotChest = (s.chest or 0) > DEATH_CHEST and st.hotChest + s.dt or 0
-  if not st.dying and (st.hotHead >= DEATH_TIME or st.hotChest >= DEATH_TIME) then
+  if mortal and not st.dying and (st.hotHead >= DEATH_TIME or st.hotChest >= DEATH_TIME) then
     st.dying = {at = now, kind = st.hotHead >= DEATH_TIME and 'head' or 'chest'}
   end
   local nBroken = #broken(st)
@@ -186,6 +194,7 @@ local function feed(vehId, s)
       if st.conscious then
         st.conscious = false
         setControls(vehId, false)
+        slump(vehId, true)                 -- he slumps over the wheel
       end
       st.wakeAt = lvl == 'unconscious' and now + 5 + 25 * clamp01(math.max(st.parts.head, st.parts.chest)) or nil
     end
@@ -264,6 +273,7 @@ local function onUpdate(dtReal, dtSim)
     if not st.conscious and not st.dead and st.wakeAt and now >= st.wakeAt then
       st.conscious = true
       setControls(id, true)
+      slump(id, false)
       say(id, st, 'wake')
     end
   end
@@ -274,6 +284,7 @@ local function heal(vehId)
   local st = state[vehId]
   if not st then return end
   if not st.conscious then setControls(vehId, true) end
+  slump(vehId, false)
   state[vehId] = newState()
   state[vehId].grace = 0
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
@@ -300,6 +311,8 @@ M.setMode = function(m)
   if mode == 'off' then for id in pairs(state) do heal(id) end end
 end
 M.getMode = function() return mode end
+M.setDeathOverride = function(on) deathOverride = on == true end          -- a Hardcore career (not saved)
+M.getDeathAllowed = function() return mode == 'full' or deathOverride end
 M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if s and MODES[s.mode] then mode = s.mode end

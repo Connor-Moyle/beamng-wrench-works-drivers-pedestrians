@@ -26,6 +26,8 @@ commands = {}
 veh = {}
 function veh:queueLuaCommand(c) table.insert(commands, c) end
 function veh:getId() return 7 end
+slumps = {}
+slrrDrivers = {setSlump = function(_, on) table.insert(slumps, on) end}
 be = {getPlayerVehicleID = function() return 7 end, getObjectByID = function(_, id) return id == 7 and veh or nil end,
       getObjectCount = function() return 0 end}
 """
@@ -78,6 +80,7 @@ def main():
     levels = []
     for speed in (10, 20, 40, 60, 80, 100):
         lua, M = lua_env()
+        M.setMode("full")                 # injuries and death: the worst crash kills
         M.onVehicleSpawned(7)
         run(lua, M, [], settle=3.5)
         run(lua, M, crash(speed))
@@ -100,6 +103,26 @@ def main():
     ranks = [rank[l[1]] for l in levels]
     assert ranks == sorted(ranks), ranks
     assert levels[0][1] in ("none", "bruised") and levels[3][1] == "unconscious" and levels[4][1] != "fatal"         and levels[-1][1] == "fatal", levels
+
+    # injuries without death: the worst crash only knocks him out (and he slumps, then wakes and sits up); a Hardcore career turns death on
+    lua, M = lua_env()
+    assert not M.getDeathAllowed()
+    M.onVehicleSpawned(7)
+    run(lua, M, [], settle=3.5)
+    run(lua, M, crash(100), settle=1)
+    st = M.getState(7)
+    assert st.level == "unconscious", st.level
+    assert not any(h[1] == "onSlrrDriverDied" for h in lua.globals().hooks.values()), "died without the setting"
+    assert list(lua.globals().slumps.values()) == [True], list(lua.globals().slumps.values())
+    run(lua, M, [], settle=40)
+    assert list(lua.globals().slumps.values()) == [True, False], "did not sit up"
+    lua, M = lua_env()
+    M.setDeathOverride(True)
+    assert M.getDeathAllowed()
+    M.onVehicleSpawned(7)
+    run(lua, M, [], settle=3.5)
+    run(lua, M, crash(100))
+    assert M.getState(7).level == "fatal" and any(h[1] == "onSlrrDriverDied" for h in lua.globals().hooks.values()), "hardcore: death did not count"
 
     # unconscious: controls blocked, then he wakes and they come back; a broken right leg caps the pedals
     lua, M = lua_env()
