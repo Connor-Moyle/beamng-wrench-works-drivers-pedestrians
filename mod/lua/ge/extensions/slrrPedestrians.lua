@@ -981,8 +981,9 @@ M.playActor = function(dir, points, opts)
   for shape, sp in pairs(info.walks) do if shape == 'walk.dae' or not walk then walk, speed = shape, sp end end
   local pts = {}
   for i, p in ipairs(points) do
-    local pos = p.pos or p
-    pts[i] = { pos = vec3(pos.x, pos.y, pos.z), wait = tonumber(p.wait) or 0 }
+    local t = type(p) == 'table' and p or nil          -- (a vec3 is cdata: indexing .pos or .wait on it throws)
+    local pos = t and t.pos or p
+    pts[i] = { pos = vec3(pos.x, pos.y, pos.z), wait = tonumber(t and t.wait) or 0 }
   end
   local face = pts[2] and (pts[2].pos - pts[1].pos) or vec3(0, 1, 0)
   face = vec3(face.x, face.y, 0)
