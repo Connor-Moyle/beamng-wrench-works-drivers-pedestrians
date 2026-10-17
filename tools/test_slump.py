@@ -55,6 +55,27 @@ def main():
     head2 = pos("head")
     assert max(abs(a - b) for a, b in zip(head2, head0)) < 0.02, ("he did not sit up", head0, head2)
     print("sits up again: ok")
+    # #38: a wave out of the window with the hand that is not on the lever; he turns his head to it; both come back
+    settle(g, 60)
+    hands0 = {n: pos(n) for n in ("r_hand", "l_hand")}
+    head_before = pos("head")
+    M.wave(7, 2.0)
+    best = {n: 0.0 for n in hands0}
+    for _ in range(int(1.2 / DT)):
+        g.shim_step(DT, 0, 0, 0, 0, 900, 1, 0, 0, 0)
+        for n in hands0:
+            best[n] = max(best[n], pos(n)[2] - hands0[n][2])
+    for n in g.shim_parts_local():
+        pos(n)
+    print("wave: hand rise", {k: round(v, 2) for k, v in best.items()})
+    assert sorted(best.values())[1] > 0.12, "no hand was raised"
+    assert sorted(best.values())[0] < 0.05, "both hands left the wheel"
+    settle(g, int(2.5 / DT))
+    for n, h0 in hands0.items():
+        h = pos(n)
+        assert max(abs(a_ - b_) for a_, b_ in zip(h, h0)) < 0.03, ("the hand did not come back", n, h0, h)
+    assert max(abs(a_ - b_) for a_, b_ in zip(pos("head"), head_before)) < 0.03, "the head did not come back"
+    print("wave ok")
 
 
 if __name__ == "__main__":

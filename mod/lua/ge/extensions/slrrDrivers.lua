@@ -58,6 +58,9 @@ local DAZE_WAIT = 5                     -- s after a crash the car has to slow d
 local DAZE_SPEED = 4                    -- m/s: only when stopped or slow, never at speed
 local DAZE_TIME, DAZE_IN, DAZE_OUT = 3.5, 0.5, 0.7
 local DAZE_SHAKE = 0.22                 -- rad: the slow, sore head shake
+-- gestures (a table: updateCar is at LuaJIT's limit of 60 upvalues): the wave out of the window (s to raise and lower the hand, the hand beside the window
+-- a little ahead and above the head (x: toward the window), waves a second) and the slump over the wheel (rad of torso lean, rad of head pitch, s to get there)
+local GEST = {waveIn = 0.45, waveHand = vec3(0.32, 0.20, 0.16), waveHz = 2.3, slumpTorso = 0.5, slumpHead = -0.75, slumpTime = 0.9}
 local DAZE_HAND = vec3(0.08, 0.18, 0.0)  -- the wrist at the forehead, to the hand's own side (x: inward)
 local MAX_TINTS = 8                    -- clothing colours kept loaded at once (video memory)
 local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
@@ -731,7 +734,6 @@ end
 
 -- slumped over the wheel (the injury add-on: knocked out, or dead): the torso leans forward from the pelvis, the head hangs
 local slumped = {}
-local SLUMP_TORSO, SLUMP_HEAD, SLUMP_TIME = 0.5, -0.75, 0.9      -- rad forward, rad of head pitch, s to get there
 
 local function attach(vid)
   local id = wantedDriver(vid)
@@ -1181,6 +1183,11 @@ local function updateDaze(c, veh, R, dt, dtSim, fp)
     if c.daze >= DAZE_TIME then c.daze = nil end
   end
   c.dazeK = c.daze and clamp(math.min(c.daze / DAZE_IN, (DAZE_TIME - c.daze) / DAZE_OUT), 0, 1) or 0
+  if c.wave then
+    c.wave.t = c.wave.t + dt
+    if c.wave.t >= c.wave.dur or not animated or fp then c.wave = nil end
+  end
+  c.waveK = c.wave and clamp(math.min(c.wave.t / GEST.waveIn, (c.wave.dur - c.wave.t) / GEST.waveIn), 0, 1) or 0
 
 end
 
@@ -1300,8 +1307,8 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (LOOK_HEAD + LOOK_TORSO) * (1 - (c.revK or 0))
   if math.abs(lookTorso) > 1e-4 then L = compose(L, rotZ(lookTorso)) end
   if c.reachLean then L = compose(L, c.reachLean) end
-  c.slumpK = clamp((c.slumpK or 0) + clamp((c.slumped and 1 or 0) - (c.slumpK or 0), -dt / SLUMP_TIME, dt / SLUMP_TIME), 0, 1)
-  if c.slumpK > 0 and animated then L = compose(L, rotX(-SLUMP_TORSO * smootheststep(c.slumpK))) end
+  c.slumpK = clamp((c.slumpK or 0) + clamp((c.slumped and 1 or 0) - (c.slumpK or 0), -dt / GEST.slumpTime, dt / GEST.slumpTime), 0, 1)
+  if c.slumpK > 0 and animated then L = compose(L, rotX(-GEST.slumpTorso * smootheststep(c.slumpK))) end
   -- idle: slow breathing in the chest (and so the shoulders), always on when animated
   c.clock = (c.clock or math.random() * 10) + dt
   if animated then L = compose(L, rotX(BREATH_ANGLE * math.sin(2 * math.pi * BREATH_HZ * c.clock))) end
@@ -1374,6 +1381,11 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       if side == passenger then target = lerp(target, vec3(-back * SEAT_BACK_REACH.x, SEAT_BACK_REACH.y, SEAT_BACK_REACH.z), k)
       else target = lerp(target, rimPoint(wheel, math.pi / 2, 0) - wheelN * WRIST_BACK, k) end
     end
+    if c.waveK > 0 and side ~= c.shiftSide then
+      -- a wave out of the window with the hand that is not on the gear lever
+      local sway = 0.07 * math.sin(2 * math.pi * GEST.waveHz * c.wave.t)
+      target = lerp(target, lean(c.head0 + vec3(-GEST.waveHand.x * c.inward + sway, GEST.waveHand.y, GEST.waveHand.z)), smootheststep(c.waveK))
+    end
     if c.dazeK > 0 and side == c.shiftSide then
       target = lerp(target, lean(c.head0 + vec3(DAZE_HAND.x * c.inward, DAZE_HAND.y, DAZE_HAND.z)), smootheststep(c.dazeK))
     end
@@ -1401,7 +1413,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
     -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
-    local holding = grip.lift == 0 and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and c.revK < 0.01
+    local holding = grip.lift == 0 and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
     if holding and rig.fist and rig.fist[side] then
       -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
       local _, _, _, _, handR = solve(target)
@@ -1446,6 +1458,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       if c.glance.t >= GLANCE_TIME then c.glance = nil end
     end
   end
+  if c.waveK > 0 then
+    yaw = yaw + smootheststep(c.waveK) * 0.55 * c.inward         -- he turns his head to who he waves at (yaw is positive to the left; the window is on the side away from the lever)
+  end
   if c.dazeK > 0 then
     local k = smootheststep(c.dazeK)
     yaw = yaw + k * DAZE_SHAKE * math.sin(2 * math.pi * 0.8 * c.daze)
@@ -1464,7 +1479,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   -- the head stays level when the body leans (eyes on the road): undo most of the torso pitch
   pitch = pitch - LEVEL_HEAD * math.asin(clamp(L.y.z, -1, 1))
-  if c.slumpK and c.slumpK > 0 and animated and not fp then pitch = lerp(pitch, SLUMP_HEAD, smootheststep(c.slumpK)) end
+  if c.slumpK and c.slumpK > 0 and animated and not fp then pitch = lerp(pitch, GEST.slumpHead, smootheststep(c.slumpK)) end
   if fp and animated then
     local q = core_camera.getQuat()
     local look = q and (q * vec3(0, 1, 0)) or R.y
@@ -1609,6 +1624,11 @@ M.setDisplayMode = function(mode, vid)
   end
 end
 -- slrrDrivers.setSlump(vehId, true): the full driver slumps over the wheel (knocked out, dead); false sits him up
+-- slrrDrivers.wave(vehId [, seconds]): the driver waves out of his window for a few seconds (a meet, a friend); not in first person, not for far drivers
+M.wave = function(vid, seconds)
+  local c = cars[vid]
+  if c then c.wave = {t = 0, dur = clamp(tonumber(seconds) or 3, 1, 8)} end
+end
 M.setSlump = function(vid, on)
   slumped[vid] = on and true or nil
   if cars[vid] then cars[vid].slumped = on and true or nil end
