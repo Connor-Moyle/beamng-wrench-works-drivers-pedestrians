@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Pedestrians
+- **Less work each frame.** The cars' axes and boxes are read ten times a second a car (their positions and speeds every frame), the pedestrian cells use integer keys and are rebuilt five times a second, and each car's speed is worked out once, not for every pedestrian. Same behaviour; a hitch recording showed this update at 4.7 ms in busy frames.
+
 ### Drivers
 - **The rigged driver takes setAppearance.** Size (0.9 to 1.1) resizes his nodes and meshes when the car spawns; a helmet (models that
   have one) is a fifteenth flexbody bound to the head; the helmet colour switches

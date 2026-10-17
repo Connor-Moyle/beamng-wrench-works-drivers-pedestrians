@@ -72,6 +72,9 @@ local share, shareTimer = 1, 0
 local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
 local retryTimer = 0
 local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
+local axesOf = {}           -- vehicle id -> {at, cx, cy, right, fwdv, fwd, rightFlat, hx, hy}: a car's axes and box, read every AXES_EVERY s (they change slowly)
+local AXES_EVERY, CELLS_EVERY = 0.1, 0.2
+local cellsAt, cells = -1, {}   -- the 2 m cells of pedestrians (integer keys), rebuilt every CELLS_EVERY s
 -- spectators (spectators_<level>.json, tools/spectators.py): crowds at the venues and meets, standing at fixed spots
 local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}, ground = true: z is where to look from, the ground is found}}
 local extraZones = {}          -- zones other mods add at run time
@@ -546,7 +549,7 @@ local function carComing(a, b, time)
   local ab = vec3(b.x - a.x, b.y - a.y, 0)
   local l2 = math.max(ab:dot(ab), 1e-6)
   for _, v in ipairs(cars) do
-    local sp = v.vel:length()
+    local sp = v.speed
     if sp > 1 then
       local t = clamp(((v.pos.x - a.x) * ab.x + (v.pos.y - a.y) * ab.y) / l2, 0, 1)
       local qx, qy = a.x + ab.x * t - v.pos.x, a.y + ab.y * t - v.pos.y
@@ -725,7 +728,7 @@ local function updatePed(p, dt, vehicles, near)
   -- step back from the kerb as a fast car passes close (walking or standing)
   local me = base + side * p.side
   for _, v in ipairs(vehicles) do
-    if v.vel:length() > KERB_SPEED then
+    if v.speed > KERB_SPEED then
       local rel = v.pos - me
       local lat = rel:dot(side)
       if math.abs(lat) < KERB_DIST and math.abs(rel:dot(fwd)) < 8 then
@@ -742,7 +745,7 @@ local function updatePed(p, dt, vehicles, near)
   -- a car heading at them: jump aside (within the room) and hurry on for a few seconds
   for _, v in ipairs(vehicles) do
     local rel = base + side * (p.side + p.dodgeSide) - v.pos
-    if rel:length() < DODGE_DIST and v.vel:length() > DODGE_SPEED and v.vel:dot(rel) > 0 then
+    if rel:length() < DODGE_DIST and v.speed > DODGE_SPEED and v.vel:dot(rel) > 0 then
       p.dodgeSide = p.dodgeSide + (rel:dot(side) >= 0 and 1 or -1) * dt * 6
       if moving and not p.hurry then hurry(p, 3) end
     end
@@ -857,7 +860,7 @@ local function updateSpectators(dt, cam, budget)
   for _, sp in ipairs(spectators) do
     if sp.cheer <= 0 then
       for _, v in ipairs(cars) do
-        if v.vel:length() > CHEER_SPEED and (v.pos.x - sp.spot[1]) ^ 2 + (v.pos.y - sp.spot[2]) ^ 2 < CHEER_DIST ^ 2 then
+        if v.speed > CHEER_SPEED and (v.pos.x - sp.spot[1]) ^ 2 + (v.pos.y - sp.spot[2]) ^ 2 < CHEER_DIST ^ 2 then
           sp.cheer = 2 + math.random() * 3
           break
         end
@@ -1021,7 +1024,7 @@ local rec
 local function record(dtReal)
   rec.t = rec.t + dtReal
   local f = {t = rec.t, ms = dtReal * 1000, peds = {}, cars = {}}
-  for _, v in ipairs(cars) do table.insert(f.cars, {x = v.pos.x, y = v.pos.y, z = v.pos.z, v = v.vel:length()}) end
+  for _, v in ipairs(cars) do table.insert(f.cars, {x = v.pos.x, y = v.pos.y, z = v.pos.z, v = v.speed}) end
   for _, p in ipairs(peds) do
     if p.pos and p.obj and simObjectExists(p.obj) then
       local q = p.obj:getPosition()
@@ -1058,53 +1061,70 @@ local function onUpdate(dtReal, dtSim)
   local cam = core_camera.getPosition()
   local dt = dtSim or dtReal
   local vehicles = {}
+  local now = os.clock()
   for i = 0, be:getObjectCount() - 1 do
     local v = be:getObject(i)
     local vp = v:getPosition()
     if vp and vec3(vp):distance(cam) < DESPAWN then
       local car = {pos = vec3(vp), vel = vec3(v:getVelocity())}
+      car.speed = car.vel:length()      -- (the loops in updatePed ask for it for every pedestrian)
       local id = v:getId()
       if lastVel[id] and dt > 0 and (car.vel - lastVel[id]):length() > CRASH_DV then react(car.pos) end
       lastVel[id] = car.vel
-      local box = v.getSpawnLocalAABB and v:getSpawnLocalAABB()
-      if box then
-        local mn, mx = box.minExtents, box.maxExtents
-        local fwd = vec3(v:getDirectionVector()):normalized()
-        local up = vec3(v:getDirectionVectorUp()):normalized()
-        local right = fwd:cross(up):normalized()
-        -- jbeam axes: x is the car's left, y its back
-        local c = vec3((mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5, 0)
-        car.center = car.pos - right * c.x - fwd * c.y
+      local ax = axesOf[id]
+      if not ax or now - ax.at > AXES_EVERY then
+        ax = {at = now}
+        local box = v.getSpawnLocalAABB and v:getSpawnLocalAABB()
+        if box then
+          local mn, mx = box.minExtents, box.maxExtents
+          local fwd = vec3(v:getDirectionVector()):normalized()
+          local up = vec3(v:getDirectionVectorUp()):normalized()
+          local right = fwd:cross(up):normalized()
+          ax.cx, ax.cy = (mn.x + mx.x) * 0.5, (mn.y + mx.y) * 0.5      -- jbeam axes: x is the car's left, y its back
+          ax.right, ax.fwdv = right, fwd
+          ax.fwd, ax.rightFlat = vec3(fwd.x, fwd.y, 0):normalized(), vec3(right.x, right.y, 0):normalized()
+          ax.hx, ax.hy = (mx.x - mn.x) * 0.5, (mx.y - mn.y) * 0.5
+        end
+        axesOf[id] = ax
+      end
+      if ax.hx then      -- (the position is this frame's; the axes are at most AXES_EVERY s old)
+        car.center = car.pos - ax.right * ax.cx - ax.fwdv * ax.cy
         car.center.z = car.pos.z
-        car.fwd, car.right = vec3(fwd.x, fwd.y, 0):normalized(), vec3(right.x, right.y, 0):normalized()
-        car.hx, car.hy = (mx.x - mn.x) * 0.5, (mx.y - mn.y) * 0.5
+        car.fwd, car.right, car.hx, car.hy = ax.fwd, ax.rightFlat, ax.hx, ax.hy
       end
       table.insert(vehicles, car)
     end
   end
   cars = vehicles
-  -- pedestrians by 2 m cell, from last frame's positions, for spacing
-  local cells = {}
-  for _, p in ipairs(peds) do
-    if p.pos then
-      local k = math.floor(p.pos.x / 2) .. ',' .. math.floor(p.pos.y / 2)
-      cells[k] = cells[k] or {}
-      table.insert(cells[k], p)
+  -- pedestrians by 2 m cell (integer keys), for spacing: rebuilt a few times a second, a pedestrian moves 1.4 m/s
+  if now - cellsAt > CELLS_EVERY then
+    cellsAt, cells = now, {}
+    for _, p in ipairs(peds) do
+      if p.pos then
+        local k = math.floor(p.pos.x / 2) * 65536 + math.floor(p.pos.y / 2)
+        cells[k] = cells[k] or {}
+        table.insert(cells[k], p)
+      end
     end
+    for _, p in ipairs(peds) do p.nearAt = nil end
   end
   for i = #peds, 1, -1 do
     local p = peds[i]
     if not simObjectExists(p.obj) then
       table.remove(peds, i)
     else
-      local near = {}
-      if p.pos then
-        local cx, cy = math.floor(p.pos.x / 2), math.floor(p.pos.y / 2)
-        for a = -1, 1 do
-          for b = -1, 1 do
-            for _, q in ipairs(cells[(cx + a) .. ',' .. (cy + b)] or {}) do table.insert(near, q) end
+      local near = p.near
+      if not p.nearAt then      -- (the neighbours are looked up when the cells are rebuilt: p.nearAt is cleared then)
+        near = {}
+        if p.pos then
+          local cx, cy = math.floor(p.pos.x / 2), math.floor(p.pos.y / 2)
+          for a = -1, 1 do
+            for b = -1, 1 do
+              for _, q in ipairs(cells[(cx + a) * 65536 + (cy + b)] or {}) do table.insert(near, q) end
+            end
           end
         end
+        p.near, p.nearAt = near, true
       end
       local pos = updatePed(p, dt, vehicles, near)
       if pos:distance(cam) > DESPAWN then despawn(p) table.remove(peds, i) end
