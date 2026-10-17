@@ -4,8 +4,9 @@
 
 ### Drivers
 - **The rigged driver takes setAppearance.** Size (0.9 to 1.1) resizes his nodes and meshes when the car spawns; a helmet (models that
-  have one) is a fifteenth flexbody bound to the head; shirt, trousers and helmet colours switch
-  material per car (the car's own meshes are switched to a tinted one), so other cars keep theirs.
+  have one) is a fifteenth flexbody bound to the head; the helmet colour switches
+  material per car, so other cars keep theirs. Shirt and trousers colours are not applied to him yet. A car with a flex driver
+  still gets the props passenger beside him.
 
 ## 1.5.0 (the rigged driver, an option)
 

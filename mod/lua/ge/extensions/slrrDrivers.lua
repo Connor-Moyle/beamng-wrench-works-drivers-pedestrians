@@ -449,10 +449,9 @@ local function helmetMaterial(a)
   return name
 end
 
--- A flex driver's clothes, per car: the car's own meshes are switched to the tinted material (the same one a props driver
--- gets) and the helmet's to a coloured one; the skin's and the helmet's shared materials stay as they are, so other cars
--- wearing the skin keep theirs. Returns the tinted material's name, false while it is not ready (a baked tint, or the car's
--- meshes not known to the engine yet).
+-- A flex driver's helmet colour, per car: the car's own helmet mesh is switched to a coloured material; the shared helmet
+-- material stays as it is, so other cars keep theirs. Returns the skin's material, false while the car's meshes are not
+-- known to the engine yet.
 local flexSwitch = {}            -- vid -> switchable materials in use on its meshes
 local flexTries = {}
 local function flexLook(veh, vid, d, look)
@@ -460,8 +459,7 @@ local function flexLook(veh, vid, d, look)
   if not fm then return d.skin .. '_driver' end
   if not slrrDriverMount.flexShown(vid) then return false end   -- (after the meshes were first shown: a switch before it left them invisible)
   local skinMat = d.skin .. '_driver'
-  local tint = tintMaterial(d, look)
-  if not tint then return false end
+  -- shirt and trousers: a switched tint showed no colour in game (flex driver stays in its own clothes), later item
   local used, want = {}, 0
   local function switch(from, to, mesh)
     want = want + 1
@@ -471,7 +469,6 @@ local function flexLook(veh, vid, d, look)
   local ok, err = pcall(function()
     for _, msc in ipairs(flexSwitch[vid] or {}) do veh:resetMaterials(msc) end
     flexSwitch[vid] = nil
-    if tint ~= skinMat then for _, mesh in ipairs(fm) do switch(skinMat, tint, mesh) end end
     if fm.helmet and look.helmetColor then switch('base_helmet', helmetMaterial(look), fm.helmet) end
   end)
   if not ok then log('E', 'slrrDrivers', 'flex clothes failed: ' .. tostring(err)) end
@@ -483,7 +480,7 @@ local function flexLook(veh, vid, d, look)
     log('W', 'slrrDrivers', 'flex clothes: ' .. #used .. ' of ' .. want .. ' meshes switched for ' .. tostring(vid))
   end
   flexTries[vid] = nil
-  return tint
+  return skinMat
 end
 
 -- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
