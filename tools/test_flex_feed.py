@@ -30,7 +30,7 @@ v = {data = {
     [1] = {id1 = 3, id2 = 2, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0},
     [2] = {id1 = 4, id2 = 1, beamSpring = 4000000, partOrigin = 'covet_body', beamType = 0},   -- a car beam
     [3] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0, breakGroup = 'x'},   -- has a break group: not ours
-    [4] = {id1 = 3, id2 = 4, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0}}}}   -- ours: a hold to a car node
+    [4] = {id1 = 3, id2 = 4, beamSpring = 20000, partOrigin = 'slrr_ragdoll', beamType = 0}}}}   -- ours: a hold to a car node
 """
 
 

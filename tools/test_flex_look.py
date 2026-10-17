@@ -67,7 +67,9 @@ def passenger():
     seat = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 60000 then n = n + 1 end end return n end)()")
     assert seat >= 2, ("a flex driver rests on several seat nodes", seat)
     stiff = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 150000 then n = n + 1 end end return n end)()")
-    assert stiff > 36, ("hands and feet are also held by car nodes ahead of the torso's plane", stiff)
+    assert stiff >= 36, ("the truss is 9 joints x 4 beams", stiff)
+    soft = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 20000 then n = n + 1 end end return n end)()")
+    assert soft >= 6, ("hands and feet are also held, softly, by car nodes ahead of the torso's plane", soft)
 
 
 def main():

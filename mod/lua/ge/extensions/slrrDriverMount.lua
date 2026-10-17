@@ -73,10 +73,13 @@ local function onPanel(n)
 end
 
 -- the nearest car node to a point (jbeam space), not on a moving panel and not one of ours
-local function nearestNode(vehicle, p, skip)
+local function nearestNode(vehicle, p, skip, avoid)   -- avoid: part names (plain text) that must not occur in the node's part (glass, mirrors)
   local best, bd
   for _, n in pairs(vehicle.nodes) do
-    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) then
+    local part = avoid and string.lower(tostring(n.partOrigin or ''))
+    local bad = false
+    for _, w in ipairs(avoid or {}) do if part:find(w, 1, true) then bad = true end end
+    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) and not bad then
       local d = vec3(n.pos):distance(p)
       if not bd or d < bd then best, bd = n.cid, d end
     end
@@ -274,15 +277,16 @@ local function addRagdoll(objID, vehicle, camCid, k)
     -- shoulders, 0.6 m off). Two car nodes ahead of the joint, within 0.12 to 0.8 m of its place, settle which one: stiff beams
     -- to them, the same sort of hold (slrrDriverFeed sets their lengths too)
     local anchored = {}
+    local CARHOLD = {beamSpring = 20000, beamDamp = 60, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}   -- (soft: 150000 cracked the car's windscreen and dash)
     for _, j in ipairs({'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
       local skip, got = {}, 0
       for cid in pairs(ours) do skip[cid] = true end
       for _ = 1, 8 do
         if got >= 2 then break end
-        local node, d = nearestNode(vehicle, J(cam, P[j]), skip)
+        local node, d = nearestNode(vehicle, J(cam, P[j]), skip, {'glass', 'window', 'windshield', 'mirror', 'wiper'})
         if not node or d > 0.8 then break end
         skip[node] = true
-        if d >= 0.12 then beam(ids[j], node, STIFF) got = got + 1 end
+        if d >= 0.12 then beam(ids[j], node, CARHOLD) got = got + 1 end
       end
       anchored[#anchored + 1] = j .. ' ' .. got
     end

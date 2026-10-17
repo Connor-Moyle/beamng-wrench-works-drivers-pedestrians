@@ -94,6 +94,7 @@ local rig                      -- nil until looked up; false when this car has n
 local target = {}              -- joint -> vec3, jbeam space
 local now = {}
 
+local CAR_HOLD = 20000   -- spring of a hold to a car node (slrrDriverMount): soft, 150000 cracked the windscreen and dash
 local function findRig()
   local byName = {}
   for cid, n in pairs(v.data.nodes) do
@@ -109,7 +110,8 @@ local function findRig()
   for bcid, b in pairs(v.data.beams) do
     local a, c = byName[b.id1], byName[b.id2]
     -- a hold to a car node (a hand or foot tied to a node ahead of the torso's plane): the node's place is fixed
-    if (a == nil) ~= (c == nil) then
+    local toCar = (a == nil) ~= (c == nil)
+    if toCar then
       local carCid = a == nil and b.id1 or b.id2
       local cn = v.data.nodes[carCid]
       if cn and cn.pos then
@@ -119,7 +121,7 @@ local function findRig()
       else a, c = nil, nil end
     end
     -- only our own beams are ever resized: both ends are driver nodes, plain type, our part, no break group
-    if a and c and b.beamSpring == 150000 and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
+    if a and c and b.beamSpring == (toCar and CAR_HOLD or 150000) and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
       local joint, torso = a, c
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
