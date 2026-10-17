@@ -27,6 +27,7 @@ local flexBind = 'near'
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
+local flexSkin = {}            -- objID -> the skin its flex driver was built with
 local flexScale = {}           -- objID -> the size its flex driver was built at (setAppearance scale)
 local flexMeshes = {}          -- objID -> mesh names of its flexbodies
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
@@ -407,6 +408,7 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
         local hm = 'slrr_' .. tostring(dmodel) .. '_helmet'   -- (only the models with a helmet shape: police, vin)
         local helmet = look.helmet and FS:fileExists('/vehicles/common/slrr_drivers/' .. hm .. '.dae') and hm or nil
         alphaDue[objID] = 0.3
+        flexSkin[objID] = skin
         flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin, k, helmet)
         log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat')
       end
@@ -418,6 +420,16 @@ end
 -- Ragdoll recorder (crash review): every frame, each ragdoll node in the seat frame (x right, y forward,
 -- z up, from the driver camera node), and the car's speed
 local recs = {}
+-- every flex mesh of a car shown (a mesh whose material was switched is made visible again): how many the engine knew
+M.showFlex = function(vid)
+  local veh, shown = be:getObjectByID(vid), 0
+  if not veh then return 0 end
+  for _, name in ipairs(flexMeshes[vid] or {}) do if veh:setMeshAlpha(1, name, false) then shown = shown + 1 end end
+  if flexMeshes[vid] and flexMeshes[vid].helmet and veh:setMeshAlpha(1, flexMeshes[vid].helmet, false) then shown = shown + 1 end
+  return shown
+end
+M.flexShown = function(vid) return flex[vid] ~= nil and alphaDue[vid] == nil end   -- (made visible once already)
+M.getFlexSkin = function(vid) return flexSkin[vid] end
 M.onPreRender = function(dt)
   -- injected flexbodies come up invisible (found in game: visible only after veh:setMeshAlpha(1, mesh) had been called, which
   -- flexReport and dumpFlex did): make them visible once the car exists in the engine
@@ -430,9 +442,7 @@ M.onPreRender = function(dt)
       headHidden[vid] = nil
       -- dumpFlex and flexReport (what made the driver appear in game) both read the vehicle data first: do that too
       core_vehicle_manager.getVehicleData(vid)
-      local shown = 0
-      for _, name in ipairs(flexMeshes[vid] or {}) do if veh:setMeshAlpha(1, name, false) then shown = shown + 1 end end
-      if flexMeshes[vid] and flexMeshes[vid].helmet and veh:setMeshAlpha(1, flexMeshes[vid].helmet, false) then shown = shown + 1 end
+      local shown = M.showFlex(vid)
       log('I', 'slrrDriverMount', 'flex meshes made visible for ' .. tostring(vid) .. ': ' .. shown .. ' of ' .. #(flexMeshes[vid] or {}))
     end
   end
@@ -598,5 +608,5 @@ M.getRagdoll = function(objID) return ragdolls[objID] end
 M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 end end
 M.getFlexMeshes = function(objID) return flexMeshes[objID] end
 M.getFlexScale = function(objID) return flexScale[objID] end
-M.onVehicleDestroyed = function(objID) flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
+M.onVehicleDestroyed = function(objID) flexSkin[objID] = nil flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M

@@ -458,6 +458,7 @@ local flexTries = {}
 local function flexLook(veh, vid, d, look)
   local fm = slrrDriverMount.getFlexMeshes and slrrDriverMount.getFlexMeshes(vid)
   if not fm then return d.skin .. '_driver' end
+  if not slrrDriverMount.flexShown(vid) then return false end   -- (after the meshes were first shown: a switch before it left them invisible)
   local skinMat = d.skin .. '_driver'
   local tint = tintMaterial(d, look)
   if not tint then return false end
@@ -475,6 +476,7 @@ local function flexLook(veh, vid, d, look)
   end)
   if not ok then log('E', 'slrrDrivers', 'flex clothes failed: ' .. tostring(err)) end
   flexSwitch[vid] = used
+  if #used > 0 then slrrDriverMount.showFlex(vid) end
   if #used < want then   -- the meshes are not in the engine yet: try again, for a while
     flexTries[vid] = (flexTries[vid] or 0) + 1
     if flexTries[vid] < 600 and ok then return false end
@@ -846,6 +848,8 @@ local function attach(vid)
     props = driverProps(veh, pd.skin)
     if props then d = pd end
   end
+  local flexSkin = flex and slrrDriverMount.getFlexSkin and slrrDriverMount.getFlexSkin(vid)
+  if flexSkin and flexSkin ~= d.skin then d = driverBySkin(flexSkin) or d end   -- (the skin the car was built with, as the props)
   local rig = getRig(d.model)
   if not rig then log('E', 'slrrDrivers', 'missing rig for model ' .. tostring(d.model)) return true end
   local look = appearanceFor(vid)
