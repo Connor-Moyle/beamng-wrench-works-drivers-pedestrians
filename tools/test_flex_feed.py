@@ -70,7 +70,27 @@ def main():
     assert lua.eval("#calls") > 0, "posing stopped after the health log"
     line = lua.eval("table.concat(logged, '|')")
     assert "1 of" in line and "broken" in line and "health log failed" not in line, line
-    print("ok: bad poses dropped, health log line written")
+    # a torso that sank 0.2 m (car faces +y, up +z, no turn): the beam is measured to the rest place until the car has stood
+    # still 3 s, then, once, to the settled place
+    lua.execute("""
+      local function W(c) local n = v.data.nodes[c] return vec3(-n.pos.x, -n.pos.y, n.pos.z - (c == 1 and 0.2 or 0)) end
+      obj.getNodePosition = function(_, c) return W(c) end
+      obj.getDirectionVector = function() return vec3(0, 1, 0) end
+      obj.getDirectionVectorUp = function() return vec3(0, 0, 1) end
+      obj.getVelocity = function() return vec3(0, 0, 0) end
+      logged = {}
+      calls = {} now = {} M.onReset() M.pose(""" + pose(good) + """) M.updateGFX(1)
+      pre = nil for _, c in ipairs(calls) do if c[1] == 0 then pre = c[2] end end
+      for i = 1, 4 do M.pose(""" + pose(good) + """) M.updateGFX(1) end
+      calls = {} M.updateGFX(1)
+      post = nil for _, c in ipairs(calls) do if c[1] == 0 then post = c[2] end end
+      local n, cam = v.data.nodes[1], v.data.nodes[0].pos
+      local tg = vec3(cam.x - 0.2, cam.y - 0.2, cam.z + 0.2)   -- the r_wr target as told (seat 0.2, 0.2, 0.2 from the eye)
+      want_pre = tg:distance(vec3(n.pos.x, n.pos.y, n.pos.z))
+      want_post = tg:distance(vec3(n.pos.x, n.pos.y, n.pos.z - 0.2))""")
+    assert abs(lua.eval("pre") - lua.eval("want_pre")) < 1e-6, "before settling the rest place is used"
+    assert abs(lua.eval("post") - lua.eval("want_post")) < 1e-6, (lua.eval("post"), lua.eval("want_post"))
+    print("ok: bad poses dropped, health log line written, torso settled once after 3 s")
 
 
 if __name__ == "__main__":

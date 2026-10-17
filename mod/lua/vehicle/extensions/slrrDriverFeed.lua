@@ -114,7 +114,7 @@ local function findRig()
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
-        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
+        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, tname = torso, tcid = r.rest[torso].cid, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
         r.mine[bcid] = true
       end
     end
@@ -156,6 +156,35 @@ local function fitBones()
   end
 end
 
+-- The seat is soft: under the driver's weight the torso settles 0.1-0.2 m below where it was put, and the arms and legs, held
+-- from the torso's rest places, ended up as far off. Once the car has stood still for a moment (3 s after the spawn) the torso's
+-- settled places are taken once (jbeam frame, from the eye in the car's own axes) and the lengths are measured from those, so
+-- the joints reach their targets. Taken once, not followed: following left the torso nothing to pull it back (it wandered).
+local settle = {t = 0, done = false}
+local SETTLE_AFTER, SETTLE_MAX = 3, 0.4
+local function settleTorso()
+  local cam = v.data.nodes[camNode].pos
+  local E, fwd, up = obj:getNodePosition(camNode), obj:getDirectionVector(), obj:getDirectionVectorUp()
+  local right = fwd:cross(up):normalized()
+  up = right:cross(fwd)
+  if not (right.x == right.x) then return end
+  local placed = {}
+  for _, holds in pairs(rig.holds) do
+    for _, h in ipairs(holds) do
+      if not placed[h.tname] then
+        local d = obj:getNodePosition(h.tcid) - E
+        local p = vec3(cam.x - d:dot(right), cam.y - d:dot(fwd), cam.z + d:dot(up))
+        if p.x ~= p.x or p.y ~= p.y or p.z ~= p.z or p:distance(h.torso) > SETTLE_MAX then return end   -- a torso that is not where it should be: no correction
+        placed[h.tname] = p
+      end
+    end
+  end
+  for _, holds in pairs(rig.holds) do
+    for _, h in ipairs(holds) do h.torso = placed[h.tname] end
+  end
+  log('I', 'slrrDriverFeed', 'flex torso settled')
+end
+
 local stats = {calls = 0, skipped = 0, t = 0}
 local function movePose(dt)
   if not rig then return end
@@ -166,6 +195,17 @@ local function movePose(dt)
     now[j] = c
   end
   fitBones()
+  if not settle.done then
+    settle.t = settle.t + dt
+    if settle.t > SETTLE_AFTER then
+      local ok, still = pcall(function() return obj:getVelocity():length() < 0.2 end)
+      if ok and still then
+        settle.done = true
+        local ok2, err = pcall(settleTorso)
+        if not ok2 then log('W', 'slrrDriverFeed', 'torso settle failed: ' .. tostring(err)) end
+      end
+    end
+  end
   stats.t = stats.t + dt
   if stats.t > 5 and stats.calls + stats.skipped > 0 then
     -- health: how many of the driver's beams broke, and how far head / shoulder / wrist sit from the eye now against at rest (m)
@@ -204,7 +244,7 @@ end
 M.updateGFX = updateGFX
 M.pose = pose
 M.setDriverMass = setDriverMass
-M.onReset = function() checkTimer = 1 now = {} end   -- re-check straight away
+M.onReset = function() checkTimer = 1 now = {} settle = {t = 0, done = false} rig = nil end   -- re-check straight away
 M.onExtensionUnloaded = removeMass
 M.addedMass = function() local s = 0 for _, kg in pairs(extra) do s = s + kg end return s end
 return M
