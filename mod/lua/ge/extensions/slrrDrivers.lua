@@ -948,7 +948,8 @@ local function attach(vid)
     end
   end
   cars[vid] = c
-  veh:queueLuaCommand(string.format('extensions.load("slrrDriverFeed") slrrDriverFeed.setDriverMass(%d, %g)', camNode, d.mass))
+  veh:queueLuaCommand(string.format('extensions.load("slrrDriverFeed") slrrDriverFeed.setDriverMass(%d, %g)', camNode,
+    (slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid)) and 0 or d.mass))   -- (a flex driver's mass is its nodes')
   return true
 end
 

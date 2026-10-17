@@ -16,7 +16,13 @@ local SETTINGS = '/settings/slrr_drivers_mount.json'
 -- camera (the pooled simple traffic, their seat guessed); passengers: the passenger props. Both for bisecting a
 -- crash in game: slrrDriverMount.setFlags({noCamera = false})
 local flags = {ragdoll = false, selfCollision = false, noCamera = true, passengers = true}
+-- driverRig: 'props' (default: rigid prop parts posed by slrrDrivers) or 'flex' (stage A of the rework: ragdoll nodes with
+-- the driver's mesh as flexbodies bound to them; docs/DRIVER_REWORK.md). Only cars with a driver camera get the flex
+-- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
+local driverRig = 'props'
+local optOut = {}
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
+local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
 local mounts = {}                  -- objID -> {driver = skin, passenger = skin, passengerAt = {x, y, z} (jbeam)}: what the car was given
 local PASSENGER_SHARE = 0.3
@@ -196,6 +202,7 @@ local function addProps(objID, vehicle, camCid)
 end
 
 
+M.driverMass = 69   -- kg: the sum of KG in addRagdoll, all of it in the seat (head to ankles), none added elsewhere
 local function addRagdoll(objID, vehicle, camCid)
   local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel(objID) .. '/rig.json')
   if not rig then return 0 end
@@ -214,7 +221,7 @@ local function addRagdoll(objID, vehicle, camCid)
   for name, p in pairs(P) do
     local cid = jbeamUtils.addNodeWithOptions(vehicle, J(cam, p), 0, {
       nodeWeight = KG[name], collision = true, selfCollision = flags.selfCollision, frictionCoef = 0.8,
-      group = {'slrr_ragdoll'}, partOrigin = 'slrr_ragdoll', name = 'slrr_rd_' .. name})
+      group = {'slrr_ragdoll', 'slrr_rd_' .. name}, partOrigin = 'slrr_ragdoll', name = 'slrr_rd_' .. name})
     ids[name], ours[cid] = cid, true
   end
   local function beam(a, b, opts)
@@ -263,7 +270,36 @@ local function addRagdoll(objID, vehicle, camCid)
     if node and d < 0.4 then beam(ids[a[1]], node, SEAT) end
   end
   ragdolls[objID] = {nodes = ids, belts = #belts}
-  return #belts
+  return #belts, P
+end
+
+-- the 14 body parts as flexbodies, each bound to the joint nodes around it (three, so its orientation is defined).
+-- Mesh origins are the joints (tools/prop_meshes.py), so pos is the joint's place in jbeam space; the meshes are in the
+-- seat frame (x right, y forward), jbeam is x left, y back: a half turn about z.
+local BIND = {
+  body = {'pelvis', 'chest', 'r_sh', 'l_sh'}, head = {'head', 'neck', 'r_sh', 'l_sh'},
+  r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh'}, r_hand = {'r_wr', 'r_el', 'r_sh'},
+  l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh'}, l_hand = {'l_wr', 'l_el', 'l_sh'},
+  r_thigh = {'r_hip', 'r_kn', 'pelvis'}, r_calf = {'r_kn', 'r_an', 'r_hip'}, r_foot = {'r_an', 'r_kn', 'r_hip'},
+  l_thigh = {'l_hip', 'l_kn', 'pelvis'}, l_calf = {'l_kn', 'l_an', 'l_hip'}, l_foot = {'l_an', 'l_kn', 'l_hip'}}
+local ORIGIN = {body = 'eye', head = 'neck', r_upperarm = 'r_sh', r_forearm = 'r_el', r_hand = 'r_wr', l_upperarm = 'l_sh',
+                l_forearm = 'l_el', l_hand = 'l_wr', r_thigh = 'r_hip', r_calf = 'r_kn', r_foot = 'r_an',
+                l_thigh = 'l_hip', l_calf = 'l_kn', l_foot = 'l_an'}
+
+local function addFlexbodies(objID, vehicle, cam, P, skin)
+  if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no meshes for skin ' .. tostring(skin) .. ', no flexbodies') return 0 end
+  vehicle.flexbodies = vehicle.flexbodies or {}
+  local n = 0
+  for _, part in ipairs(PARTS) do
+    local at = ORIGIN[part] == 'eye' and vec3(cam.x, cam.y, cam.z) or J(cam, P[ORIGIN[part]])
+    local groups = {}
+    for _, j in ipairs(BIND[part]) do groups[#groups + 1] = 'slrr_rd_' .. j end
+    table.insert(vehicle.flexbodies, {
+      mesh = skin .. '_' .. part, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = 1, y = 1, z = 1},
+      ['[group]:nodes'] = groups, partOrigin = 'slrr_driver'})
+    n = n + 1
+  end
+  return n
 end
 
 -- The career's own cars nobody drives with AI (a lot's display cars, the player's fleet) are spawned after
@@ -280,11 +316,24 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
     if camCid and not byCid(vehicle)[camCid] then camCid = nil end
-    log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))   -- (no camera: a seat guessed from the wheel)
+    local model = tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
+    local wantFlex = driverRig == 'flex' and camCid and not optOut[objID] and not (model and optOut[model])
+    if driverRig == 'flex' and not wantFlex then
+      log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
+    end
+    if not wantFlex then
+      log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))   -- (no camera: a seat guessed from the wheel)
+    end
     if not camCid then return end
-    if flags.ragdoll or ragdollNext then
+    if wantFlex or flags.ragdoll or ragdollNext then
       ragdollNext = false
-      log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. addRagdoll(objID, vehicle, camCid))
+      local belts, P = addRagdoll(objID, vehicle, camCid)
+      log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. tostring(belts))
+      if wantFlex and P then
+        local _, skin = driverInfo(objID)
+        flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin)
+        log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat')
+      end
     end
   end)
   if not ok then log('E', 'slrrDriverMount', 'injection failed (spawn unaffected): ' .. tostring(err)) end
@@ -338,6 +387,10 @@ end
 M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
+M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
+M.getDriverRig = function() return driverRig end
+M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or objID: no flex driver
+M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
-M.onVehicleDestroyed = function(objID) ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
+M.onVehicleDestroyed = function(objID) flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M
