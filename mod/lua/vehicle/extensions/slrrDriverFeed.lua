@@ -114,7 +114,7 @@ local function findRig()
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
-        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
+        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, tcid = r.rest[torso].cid, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
         r.mine[bcid] = true
       end
     end
@@ -183,9 +183,25 @@ local function movePose(dt)
     if not okh then log('W', 'slrrDriverFeed', 'health log failed: ' .. tostring(err)) end
     stats.calls, stats.skipped, stats.t = 0, 0, 0
   end
+  -- the torso sinks a little under the driver's weight (the seat is soft): each length is measured to where the torso node is
+  -- now, with the target placed from the eye in the car's own axes (world), so the joint lands on its target and not as far off as
+  -- the torso is. Without the engine's vectors (or a bad one) it is the rest place, as before.
+  local E, fwd, up, right
+  local okv = pcall(function()
+    E, fwd, up = obj:getNodePosition(camNode), obj:getDirectionVector(), obj:getDirectionVectorUp()
+    right = fwd:cross(up):normalized()
+    up = right:cross(fwd)
+  end)
+  if not (okv and E and right and right.x == right.x) then E = nil end
+  local cam = v.data.nodes[camNode].pos
   for j, c in pairs(now) do
+    local tw = E and (E + right * (cam.x - c.x) + fwd * (cam.y - c.y) + up * (c.z - cam.z))
     for _, h in ipairs(rig.holds[j] or {}) do
-      local len = c:distance(h.torso)
+      local len
+      if tw then
+        local okn, tp = pcall(obj.getNodePosition, obj, h.tcid)
+        len = okn and tp and tw:distance(tp) or c:distance(h.torso)
+      else len = c:distance(h.torso) end
       -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
       if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
       else stats.skipped = stats.skipped + 1 end
