@@ -27,6 +27,7 @@ local flexBind = 'near'
 local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node one at the car's origin, one 1.2 m above the seat and one 1.6 m to the car's left (outside the body)
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
+local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
 local flexMeshes = {}          -- objID -> mesh names of its flexbodies
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
@@ -398,11 +399,22 @@ M.onPreRender = function(dt)
     elseif t > dt then alphaDue[vid] = t - dt
     else
       alphaDue[vid] = nil
+      headHidden[vid] = nil
       -- dumpFlex and flexReport (what made the driver appear in game) both read the vehicle data first: do that too
       core_vehicle_manager.getVehicleData(vid)
       local shown = 0
       for _, name in ipairs(flexMeshes[vid] or {}) do if veh:setMeshAlpha(1, name, false) then shown = shown + 1 end end
       log('I', 'slrrDriverMount', 'flex meshes made visible for ' .. tostring(vid) .. ': ' .. shown .. ' of ' .. #(flexMeshes[vid] or {}))
+    end
+  end
+  -- the head is not drawn from inside it: in the driver's own camera (as slrrDrivers does for its figure)
+  local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
+  for vid in pairs(flex) do
+    local hide = vid == fpVid
+    if headHidden[vid] ~= hide then
+      local veh = be:getObjectByID(vid)
+      local head = flexMeshes[vid] and flexMeshes[vid][2]
+      if veh and head and veh:setMeshAlpha(hide and 0 or 1, head, false) then headHidden[vid] = hide end
     end
   end
   for vid, r in pairs(recs) do
@@ -451,6 +463,24 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+-- where each ragdoll node is now, in the seat frame (x right, y forward, z up, from the driver camera node): to see whether
+-- the skeleton holds its seated shape or collapses
+M.ragdollPositions = function(objID)
+  local veh, rd, cam = be:getObjectByID(objID), ragdolls[objID], core_camera.getDriverDataById(objID)
+  if not (veh and rd and cam) then log('W', 'slrrDriverMount', 'ragdollPositions: no ragdoll / camera for ' .. tostring(objID)) return end
+  local fwd = vec3(veh:getDirectionVector()):normalized()
+  local up = vec3(veh:getDirectionVectorUp())
+  local right = fwd:cross(up):normalized()
+  up = right:cross(fwd)
+  local c = vec3(veh:getNodePositionXYZ(cam))
+  local t = {}
+  for name, cid in pairs(rd.nodes) do
+    local d = vec3(veh:getNodePositionXYZ(cid)) - c
+    t[#t + 1] = string.format('%s (%.2f %.2f %.2f)', name, d:dot(right), d:dot(fwd), d:dot(up))
+  end
+  table.sort(t)
+  log('I', 'slrrDriverMount', 'ragdoll nodes for ' .. tostring(objID) .. ': ' .. table.concat(t, ', '))
+end
 -- every field of two flexbody records as the loader holds them after the spawn: a stock one (the car's body) and ours,
 -- to compare (node lists shown as counts)
 M.dumpFlex = function(objID)
@@ -497,5 +527,5 @@ M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
 M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 end end
-M.onVehicleDestroyed = function(objID) alphaDue[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
+M.onVehicleDestroyed = function(objID) alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M
