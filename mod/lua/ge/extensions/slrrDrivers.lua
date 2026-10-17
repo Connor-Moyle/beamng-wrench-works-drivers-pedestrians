@@ -501,6 +501,7 @@ local function wantedDriver(vid)
   if id == false then return nil end
   local veh = be:getObjectByID(vid)
   if veh and veh:getJBeamFilename() == 'unicycle' then return nil end   -- the on-foot player
+  if slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid) then return nil end   -- the car draws its own
   if not isDriven(vid) then return nil end
   return drivers[id or defaultDriver] and (id or defaultDriver) or nil
 end

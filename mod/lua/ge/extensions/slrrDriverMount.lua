@@ -418,6 +418,22 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+-- what the engine made of the flexbodies (run after the spawn): per mesh, whether the vehicle knows the mesh name
+-- (setMeshAlpha answers true only for a mesh it has; it also forces alpha 1) and the loader's own record of it
+M.flexReport = function(objID)
+  local veh = be:getObjectByID(objID)
+  local vd = core_vehicle_manager.getVehicleData(objID)
+  local fbs = vd and vd.vdata and vd.vdata.flexbodies or {}
+  local _, skin = driverInfo(objID)
+  for _, part in ipairs(PARTS) do
+    local name = skin .. '_' .. part
+    local rec
+    for _, f in pairs(fbs) do if type(f) == 'table' and (f.mesh == name or f.originalMesh == name) then rec = f break end end
+    log('I', 'slrrDriverMount', string.format('  %s: engine knows mesh=%s, loader record=%s fid=%s meshLoaded=%s nodes=%s', name,
+      tostring(veh and veh:setMeshAlpha(1, name, false)), tostring(rec ~= nil), tostring(rec and rec.fid), tostring(rec and rec.meshLoaded),
+      tostring(rec and rec['_group_nodes'] and #rec['_group_nodes'])))
+  end
+end
 M.setFlexBind = function(mode) if mode == 'near' or mode == 'all' or mode == 'car' then flexBind = mode end end   -- cars spawned afterwards
 M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or objID: no flex driver
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
