@@ -288,7 +288,7 @@ def main():
     lua.execute("crashed = false")
     assert max(slides) < 0.01, max(slides)
     assert close < steps * 0.001, (close, steps)
-    assert slow_count <= 10 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)
+    assert slow_count <= round(40 * share * 0.5) + 2 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)
     assert w["downtown"] == w["beachfront"] == 1 and w["outskirts"] < w["industrial"] < w["south end"] < 1, w
 
     # player options: no idling and no crossings, then a hard cap, then off

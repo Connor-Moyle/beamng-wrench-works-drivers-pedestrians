@@ -50,9 +50,10 @@ local CAR_CLEAR = 3         -- metres: a car passing this close to the crossing 
 local CAR_NEAR = 15         -- metres: a moving car this close to a crossing blocks it whichever way it heads
 local FRAME_TAU = 2         -- seconds of frame-time smoothing
 local MIN_CAP = 6
+local CAP_FLOOR = 0.5       -- the frame-time cap never takes the crowd below this share of what is wanted (a city with five people in it is not one)
 local MIN_SHARE = 0.15      -- the quietest area still gets this share of the count
 
-local count = 30            -- the base count ('medium'); setCount changes it
+local count = 45            -- the base count ('medium'); setCount changes it
 local AMOUNT = {off = 0, low = 0.5, medium = 1, high = 1.5, veryhigh = 2}
 -- player options (Wrench Works' settings call setOptions); defaults are the mod's own behaviour
 local DEFAULTS = {amount = 'medium', maxCount = 60, autoReduce = true, targetFps = 55, idling = true, crossing = true,
@@ -103,12 +104,12 @@ local function applyOptions(t)
 end
 
 local function saveSettings()
-  jsonWriteFile(SETTINGS, {count = count, options = opts}, true)
+  jsonWriteFile(SETTINGS, {version = 2, count = count, options = opts}, true)
 end
 
 local function loadSettings()
   local s = jsonReadFile(SETTINGS)
-  if s and tonumber(s.count) then count = tonumber(s.count) end
+  if s and s.version == 2 and tonumber(s.count) then count = tonumber(s.count) end        -- (before version 2 the saved count was only the old default, 30)
   if s then applyOptions(s.options) end
 end
 
@@ -883,7 +884,7 @@ local function target(dtReal)
   capTimer = capTimer + dtReal
   if capTimer > 0.5 then
     capTimer = 0
-    if frameAvg > budget then cap = math.max(math.min(MIN_CAP, want), cap - 2)
+    if frameAvg > budget then cap = math.max(math.min(MIN_CAP, want), math.ceil(want * CAP_FLOOR), cap - 2)
     elseif frameAvg < budget * 0.85 then cap = math.min(want, cap + 1) end
   end
   return cap
@@ -1198,7 +1199,7 @@ M.clearSpectatorZones = function() extraZones = {} end
 M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
 end
-M.onClientStartMission = function() broken = false group = nil peds = {} loadWalks() end
+M.onClientStartMission = function() broken = false group = nil peds = {} loadedMaterials = false loadWalks() end   -- (a level load drops the materials: load them again)
 M.onClientEndMission = function()
   group, peds, lines, junctions, player, spectators, specZone, specZones = nil, {}, nil, nil, nil, {}, nil, nil
 end
