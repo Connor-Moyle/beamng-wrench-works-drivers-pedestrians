@@ -86,6 +86,9 @@ def to_lua(lua, v):
 
 def main():
     lua = LuaRuntime(unpack_returned_tuples=True)
+    seed = int(os.environ.get("PEDS_SEED") or int.from_bytes(os.urandom(3), "big"))   # replay a failing run: PEDS_SEED=<printed>
+    print("seed %d" % seed, flush=True)
+    lua.execute("math.randomseed(%d)" % seed)
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     g = lua.globals()
     g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/"))))) \
