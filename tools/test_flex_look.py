@@ -45,7 +45,28 @@ def build(look):
     return lua, M, errors
 
 
+def passenger():
+    """A flex car still gets the props passenger beside him (and no props for the driver himself)."""
+    lua, M, errors = build({})
+    lua.execute("""
+      slrrDrivers.getDrivers = function() return {{id = 'slrr_mitch'}, {id = 'slrr_opponent1'}} end
+      v = {nodes = {}, props = {}, flexbodies = {}, cameras = {onboard = {{name = 'driver', camNodeID = 4}}}}
+      local function node(cid, name, x, y, z) v.nodes[#v.nodes + 1] = {cid = cid, name = name, pos = {x = x, y = y, z = z}} end
+      node(1, 'b1', 0, -0.89, 0.18) node(2, 'b1l', 0.85, -0.89, 0.18) node(3, 'b2', 0, 0.15, 0.18)
+      node(4, 'cam', 0.35, 0.1, 1.15) node(5, 'roof', 0, 0, 1.4) node(6, 'rr', -0.85, 0.9, 0.18)
+      for i = 1, 4 do node(10 + i, 'seat' .. i, -0.35 + i * 0.02, 0.1 + i * 0.05, 0.5 + i * 0.1) end   -- the seat beside him
+      v.props[1] = {func = 'steering', mesh = 'wheel', idRef = 1, idX = 2, idY = 3, baseTranslationGlobal = {x = 0.356, y = -0.342, z = 0.829}}
+    """)
+    M.onJbeamLoadingPhase1(0.5, 7, lua.globals().v)
+    n = lua.eval("(function() local n = 0 for k in pairs(v.props) do if type(k) == 'string' and k:find('slrr_pass_') then n = n + 1 end end return n end)()")
+    drv = lua.eval("(function() local n = 0 for k in pairs(v.props) do if type(k) == 'string' and k:find('slrr_driver_') then n = n + 1 end end return n end)()")
+    assert n == 14 and drv == 0, ("passenger props", n, "driver props", drv, errors)
+    assert M.getMount(7).passenger and lua.eval("#v.flexbodies") == 14, "the driver is still flexbodies"
+    assert not errors, errors
+
+
 def main():
+    passenger()
     lua, M, errors = build({})
     n1 = lua.eval("#v.flexbodies")
     assert n1 == 14 and lua.eval("v.flexbodies[1].scale.x") == 1 and M.getFlexScale(7) == 1, ("plain", n1)
@@ -60,7 +81,7 @@ def main():
     sh2 = lua.eval("nodes.slrr_rd_r_sh.x")
     assert abs((0.35 - sh2) - 1.1 * (0.35 - sh1)) < 1e-6, (sh1, sh2)
     assert not errors and not errors2, (errors, errors2)
-    print("flex look ok: scale resizes nodes and meshes, a helmet adds a head-bound flexbody")
+    print("flex look ok: passenger props beside a flex driver, scale resizes nodes and meshes, a helmet adds a head-bound flexbody")
 
 
 if __name__ == "__main__":

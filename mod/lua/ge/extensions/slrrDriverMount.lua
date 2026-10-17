@@ -176,7 +176,8 @@ local function seatGuess(vehicle, sp)
   return cam, {node = cid, offset = {x = cam.x - p.x, y = cam.y - p.y, z = cam.z - p.z}}
 end
 
-local function addProps(objID, vehicle, camCid)
+-- passengerOnly: a flex driver is drawn by flexbodies; the passenger (if the car gets one) is still the props figure
+local function addProps(objID, vehicle, camCid, passengerOnly)
   -- meshes per skin, with the skin's material named in the dae (tools/prop_meshes.py): a material override
   -- on a prop at runtime crashes the engine
   local _, skin = driverInfo(objID)
@@ -188,7 +189,7 @@ local function addProps(objID, vehicle, camCid)
   if not cam then cam, seat = seatGuess(vehicle, sp) end
   if not cam then log('W', 'slrrDriverMount', objID .. ': no driver camera and no seat could be guessed, no props') return 0 end
   vehicle.props = vehicle.props or {}
-  addParts(vehicle, 'slrr_driver_', skin, sp, cam)
+  if not passengerOnly then addParts(vehicle, 'slrr_driver_', skin, sp, cam) end
   local mount = {driver = skin, seat = seat}
   -- a passenger in some cars (W9), in another skin
   local wantPassenger = flags.passengers and objID % 100 < PASSENGER_SHARE * 100
@@ -206,7 +207,7 @@ local function addProps(objID, vehicle, camCid)
     mount.passenger, mount.passengerAt = other, {x = pcam.x, y = pcam.y, z = pcam.z}
   end
   mounts[objID] = mount
-  return #PARTS + (mount.passenger and #PARTS or 0)
+  return (passengerOnly and 0 or #PARTS) + (mount.passenger and #PARTS or 0)
 end
 
 
@@ -392,9 +393,8 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
     if driverRig == 'flex' and not wantFlex then
       log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
     end
-    if not wantFlex then
-      log('I', 'slrrDriverMount', 'props for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid))   -- (no camera: a seat guessed from the wheel)
-    end
+    -- (no camera: a seat guessed from the wheel)
+    log('I', 'slrrDriverMount', (wantFlex and 'passenger props' or 'props') .. ' for ' .. tostring(objID) .. ': ' .. addProps(objID, vehicle, camCid, wantFlex))
     if not camCid then return end
     if wantFlex or flags.ragdoll or ragdollNext then
       ragdollNext = false
