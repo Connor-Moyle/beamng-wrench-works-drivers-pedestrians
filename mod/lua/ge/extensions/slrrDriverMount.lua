@@ -301,10 +301,12 @@ end
 -- the 14 body parts as flexbodies, each bound to the joint nodes around it (three, so its orientation is defined).
 -- Mesh origins are the joints (tools/prop_meshes.py), so pos is the joint's place in jbeam space; the meshes are in the
 -- seat frame (x right, y forward), jbeam is x left, y back: a half turn about z.
+-- (the arms carry the chest too: shoulder, elbow and wrist in a line, a straight arm, give the engine no plane to build the
+-- mesh's frame from, and the arm vanished)
 local BIND = {
   body = {'chest', 'r_hip', 'l_hip', 'r_sh', 'l_sh'}, head = {'head', 'neck', 'r_sh', 'l_sh'},
-  r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh'}, r_hand = {'r_wr', 'r_el', 'r_sh'},
-  l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh'}, l_hand = {'l_wr', 'l_el', 'l_sh'},
+  r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh', 'chest'}, r_hand = {'r_wr', 'r_el', 'r_sh', 'chest'},
+  l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh', 'chest'}, l_hand = {'l_wr', 'l_el', 'l_sh', 'chest'},
   r_thigh = {'r_hip', 'r_kn', 'r_an'}, r_calf = {'r_kn', 'r_an', 'r_hip'}, r_foot = {'r_an', 'r_kn', 'r_hip'},
   l_thigh = {'l_hip', 'l_kn', 'l_an'}, l_calf = {'l_kn', 'l_an', 'l_hip'}, l_foot = {'l_an', 'l_kn', 'l_hip'}}
 local ORIGIN = {body = 'eye', head = 'neck', r_upperarm = 'r_sh', r_forearm = 'r_el', r_hand = 'r_wr', l_upperarm = 'l_sh',
