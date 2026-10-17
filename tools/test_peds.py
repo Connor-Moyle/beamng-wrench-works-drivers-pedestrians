@@ -323,6 +323,7 @@ def player():
       function uni:getDirectionVector() return vec3(0, 1, 0) end
       function uni:getVelocity() return vec3(0, self.speed, 0) end
       be.getObjectByID = function(self, id) if id == 7 and not uni.gone then return uni end end
+      be.getPlayerVehicleID = function() return 7 end
       function log() end""")
     M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
     M.followPlayer(7, "/art/slrr_drivers/slrr_mitch/walker")

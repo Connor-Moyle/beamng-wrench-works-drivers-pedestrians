@@ -904,6 +904,9 @@ end
 local function updatePlayer(dt)
   local v = be:getObjectByID(player.veh)
   if not v then followPlayer(nil) return end
+  -- the walker is the player's body only while the player is that unicycle: in a car (a spawn that puts him straight in, say) the unicycle can be
+  -- left lying anywhere, on the car's roof, and a walker following it was seen there as a figure lying across the roof
+  if be:getPlayerVehicleID(0) ~= player.veh then followPlayer(nil) return end
   local pos, fwd, sp = vec3(v:getPosition()), vec3(v:getDirectionVector()), vec3(v:getVelocity()):length()
   -- the walk whose speed is nearest (feet planted), or idle; changed at most twice a second
   local want = player.idle

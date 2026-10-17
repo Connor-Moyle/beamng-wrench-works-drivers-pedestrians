@@ -1626,6 +1626,21 @@ M.getPresence = function()
   end
   return out
 end
+-- what could be drawn as a figure on or in a car (QA: a figure seen lying on a roof): the walker, the mount's props and the full driver. Logged and returned.
+M.figures = function(vid)
+  vid = vid or be:getPlayerVehicleID(0)
+  local veh, c = be:getObjectByID(vid), cars[vid]
+  local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
+  local n = 0
+  for _ in pairs(c and c.parts or {}) do n = n + 1 end
+  local p = veh and veh:getPosition()
+  local out = {vid = vid, jbeam = veh and veh:getJBeamFilename(), pos = p and {p.x, p.y, p.z}, player = vid == be:getPlayerVehicleID(0), playerVid = be:getPlayerVehicleID(0),
+    walker = slrrPedestrians and slrrPedestrians.hasPlayerWalker and slrrPedestrians.hasPlayerWalker() or false,
+    mount = mount and {driver = mount.driver, passenger = mount.passenger} or false, pending = pending[vid],
+    full = c and {id = c.id, parts = n, hidden = c.hidden, posed = c.posed, drawnByCar = c.drawnByCar, passenger = c.passenger ~= nil} or false}
+  log('I', 'slrrDrivers', 'figures ' .. dumps(out))
+  return out
+end
 M.setLeadFrames = function(n) LEAD_FRAMES = n end   -- for measuring the render lag
 M.setPropConvention = function(k) propConvention = k end   -- calibrating parts drawn by the car
 -- pose recording for tools/render_pose.py
