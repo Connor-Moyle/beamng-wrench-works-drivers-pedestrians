@@ -302,7 +302,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
     local node, d = nearestNode(vehicle, a[2], ours)
     if node and d < 0.4 then beam(ids[a[1]], node, SEAT) end
   end
-  ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid}
+  ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid, rest = P}
   return #belts, P
 end
 
@@ -532,7 +532,8 @@ M.flexSnapshot = function(objID, path)
   local right = fwd:cross(up):normalized()
   up = right:cross(fwd)
   local cam = vec3(veh:getNodePositionXYZ(rd.cam))
-  local out = {nodes = {}, targets = {}, speed = vec3(veh:getVelocity()):length()}
+  local out = {nodes = {}, targets = {}, rest = rd.rest, speed = vec3(veh:getVelocity()):length(),
+               axes = {fwd = {fwd.x, fwd.y, fwd.z}, up = {up.x, up.y, up.z}}}   -- (rest: where the nodes were put, seat frame; axes: the car's, world)
   for name, cid in pairs(rd.nodes) do
     local d = vec3(veh:getNodePositionXYZ(cid)) - cam
     out.nodes[name] = {d:dot(right), d:dot(fwd), d:dot(up)}
