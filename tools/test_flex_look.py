@@ -68,8 +68,17 @@ def passenger():
     assert seat >= 2, ("a flex driver rests on several seat nodes", seat)
     stiff = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 150000 then n = n + 1 end end return n end)()")
     assert stiff >= 36, ("the truss is 9 joints x 4 beams", stiff)
-    soft = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 20000 then n = n + 1 end end return n end)()")
-    assert soft >= 6, ("hands and feet are also held, softly, by car nodes ahead of the torso's plane", soft)
+    count = "(function() local n = 0 for _, k in ipairs(springs) do if k == 20000 then n = n + 1 end end return n end)()"
+    soft = lua.eval(count)
+    assert soft >= 1, ("hands and feet are held, softly, by seat/steering/floor nodes ahead of the torso's plane", soft)
+    # nodes of the dash, glass or roof are never held to
+    lua.execute("""
+      v = {nodes = {{cid = 4, name = 'cam', pos = {x = 0.35, y = 0.1, z = 1.15}}, {cid = 5, name = 'dash1', pos = {x = 0.35, y = -0.3, z = 0.9}},
+                    {cid = 6, name = 'a', partOrigin = 'covet_windshield', pos = {x = 0.3, y = -0.2, z = 0.9}},
+                    {cid = 7, name = 'b', partOrigin = 'covet_roof', pos = {x = 0.4, y = -0.2, z = 1.1}}},
+           props = {}, flexbodies = {}, cameras = {onboard = {{name = 'driver', camNodeID = 4}}}}""")
+    M.onJbeamLoadingPhase1(0.5, 8, lua.globals().v)
+    assert lua.eval(count) == soft, "a hold went to a dash, glass or roof node"
 
 
 def main():

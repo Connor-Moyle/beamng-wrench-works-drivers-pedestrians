@@ -73,18 +73,23 @@ local function onPanel(n)
 end
 
 -- the nearest car node to a point (jbeam space), not on a moving panel and not one of ours
-local function nearestNode(vehicle, p, skip, avoid)   -- avoid: part names (plain text) that must not occur in the node's part (glass, mirrors)
-  local best, bd
+-- avoid / allow: names (plain text, lower case) looked for in the node's part and name: none of avoid may occur, one of allow must
+-- (when given). Returns the cid, the distance and the node.
+local function nearestNode(vehicle, p, skip, avoid, allow)
+  local best, bd, bn
   for _, n in pairs(vehicle.nodes) do
-    local part = avoid and string.lower(tostring(n.partOrigin or ''))
-    local bad = false
-    for _, w in ipairs(avoid or {}) do if part:find(w, 1, true) then bad = true end end
-    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) and not bad then
-      local d = vec3(n.pos):distance(p)
-      if not bd or d < bd then best, bd = n.cid, d end
+    if type(n) == 'table' and n.cid and n.pos and not skip[n.cid] and not onPanel(n) then
+      local text = string.lower(tostring(n.partOrigin or '') .. ' ' .. tostring(n.name or ''))
+      local ok = not allow
+      for _, w in ipairs(allow or {}) do if text:find(w, 1, true) then ok = true end end
+      for _, w in ipairs(avoid or {}) do if text:find(w, 1, true) then ok = false end end
+      if ok then
+        local d = vec3(n.pos):distance(p)
+        if not bd or d < bd then best, bd, bn = n.cid, d, n end
+      end
     end
   end
-  return best, bd
+  return best, bd, bn
 end
 
 local function hasMeshes(skin) return FS:fileExists('/vehicles/common/slrr_drivers/' .. skin .. '_body.dae') end
@@ -283,10 +288,14 @@ local function addRagdoll(objID, vehicle, camCid, k)
       for cid in pairs(ours) do skip[cid] = true end
       for _ = 1, 8 do
         if got >= 2 then break end
-        local node, d = nearestNode(vehicle, J(cam, P[j]), skip, {'glass', 'window', 'windshield', 'mirror', 'wiper'})
+        -- only the steering column and wheel and the seat and floor: never body panels, dash, glass, mirrors, wipers, roof
+        local node, d, nd = nearestNode(vehicle, J(cam, P[j]), skip, {'glass', 'window', 'windshield', 'mirror', 'wiper', 'roof', 'dash'}, {'steer', 'seat', 'floor'})
         if not node or d > 0.8 then break end
         skip[node] = true
-        if d >= 0.12 then beam(ids[j], node, CARHOLD) got = got + 1 end
+        if d >= 0.12 then
+          beam(ids[j], node, CARHOLD) got = got + 1
+          log('I', 'slrrDriverMount', string.format('  hold %s -> node %s (%s, part %s) %.2f m', j, tostring(node), tostring(nd.name), tostring(nd.partOrigin), d))
+        end
       end
       anchored[#anchored + 1] = j .. ' ' .. got
     end
