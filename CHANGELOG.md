@@ -1,8 +1,9 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
-## Unreleased
+## 1.6.0
 
 ### Pedestrians
+- **More pedestrians by default.** The base count is 48 (was 36); a night run with the career's traffic at 36, 60 and 72 showed no extra frame cost.
 - **Less work each frame.** The cars' axes and boxes are read ten times a second a car (their positions and speeds every frame), the pedestrian cells use integer keys and are rebuilt five times a second, and each car's speed is worked out once, not for every pedestrian. Same behaviour; a hitch recording showed this update at 4.7 ms in busy frames.
 
 ### Drivers
@@ -10,6 +11,9 @@
   have one) is a fifteenth flexbody bound to the head; the helmet colour switches
   material per car, so other cars keep theirs. Shirt and trousers colours are not applied to him yet. A car with a flex driver
   still gets the props passenger beside him.
+- **The rigged driver rests on the seat.** Pelvis and chest rest on up to three seat nodes each (a big cab has none within 0.4 m of the
+  old spot, so the driver sank 0.4 m in a pickup), and once the car has stood still for 3 s the arms and legs are measured from where
+  the torso settled, so the hands reach the wheel in the Covet and the pickup. The midtruck driver's hands still miss the wheel.
 
 ## 1.5.0 (the rigged driver, an option)
 
