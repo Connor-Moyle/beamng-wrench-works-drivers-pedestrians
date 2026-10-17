@@ -448,9 +448,52 @@ def footpaths():
     assert off == 0, off
 
 
+def actor():
+    """#36: a scripted walker (the garage arrival scene) follows its points at the walk speed, stands where it waits and at the end, and goes."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    g = lua.globals()
+    g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/")))))         if os.path.exists(os.path.join(MOD, p.lstrip("/"))) else None
+    g.py_find = lambda root, pat: lua.table()
+    g.py_signals = lambda: lua.table()
+    lua.execute(FAKE)
+    lua.execute("function log() end")
+    M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
+    assert M.playActor("/art/slrr_drivers/nobody/walker", lua.eval("{vec3(0,0,0)}")) is None, "no walker shapes: no actor"
+    pts = lua.eval("{vec3(0,0,0), {pos = vec3(0,3,0), wait = 1.0}, vec3(3,3,0)}")
+    aid = M.playActor("/art/slrr_drivers/hd_eric/walker", pts)
+    assert aid and not M.actorDone(aid)
+    ped = json.load(open(os.path.join(MOD, "art", "slrr_drivers", "hd_eric", "walker", "ped.json")))
+    speed = ped["walks"]["walk.dae"]
+    shapes, t, at_wait = [], 0.0, None
+    while t < 20 and not M.actorDone(aid):
+        M.onUpdate(1 / 30, 1 / 30)
+        t += 1 / 30
+        live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
+        assert len(live) == 1, "one body at a time"
+        shapes.append(live[-1].shapeName.rsplit("/", 1)[-1])
+        p = M.actorPos(aid)
+        if at_wait is None and abs(p.y - 3) < 1e-6 and p.x == 0:
+            at_wait = t
+    walked = 6.0 / speed + 1.0
+    print("actor: 6 m + a 1 s wait took %.1f s (expected about %.1f at %.2f m/s); shapes %s" % (t, walked, speed, sorted(set(shapes))))
+    assert abs(t - walked) < 0.5, (t, walked)
+    assert shapes[0] == "idle.dae" or shapes[0] == "walk.dae"
+    assert {"walk.dae", "idle.dae"} <= set(shapes), "walks between the points and stands at the wait"
+    p = M.actorPos(aid)
+    assert abs(p.x - 3) < 1e-6 and abs(p.y - 3) < 1e-6, "it ends on the last point"
+    M.onUpdate(1 / 30, 1 / 30)
+    assert [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"][-1].shapeName.endswith("idle.dae"), "standing at the end"
+    M.stopActor(aid)
+    assert not [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"], "stopped: nobody left"
+    assert M.actorDone(aid) and M.actorPos(aid) is None
+    print("actor ok")
+
+
 if __name__ == "__main__":
     main()
     player()
+    actor()
     spectators()
     footpaths()
     print("all ok")

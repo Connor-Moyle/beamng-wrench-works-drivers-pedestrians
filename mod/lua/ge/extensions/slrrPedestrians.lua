@@ -929,6 +929,72 @@ local function updatePlayer(dt)
   end
 end
 
+-- A scripted walker (Wrench Works' garage arrival scene, #36): a driver's walker shapes follow a list of points and stand at the end.
+-- points: vec3s or { pos = vec3, wait = seconds to stand there }. The first is where it starts. Returns an id, or nil without the shapes.
+local actors, nextActor = {}, 1
+local ACTOR_TURN = 5            -- 1/s: how fast it turns toward where it walks
+
+local function actorShape(a, shape)
+  if a.shape == shape then return end
+  local m = a.obj and simObjectExists(a.obj) and a.obj:getTransform()
+  if a.obj and simObjectExists(a.obj) then a.obj:delete() end
+  a.obj, a.shape = makeObj(shape, m), shape
+end
+
+local function updateActor(a, dt)
+  local want = a.idle
+  if not a.done and a.wait > 0 then
+    a.wait = a.wait - dt
+  elseif not a.done then
+    local target = a.pts[a.i + 1]
+    if not target then
+      a.done = true
+    else
+      local step, to = a.speed * dt, target.pos - a.pos
+      local dist = to:length()
+      local flat = vec3(to.x, to.y, 0)
+      if flat:length() > 1e-3 then
+        a.fwd = (a.fwd * (1 - math.min(1, ACTOR_TURN * dt)) + flat:normalized() * math.min(1, ACTOR_TURN * dt)):normalized()
+      end
+      if dist <= step then a.pos, a.i, a.wait = vec3(target.pos), a.i + 1, target.wait or 0
+      else a.pos = a.pos + to * (step / dist) end
+      want = a.walk
+    end
+  end
+  actorShape(a, want)
+  place(a.obj, a.pos, a.fwd)
+end
+
+M.playActor = function(dir, points, opts)
+  if type(dir) ~= 'string' or type(points) ~= 'table' or #points < 1 then return nil end
+  dir = dir:gsub('/*$', '/')
+  local info = jsonReadFile(dir .. 'ped.json')
+  if not info or not info.walks then return nil end
+  local walk, speed
+  for shape, sp in pairs(info.walks) do if shape == 'walk.dae' or not walk then walk, speed = shape, sp end end
+  local pts = {}
+  for i, p in ipairs(points) do
+    local pos = p.pos or p
+    pts[i] = { pos = vec3(pos.x, pos.y, pos.z), wait = tonumber(p.wait) or 0 }
+  end
+  local face = pts[2] and (pts[2].pos - pts[1].pos) or vec3(0, 1, 0)
+  face = vec3(face.x, face.y, 0)
+  local a = { id = nextActor, walk = dir .. walk, idle = info.idle and dir .. info.idle or dir .. walk, speed = (speed or 1.1) * ((opts or {}).speedScale or 1),
+    pts = pts, i = 1, pos = vec3(pts[1].pos), wait = pts[1].wait, fwd = face:length() > 1e-3 and face:normalized() or vec3(0, 1, 0), done = false }
+  nextActor = nextActor + 1
+  actorShape(a, a.idle)
+  place(a.obj, a.pos, a.fwd)
+  actors[a.id] = a
+  return a.id
+end
+M.actorDone = function(id) local a = actors[id] return a == nil or a.done end
+M.actorPos = function(id) local a = actors[id] return a and vec3(a.pos) or nil end
+M.stopActor = function(id)
+  local a = actors[id]
+  if a and a.obj and simObjectExists(a.obj) then a.obj:delete() end
+  actors[id] = nil
+end
+
 -- In a career the walker IS the player's body: the unicycle's own mesh (the snowman) is hidden for as long as the walker is shown.
 -- gameplay_walk sets the unicycle's mesh alpha every frame in its update, so this runs after it, in onPreRender.
 local function careerOn()
@@ -964,6 +1030,7 @@ end
 
 local function onUpdate(dtReal, dtSim)
   if player then updatePlayer(dtSim or dtReal) end
+  for _, a in pairs(actors) do updateActor(a, dtReal) end
   if rec then record(dtReal) end
   if not lines then
     -- no sidewalks yet: on a map without its own, look again now and then while pedestrians are wanted (the road
@@ -1098,7 +1165,7 @@ M.resetRoads = function() roadGrid, roadsTried = nil, nil end
 M.getTypes = function() return types end
 M.setDensity = function(d) density = d end      -- a density table in place of the level's file (tests, mod makers)
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
-M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) end
+M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) for id in pairs(actors) do M.stopActor(id) end end
 -- a race finishing (Valo City's races): the crowd cheers
 M.onSlrrRaceFinished = function() cheerAll(6) end
 -- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
