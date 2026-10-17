@@ -53,7 +53,7 @@ local MIN_CAP = 6
 local CAP_FLOOR = 0.5       -- the frame-time cap never takes the crowd below this share of what is wanted (a city with five people in it is not one)
 local MIN_SHARE = 0.15      -- the quietest area still gets this share of the count
 
-local count = 45            -- the base count ('medium'); setCount changes it
+local count = 36            -- the base count ('medium'); setCount changes it
 local AMOUNT = {off = 0, low = 0.5, medium = 1, high = 1.5, veryhigh = 2}
 -- player options (Wrench Works' settings call setOptions); defaults are the mod's own behaviour
 local DEFAULTS = {amount = 'medium', maxCount = 60, autoReduce = true, targetFps = 55, idling = true, crossing = true,
