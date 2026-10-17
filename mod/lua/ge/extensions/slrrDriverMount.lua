@@ -467,17 +467,29 @@ end
 M.onJbeamLoadingPhase1 = onJbeamLoadingPhase1
 M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
-  if type(s) == 'table' then for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end end
+  if type(s) == 'table' then
+    for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end
+    if s.driverRig == 'flex' or s.driverRig == 'props' then driverRig = s.driverRig end
+  end
 end
 -- {ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
 M.setFlags = function(t)
   for k in pairs(flags) do if t[k] ~= nil then flags[k] = t[k] and true or false end end
-  jsonWriteFile(SETTINGS, flags, true)
+  local t = {driverRig = driverRig}
+  for k, v in pairs(flags) do t[k] = v end
+  jsonWriteFile(SETTINGS, t, true)
 end
 M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
-M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
+M.setDriverRig = function(mode)   -- saved; applies to cars spawned afterwards
+  if mode == 'props' or mode == 'flex' then
+    driverRig = mode
+    local t = {driverRig = driverRig}
+    for k, v in pairs(flags) do t[k] = v end
+    jsonWriteFile(SETTINGS, t, true)
+  end
+end
 M.getDriverRig = function() return driverRig end
 -- writes at once (no log buffering): where the ragdoll nodes are now (seat frame), what slrrDrivers asked of them, the wheel
 M.flexSnapshot = function(objID, path)

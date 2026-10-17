@@ -1,5 +1,19 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
+## 1.5.0 (the rigged driver, an option)
+
+### Drivers
+- **The rigged driver (option, off by default).** A driver that is part of the car: sixteen joint nodes in the seat carry his 69 kg
+  (instead of 90 kg spread over the seat's nodes), stiff beams hold them in the seated pose, and the character's fourteen
+  pieces are drawn by the car as flexbodies bound to those nodes. The car draws him, so he sits exactly in the seat, shows in the
+  mirrors and cannot lag behind. His hands, legs and head are posed as before (hand over hand on the wheel, the pedals, the lever,
+  looking round) and the car moves the joints smoothly.
+- Turn it on with `slrrDriverMount.setDriverRig('flex')` in the Lua console (saved; it applies to cars spawned afterwards) and back
+  with `setDriverRig('props')`. A car with no seat found gets no flex driver and keeps the prop driver (logged);
+  `slrrDriverMount.setOptOut('modelname', true)` keeps one car model on props.
+- Not in the rigged driver yet: clothing colours, size and helmet, the passenger, ragdoll injuries. The injury add-on is unchanged.
+- Known: on large cabs (pickup, midtruck) the hands may not show on the wheel; the feet and head do.
+
 ## 1.4.0 (release 1 candidate, not yet released)
 
 What is new since 1.3.0, for players.
