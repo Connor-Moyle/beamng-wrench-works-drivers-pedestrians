@@ -21,9 +21,9 @@ local flags = {ragdoll = false, selfCollision = false, noCamera = true, passenge
 -- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
 local driverRig = 'props'
 local optOut = {}
--- which nodes the flexbodies bind to (setFlexBind): 'all' (default) = all 16 joint nodes for every part, 'near' = the 3-4 joint
--- nodes around each part (the engine says 'VY node not found' for the body and thighs), 'car' = the six car nodes nearest the seat
-local flexBind = 'all'
+-- which nodes the flexbodies bind to (setFlexBind): 'near' (default) = the 3-5 joint nodes around each part, 'all' = all 16 joint nodes for every
+-- part (fine at rest, but a mesh's frame then follows moving limb nodes: the animated driver vanished), 'car' = the six car nodes nearest the seat
+local flexBind = 'near'
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
@@ -247,14 +247,9 @@ local function addRagdoll(objID, vehicle, camCid)
                       {'r_hip', 'r_kn'}, {'r_kn', 'r_an'}, {'l_hip', 'l_kn'}, {'l_kn', 'l_an'}}) do
     beam(ids[b[1]], ids[b[2]], BONE)
   end
-  -- the head holds its posture loosely; arms and legs hang in the seated pose (limp, but not folded flat)
-  for _, b in ipairs({{'head', 'r_sh'}, {'head', 'l_sh'}, {'head', 'chest'}, {'r_el', 'chest'}, {'l_el', 'chest'},
-                      {'r_wr', 'r_sh'}, {'l_wr', 'l_sh'}, {'r_kn', 'pelvis'}, {'l_kn', 'pelvis'}, {'r_an', 'r_hip'},
-                      {'l_an', 'l_hip'}}) do
-    beam(ids[b[1]], ids[b[2]], SOFT)
-  end
   -- flex driver: hold the seated pose. Every limb joint and the head is tied to its four nearest torso nodes by stiff
-  -- beams (a rigid truss, so arms do not hang limp: in game the wrists fell 0.5 m below the wheel)
+  -- beams (a rigid truss, so arms do not hang limp: in game the wrists fell 0.5 m below the wheel).
+  -- Made before the soft beams so those do not take the pairs (one beam per pair): the head and knees stay driven
   if driverRig == 'flex' then
     local STIFF = {beamSpring = 150000, beamDamp = 80, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
     local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
@@ -266,6 +261,12 @@ local function addRagdoll(objID, vehicle, camCid)
       table.sort(near, function(x, y) return x[2] < y[2] end)
       for i = 1, 4 do beam(ids[j], ids[near[i][1]], STIFF) end
     end
+  end
+  -- the head holds its posture loosely; arms and legs hang in the seated pose (limp, but not folded flat)
+  for _, b in ipairs({{'head', 'r_sh'}, {'head', 'l_sh'}, {'head', 'chest'}, {'r_el', 'chest'}, {'l_el', 'chest'},
+                      {'r_wr', 'r_sh'}, {'l_wr', 'l_sh'}, {'r_kn', 'pelvis'}, {'l_kn', 'pelvis'}, {'r_an', 'r_hip'},
+                      {'l_an', 'l_hip'}}) do
+    beam(ids[b[1]], ids[b[2]], SOFT)
   end
   -- joint limits: an elbow or knee can't fold beyond ~35 % of its straight length
   local LIMIT = {beamType = 2, beamSpring = 0, beamDamp = 2, beamLimitSpring = 150000, beamLimitDamp = 60,
@@ -301,11 +302,11 @@ end
 -- Mesh origins are the joints (tools/prop_meshes.py), so pos is the joint's place in jbeam space; the meshes are in the
 -- seat frame (x right, y forward), jbeam is x left, y back: a half turn about z.
 local BIND = {
-  body = {'pelvis', 'chest', 'r_sh', 'l_sh'}, head = {'head', 'neck', 'r_sh', 'l_sh'},
+  body = {'chest', 'r_hip', 'l_hip', 'r_sh', 'l_sh'}, head = {'head', 'neck', 'r_sh', 'l_sh'},
   r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh'}, r_hand = {'r_wr', 'r_el', 'r_sh'},
   l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh'}, l_hand = {'l_wr', 'l_el', 'l_sh'},
-  r_thigh = {'r_hip', 'r_kn', 'pelvis'}, r_calf = {'r_kn', 'r_an', 'r_hip'}, r_foot = {'r_an', 'r_kn', 'r_hip'},
-  l_thigh = {'l_hip', 'l_kn', 'pelvis'}, l_calf = {'l_kn', 'l_an', 'l_hip'}, l_foot = {'l_an', 'l_kn', 'l_hip'}}
+  r_thigh = {'r_hip', 'r_kn', 'l_hip'}, r_calf = {'r_kn', 'r_an', 'r_hip'}, r_foot = {'r_an', 'r_kn', 'r_hip'},
+  l_thigh = {'l_hip', 'l_kn', 'r_hip'}, l_calf = {'l_kn', 'l_an', 'l_hip'}, l_foot = {'l_an', 'l_kn', 'l_hip'}}
 local ORIGIN = {body = 'eye', head = 'neck', r_upperarm = 'r_sh', r_forearm = 'r_el', r_hand = 'r_wr', l_upperarm = 'l_sh',
                 l_forearm = 'l_el', l_hand = 'l_wr', r_thigh = 'r_hip', r_calf = 'r_kn', r_foot = 'r_an',
                 l_thigh = 'l_hip', l_calf = 'l_kn', l_foot = 'l_an'}
