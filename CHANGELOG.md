@@ -33,7 +33,7 @@ What is new since 1.3.0, for players.
 - **Spectators** at venues, the drag strip, race tracks and car meets, who cheer when a race ends or a win comes in. Mods for other levels can add their own crowds.
 - **A scripted walker** (a driver's walker walking to a point, waiting, standing) for scenes such as the garage arrival.
 - **In a career the walker is your body:** the unicycle's snowman mesh is hidden while the walker is shown, there is no body in first person, and a walker is dropped if you are not on the unicycle (no figure lying on a roof).
-- **Frame rate.** The crowd thins out when the frame rate drops, but never below half of what you asked for. The default is 36 people at once, fewer in quiet districts; change it in the settings.
+- **Frame rate.** The crowd thins out when the frame rate drops, but never below half of what you asked for. The default is 48 people at once (was 36; a night run of the career with 36, 60 and 72 showed no extra frame cost), fewer in quiet districts; change it in the settings.
 - **Materials survive a level change.** Pedestrian and driver textures are loaded again on every level load; some pedestrians no longer appear untextured after the second level.
 
 ### Settings

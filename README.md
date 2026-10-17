@@ -119,7 +119,7 @@ slrrDrivers.setAppearance(be:getPlayerVehicleID(0), {helmet = true, helmetColor 
 ## Pedestrians
 
 They appear around the camera on maps that have a sidewalk file. Valo City has one; it's converted
-from SLRR's own pedestrian paths. 36 walk at a time by default (busy districts get more of them, quiet ones fewer), fewer while the frame rate is low, but never below half:
+from SLRR's own pedestrian paths. 48 walk at a time by default (busy districts get more of them, quiet ones fewer), fewer while the frame rate is low, but never below half:
 
 ```lua
 slrrPedestrians.setCount(50)   -- more (saved)
@@ -162,7 +162,7 @@ materials under BeamNG's lighting.
 
 **Pedestrians** are skinned models with SLRR's walk cycle built in, so the game animates them by
 itself. The mod moves them along the sidewalks at the speed measured from each walk cycle, so the feet
-stay planted, keeps about 36 near the camera and removes the ones you leave behind. Each has its own
+stay planted, keeps about 48 near the camera and removes the ones you leave behind. Each has its own
 pace (three tempos per type) and its own habit of stopping; standing ones switch to SLRR's idle
 animation. At a signalled junction they cross only when the light for their direction will stay green
 until they're over. When the frame time goes over the budget (18 ms, 55 fps, by default), they thin out, to half of the number asked for at the least, and they come back
