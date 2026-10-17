@@ -441,6 +441,11 @@ M.onPreRender = function(dt)
         local d = vec3(veh:getNodePositionXYZ(cid)) - cam
         fr.nodes[name] = {d:dot(right), d:dot(fwd), d:dot(up)}
       end
+      local c = slrrDrivers and slrrDrivers.getState and slrrDrivers.getState(vid)   -- what the flex driver was told (JOINTS order)
+      if c and c.sent then
+        fr.targets = {}
+        for i, p in ipairs(c.sent) do fr.targets[i] = {p.x, p.y, p.z} end
+      end
       table.insert(r.frames, fr)
     end
   end
