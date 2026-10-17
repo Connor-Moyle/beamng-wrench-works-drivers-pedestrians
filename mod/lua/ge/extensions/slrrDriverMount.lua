@@ -250,6 +250,20 @@ local function addRagdoll(objID, vehicle, camCid)
                       {'l_an', 'l_hip'}}) do
     beam(ids[b[1]], ids[b[2]], SOFT)
   end
+  -- flex driver: hold the seated pose. Every limb joint and the head is tied to its four nearest torso nodes by stiff
+  -- beams (a rigid truss, so arms do not hang limp: in game the wrists fell 0.5 m below the wheel)
+  if driverRig == 'flex' then
+    local STIFF = {beamSpring = 150000, beamDamp = 80, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
+    local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
+    for _, j in ipairs({'head', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
+      local near = {}
+      for _, t in ipairs(TORSO) do
+        near[#near + 1] = {t, math.sqrt((P[j][1] - P[t][1]) ^ 2 + (P[j][2] - P[t][2]) ^ 2 + (P[j][3] - P[t][3]) ^ 2)}
+      end
+      table.sort(near, function(x, y) return x[2] < y[2] end)
+      for i = 1, 4 do beam(ids[j], ids[near[i][1]], STIFF) end
+    end
+  end
   -- joint limits: an elbow or knee can't fold beyond ~35 % of its straight length
   local LIMIT = {beamType = 2, beamSpring = 0, beamDamp = 2, beamLimitSpring = 150000, beamLimitDamp = 60,
                  beamShortBound = 0.45, beamLongBound = math.huge, beamDeform = math.huge, beamStrength = math.huge,
