@@ -113,7 +113,7 @@ local function findRig()
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
-        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos})
+        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
         r.mine[bcid] = true
       end
     end
@@ -123,7 +123,11 @@ end
 
 local function pose(t)    -- t: 27 numbers, three per joint in JOINTS order, seat frame
   if rig == nil then rig = findRig() end
-  if not rig or not camNode then return end
+  if not rig or not camNode or type(t) ~= 'table' then return end
+  for i = 1, #JOINTS * 3 do   -- a bad frame (NaN, inf, absent) is dropped whole
+    local x = t[i]
+    if type(x) ~= 'number' or x ~= x or math.abs(x) > 5 then return end
+  end
   local cam = v.data.nodes[camNode].pos
   for i, j in ipairs(JOINTS) do
     local k = (i - 1) * 3
@@ -139,7 +143,9 @@ local function movePose(dt)
     c = c and (c + (tg - c) * k) or tg
     now[j] = c
     for _, h in ipairs(rig.holds[j] or {}) do
-      if rig.mine[h.bcid] then obj:setBeamLength(h.bcid, c:distance(h.torso)) end   -- never a car's beam (dent crashes)
+      local len = c:distance(h.torso)
+      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
+      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) end
     end
   end
 end

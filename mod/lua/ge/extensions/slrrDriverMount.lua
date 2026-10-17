@@ -380,8 +380,11 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
     if camCid and not byCid(vehicle)[camCid] then camCid = nil end
-    local obj = be:getObjectByID(objID)
-    local model = obj and obj:getJBeamFilename() or tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
+    local model
+    if driverRig == 'flex' then   -- (the model name is only needed to opt a car out)
+      local obj = be:getObjectByID(objID)
+      model = obj and obj:getJBeamFilename() or tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
+    end
     local wantFlex = driverRig == 'flex' and camCid and not optOut[objID] and not (model and optOut[model])
     if driverRig == 'flex' and not wantFlex then
       log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
@@ -426,7 +429,7 @@ M.onPreRender = function(dt)
     end
   end
   -- the head is not drawn from inside it: in the driver's own camera (as slrrDrivers does for its figure)
-  local fpVid = core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
+  local fpVid = next(flex) and core_camera and core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
   for vid in pairs(flex) do
     local hide = vid == fpVid
     if headHidden[vid] ~= hide then

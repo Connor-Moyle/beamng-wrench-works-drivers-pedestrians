@@ -684,7 +684,8 @@ end
 
 local FLEX_JOINT = {{'r_forearm', 'r_el'}, {'l_forearm', 'l_el'}, {'r_hand', 'r_wr'}, {'l_hand', 'l_wr'},
                     {'r_calf', 'r_kn'}, {'l_calf', 'l_kn'}, {'r_foot', 'r_an'}, {'l_foot', 'l_an'}}
-local FLEX_SEND = 1 / 30
+local FLEX_SEND = 1 / 30           -- the player's driver; other cars' every 1/20 s
+local FLEX_SEND_OTHER = 1 / 20
 local FLEX_HEAD = vec3(0, 0.04, 0.12)   -- the head node from the neck, at rest (slrrDriverMount's ragdoll)
 local function flushFlex(vid, c)
   local out = {}
@@ -694,11 +695,12 @@ local function flushFlex(vid, c)
     out[#out + 1] = o.p
   end
   local h = c.parts.head
-  if not (h and h.p) then return end
+  if not (h and h.p and h.y and h.z and finite(h.y) and finite(h.z)) then return end
   local ax = h.y:cross(h.z)   -- x = y cross z
   out[#out + 1] = h.p + ax * FLEX_HEAD.x + h.y * FLEX_HEAD.y + h.z * FLEX_HEAD.z
+  for _, p in ipairs(out) do if not finite(p) then return end end   -- a NaN would reach the car as text and break its pose()
   c.sendWait = (c.sendWait or 0) + (c.lastDt or 0)
-  if c.sent and c.sendWait < FLEX_SEND then return end   -- at most 30 a second: the car eases between them
+  if c.sent and c.sendWait < (vid == be:getPlayerVehicleID(0) and FLEX_SEND or FLEX_SEND_OTHER) then return end   -- at most 30 a second: the car eases between them
   local moved = not c.sent
   if c.sent then for i, p in ipairs(out) do if p:distance(c.sent[i]) > 0.0015 then moved = true break end end end
   if not moved then return end
