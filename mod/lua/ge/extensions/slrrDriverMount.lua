@@ -24,6 +24,7 @@ local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind, to bisect the engine's 'VY node not found'): 'near' = the 3-4 joint
 -- nodes around each part, 'all' = all 16 joint nodes for every part, 'car' = the six car nodes nearest the seat
 local flexBind = 'near'
+local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node and one at the car's origin
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
@@ -309,6 +310,9 @@ local function tagSeatNodes(vehicle, cam)
   return 'slrr_fx_car'
 end
 
+local ALL_GROUPS = {}
+for i, j in ipairs(ALL) do ALL_GROUPS[i] = 'slrr_rd_' .. j end
+
 local function addFlexbodies(objID, vehicle, cam, P, skin)
   if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no meshes for skin ' .. tostring(skin) .. ', no flexbodies') return 0 end
   vehicle.flexbodies = vehicle.flexbodies or {}
@@ -326,6 +330,13 @@ local function addFlexbodies(objID, vehicle, cam, P, skin)
       mesh = skin .. '_' .. part, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = 1, y = 1, z = 1},
       ['[group]:nodes'] = groups, partOrigin = 'slrr_driver'})
     n = n + 1
+  end
+  if flexDebug then
+    for i, at in ipairs({vec3(cam.x, cam.y, cam.z), vec3(0, 0, 0)}) do
+      table.insert(vehicle.flexbodies, {mesh = 'slrr_dbg_cube', pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 0}, scale = {x = 1, y = 1, z = 1},
+        ['[group]:nodes'] = flexBind == 'car' and {carGroup} or ALL_GROUPS, partOrigin = 'slrr_driver'})
+      log('I', 'slrrDriverMount', '  debug cube ' .. i .. ' at jbeam ' .. tostring(at))
+    end
   end
   return n
 end
@@ -418,6 +429,7 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+M.setFlexDebug = function(on) flexDebug = on and true or false end
 -- what the engine made of the flexbodies (run after the spawn): per mesh, whether the vehicle knows the mesh name
 -- (setMeshAlpha answers true only for a mesh it has; it also forces alpha 1) and the loader's own record of it
 M.flexReport = function(objID)

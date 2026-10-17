@@ -1,0 +1,29 @@
+{
+ "slrr_dbg_red": {
+  "name": "slrr_dbg_red",
+  "mapTo": "slrr_dbg_red",
+  "class": "Material",
+  "version": 1.5,
+  "materialTag0": "beamng",
+  "Stages": [
+   {
+    "colorMap": "",
+    "baseColorFactor": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "emissiveFactor": [
+     1,
+     0.1,
+     0.1
+    ],
+    "emissiveMap": ""
+   },
+   {},
+   {},
+   {}
+  ]
+ }
+}
