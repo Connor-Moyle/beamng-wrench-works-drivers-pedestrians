@@ -91,6 +91,15 @@ def main():
       want_post = tg:distance(vec3(n.pos.x, n.pos.y, n.pos.z - 0.2))""")
     assert abs(lua.eval("pre") - lua.eval("want_pre")) < 1e-6, "before settling the rest place is used"
     assert abs(lua.eval("post") - lua.eval("want_post")) < 1e-6, (lua.eval("post"), lua.eval("want_post"))
+    # a hold to a car node whose target is 1.2 m away (rest 0.5 m) is set; a plain torso hold that far is not
+    lua.execute("""
+      calls = {} now = {} M.onReset()
+      local t = {} for i = 1, 27 do t[i] = 0.2 end
+      t[7], t[8], t[9] = 0.2, 1.4, 0.2   -- r_wr 1.4 m ahead of the eye
+      M.pose(t) M.updateGFX(1) M.updateGFX(1)
+      carset, torsoset = false, false
+      for _, c in ipairs(calls) do if c[1] == 4 then carset = true end if c[1] == 0 then torsoset = true end end""")
+    assert lua.eval("carset") and not lua.eval("torsoset"), "car hold up to 2 m, torso holds keep the 1.5x rule"
     print("ok: bad poses dropped, health log line written, torso settled once after 3 s")
 
 

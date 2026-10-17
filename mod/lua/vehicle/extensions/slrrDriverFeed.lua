@@ -239,8 +239,9 @@ local function movePose(dt)
   for j, c in pairs(now) do
     for _, h in ipairs(rig.holds[j] or {}) do
       local len = c:distance(h.torso)
-      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
-      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
+      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length (a hold to a car node
+      -- may be much longer than at rest, a hand reaching the wheel from a seat node: up to 2 m)
+      if rig.mine[h.bcid] and len == len and len < (h.car and 2.0 or h.rest * 1.5 + 0.3) then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
       else stats.skipped = stats.skipped + 1 end
     end
   end
