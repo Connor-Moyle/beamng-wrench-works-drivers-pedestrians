@@ -330,6 +330,51 @@ def check_flex_gestures():
     print("flex gestures ok: a flex driver waves without an error")
 
 
+def check_flex_driving():
+    """What the rigged (flex) driver is told while driving: the joint targets slrrDrivers sends the car (c.sent) must show the animation
+    - hands travelling round the wheel and re-gripping on a lock-to-lock sweep, the head turning into a corner, the lever hand
+    going to the gear lever on a manual's shift. (The game side then has to follow them: connor-80's recording shows that.)"""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("""
+      slrrDriverMount = {hasFlexDriver = function() return true end, getFlexSkin = function() return nil end, getFlexMeshes = function() return nil end,
+                         getFlexScale = function() return 1 end, flexShown = function() return true end, showFlex = function() return 0 end,
+                         getMount = function() return nil end}
+      shim_start(M)""")
+    for _ in range(60):
+        g.shim_step(DT, 12, 0, 0, 0, 2500, 2, 0.3, 0, 0)
+    st = M.getState(7)
+    R_WR, L_WR = 2, 3
+    pts = lambda: [(st["sent"][i + 1].x, st["sent"][i + 1].y, st["sent"][i + 1].z) for i in range(9)]   # noqa: E731
+    wr, grips, yaw = [], [], []
+    for f in range(int(8 / DT)):
+        g.shim_step(DT, 6, 0, 270 * math.sin(f * DT * 1.2), 0, 2500, 2, 0.3, 0, 0)
+        wr.append(pts()[R_WR])
+        lg = st["lastGrips"]
+        grips.append(lg.r.a if lg and lg.r else 0)
+        yaw.append(st["headYaw"] or 0)
+    rng = max(max(p[2] for p in wr) - min(p[2] for p in wr), max(p[0] for p in wr) - min(p[0] for p in wr))
+    regrips = sum(1 for a, b in zip(grips, grips[1:]) if abs(a - b) > 1)
+    assert rng > 0.12, ("the hand barely moves on a steering sweep", rng)
+    assert regrips >= 2, ("no hand-over-hand re-grips on a +-270 degree sweep", regrips)
+    assert max(yaw) - min(yaw) > 0.3, ("the head does not turn into the corners", min(yaw), max(yaw))
+    st["manual"] = True
+    for _ in range(60):
+        g.shim_step(DT, 12, 0, 0, 0, 3000, 2, 0.3, 0, 0)
+    base = pts()[R_WR if st["shiftSide"] == "r" else L_WR]
+    far = 0.0
+    for f in range(int(3 / DT)):
+        g.shim_step(DT, 12, 0, 0, 0, 3000 if f < 20 else 2000, 3 if f > 20 else 2, 0.0 if 18 < f < 60 else 0.3, 0, 1.0 if 18 < f < 40 else 0.0)
+        far = max(far, math.dist(pts()[R_WR if st["shiftSide"] == "r" else L_WR], base))
+    assert far > 0.2, ("the shift hand does not go to the lever", far)
+    print("flex driving ok: hand range %.2f m, %d re-grips, head yaw %.2f..%.2f rad, shift hand %.2f m" % (rng, regrips, min(yaw), max(yaw), far))
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -667,6 +712,7 @@ if __name__ == "__main__":
     check_presence()
     check_passenger()
     check_flex_gestures()
+    check_flex_driving()
     check_mount()
     check_far()
     check_feed_mass()
