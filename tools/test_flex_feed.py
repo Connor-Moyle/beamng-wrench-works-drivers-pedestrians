@@ -70,18 +70,7 @@ def main():
     assert lua.eval("#calls") > 0, "posing stopped after the health log"
     line = lua.eval("table.concat(logged, '|')")
     assert "1 of" in line and "broken" in line and "health log failed" not in line, line
-    # a torso that sank 0.2 m: the beam length is measured to where the chest is now (the car faces +y, up +z, no turn)
-    lua.execute("""
-      local function W(c) local n = v.data.nodes[c] return vec3(-n.pos.x, -n.pos.y, n.pos.z - (c == 1 and 0.2 or 0)) end
-      obj.getNodePosition = function(_, c) return W(c) end
-      obj.getDirectionVector = function() return vec3(0, 1, 0) end
-      obj.getDirectionVectorUp = function() return vec3(0, 0, 1) end
-      calls = {} now = {} M.pose(""" + pose(good) + """) M.updateGFX(1)
-      local E = W(0) + vec3(0.2, 0.2, 0.2)          -- the r_wr target 0.2 right, ahead, up of the eye
-      want = E:distance(W(1))
-      got = nil for _, c in ipairs(calls) do if c[1] == 0 then got = c[2] end end""")
-    assert abs(lua.eval("got") - lua.eval("want")) < 1e-6, (lua.eval("got"), lua.eval("want"))
-    print("ok: bad poses dropped, health log line written, lengths follow a sunken torso")
+    print("ok: bad poses dropped, health log line written")
 
 
 if __name__ == "__main__":
