@@ -1,5 +1,13 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
+## Unreleased
+
+### Drivers
+- **The rigged driver is a per-session choice.** `setDriverRig('flex')` is no longer saved (a saved setting from an earlier version is
+  ignored), so the game never starts with it on by surprise. A flex driver is no longer rebuilt when the player switches car, its pose
+  feed pauses for half a second around a vehicle switch or reset, and his head is not hidden or shown within half a second of a switch
+  (a game crash at a vehicle switch with flex cars about, 2026-10-18).
+
 ## 1.6.0
 
 ### Pedestrians
@@ -26,7 +34,7 @@
   pieces are drawn by the car as flexbodies bound to those nodes. The car draws him, so he sits exactly in the seat, shows in the
   mirrors and cannot lag behind. His hands, legs and head are posed as before (hand over hand on the wheel, the pedals, the lever,
   looking round) and the car moves the joints smoothly.
-- Turn it on with `slrrDriverMount.setDriverRig('flex')` in the Lua console (saved; it applies to cars spawned afterwards) and back
+- Turn it on with `slrrDriverMount.setDriverRig('flex')` in the Lua console (for this session only: not saved, it applies to cars spawned afterwards) and back
   with `setDriverRig('props')`. A car with no seat found gets no flex driver and keeps the prop driver (logged);
   `slrrDriverMount.setOptOut('modelname', true)` keeps one car model on props.
 - Not in the rigged driver yet: clothing colours, size and helmet, the passenger, ragdoll injuries. The injury add-on is unchanged.

@@ -87,7 +87,7 @@ slrrDrivers.setDriver(be:getPlayerVehicleID(0), nil)      -- no driver in this c
 
 The default driver is drawn as vehicle props. A second kind, off by default, is built into the car: sixteen joint nodes in the seat
 carry his weight (69 kg), and the character is drawn by the car as flexbodies bound to them, so he rides exactly in the seat and
-shows in the mirrors. Turn it on (saved, for cars spawned afterwards) and off in the Lua console:
+shows in the mirrors. Turn it on (for this session only, for cars spawned afterwards) and off in the Lua console:
 
 ```lua
 slrrDriverMount.setDriverRig('flex')    -- the rigged driver

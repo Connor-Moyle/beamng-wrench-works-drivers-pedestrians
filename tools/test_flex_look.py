@@ -37,7 +37,10 @@ def build(look):
     M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDriverMount.lua")).read())
     lua.globals().M = M
     M.onExtensionLoaded()
+    lua.execute("written = {} jsonWriteFile = function(path, t) written[#written + 1] = t end")
     M.setDriverRig("flex")
+    M.setFlags(lua.table_from({}))
+    assert not lua.eval("(function() for _, t in ipairs(written) do if t.driverRig ~= nil then return true end end end)()"), "driverRig must not be saved"
     lua.execute("""
       v = {nodes = {{cid = 4, name = 'cam', pos = {x = 0.35, y = 0.1, z = 1.15}}}, props = {}, flexbodies = {},
            cameras = {onboard = {{name = 'driver', camNodeID = 4}}}}

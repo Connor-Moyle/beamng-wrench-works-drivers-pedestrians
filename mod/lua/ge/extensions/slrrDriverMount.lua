@@ -28,6 +28,7 @@ local ragdollNext = false          -- one-shot: the next vehicle with a driver c
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
 local flexSkin = {}            -- objID -> the skin its flex driver was built with
+local switchedAt = -10          -- os.clock() of the last vehicle switch
 local flexScale = {}           -- objID -> the size its flex driver was built at (setAppearance scale)
 local flexMeshes = {}          -- objID -> mesh names of its flexbodies
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
@@ -493,7 +494,9 @@ M.onPreRender = function(dt)
     end
   end
   -- the head is not drawn from inside it: in the driver's own camera (as slrrDrivers does for its figure)
-  local fpVid = next(flex) and core_camera and core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
+  -- (not within half a second of a vehicle switch: the engine is busy handing the player over, the crash of 2026-10-18 06:16 came
+  -- in such a moment, with flex cars about)
+  local fpVid = next(flex) and os.clock() - switchedAt > 0.5 and core_camera and core_camera.getActiveCamName(0) == 'driver' and be:getPlayerVehicleID(0) or nil
   for vid in pairs(flex) do
     local hide = vid == fpVid
     if headHidden[vid] ~= hide then
@@ -546,26 +549,21 @@ M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if type(s) == 'table' then
     for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end
-    if s.driverRig == 'flex' or s.driverRig == 'props' then driverRig = s.driverRig end
+    -- (a saved driverRig is ignored: the rigged driver stays a per-session choice until it is stable)
   end
 end
 -- {ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
 M.setFlags = function(t)
   for k in pairs(flags) do if t[k] ~= nil then flags[k] = t[k] and true or false end end
-  local t = {driverRig = driverRig}
+  local t = {}
   for k, v in pairs(flags) do t[k] = v end
   jsonWriteFile(SETTINGS, t, true)
 end
 M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
-M.setDriverRig = function(mode)   -- saved; applies to cars spawned afterwards
-  if mode == 'props' or mode == 'flex' then
-    driverRig = mode
-    local t = {driverRig = driverRig}
-    for k, v in pairs(flags) do t[k] = v end
-    jsonWriteFile(SETTINGS, t, true)
-  end
+M.setDriverRig = function(mode)   -- this session only (not saved); applies to cars spawned afterwards
+  if mode == 'props' or mode == 'flex' then driverRig = mode end
 end
 M.getDriverRig = function() return driverRig end
 -- writes at once (no log buffering): where the ragdoll nodes are now (seat frame), what slrrDrivers asked of them, the wheel
@@ -653,6 +651,7 @@ M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
 M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 end end
+M.onVehicleSwitched = function() switchedAt = os.clock() end
 M.getFlexMeshes = function(objID) return flexMeshes[objID] end
 M.getFlexScale = function(objID) return flexScale[objID] end
 M.onVehicleDestroyed = function(objID) flexSkin[objID] = nil flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end

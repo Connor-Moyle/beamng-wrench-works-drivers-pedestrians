@@ -722,6 +722,7 @@ local FLEX_SEND = 1 / 30           -- the player's driver; other cars' every 1/2
 local FLEX_SEND_OTHER = 1 / 20
 local FLEX_HEAD = vec3(0, 0.04, 0.12)   -- the head node from the neck, at rest (slrrDriverMount's ragdoll)
 local function flushFlex(vid, c)
+  if c.flexPause and c.flexPause > 0 then c.flexPause = c.flexPause - (c.lastDt or 0) return end
   local out = {}
   for _, j in ipairs(FLEX_JOINT) do
     local o = c.parts[j[1]]
@@ -1809,6 +1810,7 @@ M.onVehicleSpawned = function(vid) pending[vid] = 0 end   -- also fires after a 
 M.onVehicleResetted = function(vid)
   if not cars[vid] then pending[vid] = 0 return end
   local c = cars[vid]
+  if c.flex then c.sent, c.flexPause = nil, 0.5 end   -- (the car forgot its pose in the reset: say it again once it is back)
   c.lastVel, c.sinceCrash, c.daze, c.hub0 = nil, nil, nil, nil   -- a reset is no crash; a repaired column is the new start
 end
 M.onVehicleSwitched = function(old, new)   -- a car the player gets into gains a driver; one he leaves loses it
@@ -1823,8 +1825,13 @@ M.onVehicleSwitched = function(old, new)   -- a car the player gets into gains a
     end
   end
   -- both cars are done again: the one left turns into a prop driver, the one entered gets the full one (W9)
+  -- (a flex driver is the same in either case: it is not rebuilt, and its pose feed pauses for half a second while the engine
+  -- hands the player over)
   for _, vid in ipairs({old, new}) do
-    if vid and vid ~= -1 then pending[vid] = 0 end
+    if vid and vid ~= -1 then
+      local c = cars[vid]
+      if c and c.flex then c.flexPause = 0.5 else pending[vid] = 0 end
+    end
   end
 end
 M.onVehicleActiveChanged = function(vid, active) if active then pending[vid] = 0 end end   -- a pooled car back in use
