@@ -29,7 +29,8 @@ v = {data = {
     [0] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0},
     [1] = {id1 = 3, id2 = 2, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0},
     [2] = {id1 = 4, id2 = 1, beamSpring = 4000000, partOrigin = 'covet_body', beamType = 0},   -- a car beam
-    [3] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0, breakGroup = 'x'}}}}   -- has a break group: not ours
+    [3] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0, breakGroup = 'x'},   -- has a break group: not ours
+    [4] = {id1 = 3, id2 = 4, beamSpring = 20000, partOrigin = 'slrr_ragdoll', beamType = 0}}}}   -- ours: a hold to a car node
 """
 
 
@@ -61,7 +62,7 @@ def main():
     assert lua.eval("#calls") == 0, "a far-off joint resized a beam"
     lua.execute("calls = {} now = {} M.pose(" + pose(good) + ") M.updateGFX(1)")
     beams = sorted({lua.eval("calls[%d][1]" % (i + 1)) for i in range(lua.eval("#calls"))})
-    assert beams == [0, 1], "only our own beams may be resized, got %s" % beams
+    assert beams == [0, 1, 4], "only our own beams may be resized (a car node hold is ours), got %s" % beams
     # the health log line (every 5 s) runs and does not break posing
     lua.execute("""logged = {} log = function(l, t, m) logged[#logged + 1] = l .. ' ' .. m end
                    obj.beamIsBroken = function(_, b) return b == 1 end
@@ -90,6 +91,15 @@ def main():
       want_post = tg:distance(vec3(n.pos.x, n.pos.y, n.pos.z - 0.2))""")
     assert abs(lua.eval("pre") - lua.eval("want_pre")) < 1e-6, "before settling the rest place is used"
     assert abs(lua.eval("post") - lua.eval("want_post")) < 1e-6, (lua.eval("post"), lua.eval("want_post"))
+    # a hold to a car node whose target is 1.2 m away (rest 0.5 m) is set; a plain torso hold that far is not
+    lua.execute("""
+      calls = {} now = {} M.onReset()
+      local t = {} for i = 1, 27 do t[i] = 0.2 end
+      t[7], t[8], t[9] = 0.2, 1.4, 0.2   -- r_wr 1.4 m ahead of the eye
+      M.pose(t) M.updateGFX(1) M.updateGFX(1)
+      carset, torsoset = false, false
+      for _, c in ipairs(calls) do if c[1] == 4 then carset = true end if c[1] == 0 then torsoset = true end end""")
+    assert lua.eval("carset") and not lua.eval("torsoset"), "car hold up to 2 m, torso holds keep the 1.5x rule"
     print("ok: bad poses dropped, health log line written, torso settled once after 3 s")
 
 

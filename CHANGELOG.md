@@ -13,7 +13,10 @@
   still gets the props passenger beside him.
 - **The rigged driver rests on the seat.** Pelvis and chest rest on up to three seat nodes each (a big cab has none within 0.4 m of the
   old spot, so the driver sank 0.4 m in a pickup), and once the car has stood still for 3 s the arms and legs are measured from where
-  the torso settled, so the hands reach the wheel in the Covet and the pickup. The midtruck driver's hands still miss the wheel.
+  the torso settled, so the hands reach the wheel in the Covet and the pickup.
+- **The rigged driver's hands reach the wheel in big cabs.** Hands, knees and feet are also tied by soft beams (20000 N/m, limited in length) to the
+  steering, seat and floor nodes of the cabin (never the dash, glass, mirrors or roof), so they no longer flip to the wrong side of the
+  torso: the midtruck driver's hands are on the wheel now too, without any damage to the car's glass.
 
 ## 1.5.0 (the rigged driver, an option)
 

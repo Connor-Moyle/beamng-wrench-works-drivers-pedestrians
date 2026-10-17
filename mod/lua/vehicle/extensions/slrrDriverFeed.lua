@@ -94,6 +94,7 @@ local rig                      -- nil until looked up; false when this car has n
 local target = {}              -- joint -> vec3, jbeam space
 local now = {}
 
+local CAR_HOLD = 20000   -- spring of a hold to a car node (slrrDriverMount): soft, 150000 cracked the windscreen and dash
 local function findRig()
   local byName = {}
   for cid, n in pairs(v.data.nodes) do
@@ -101,20 +102,32 @@ local function findRig()
     if type(name) == 'string' and name:sub(1, 8) == 'slrr_rd_' then byName[cid] = name:sub(9) end
   end
   if not next(byName) then return false end
-  local r = {holds = {}, rest = {}, mine = {}, all = {}, cid = {}}
+  local r = {holds = {}, rest = {}, carRest = {}, mine = {}, all = {}, cid = {}}
   for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} r.cid[name] = cid end
   for bcid, b in pairs(v.data.beams) do if b.partOrigin == 'slrr_ragdoll' then r.all[#r.all + 1] = bcid end end   -- (for the health log)
   local isJoint = {}
   for _, j in ipairs(JOINTS) do isJoint[j] = true end
   for bcid, b in pairs(v.data.beams) do
     local a, c = byName[b.id1], byName[b.id2]
+    -- a hold to a car node (a hand or foot tied to a node ahead of the torso's plane): the node's place is fixed
+    local toCar = (a == nil) ~= (c == nil)
+    if toCar then
+      local carCid = a == nil and b.id1 or b.id2
+      local cn = v.data.nodes[carCid]
+      if cn and cn.pos then
+        r.carRest['#car' .. carCid] = {cid = carCid, pos = vec3(cn.pos)}
+        a, c = a or '#car' .. carCid, c or '#car' .. carCid
+        if a == c then a, c = nil, nil end   -- (cannot happen: one end is a driver node)
+      else a, c = nil, nil end
+    end
     -- only our own beams are ever resized: both ends are driver nodes, plain type, our part, no break group
-    if a and c and b.beamSpring == 150000 and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
+    if a and c and b.beamSpring == (toCar and CAR_HOLD or 150000) and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
       local joint, torso = a, c
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
-        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, tname = torso, tcid = r.rest[torso].cid, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
+        local t = r.rest[torso] or r.carRest[torso]
+        table.insert(r.holds[joint], {bcid = bcid, torso = t.pos, tname = torso, tcid = t.cid, car = r.carRest[torso] ~= nil, rest = b.beamLength or t.pos:distance(r.rest[joint].pos)})
         r.mine[bcid] = true
       end
     end
@@ -171,7 +184,7 @@ local function settleTorso()
   local placed = {}
   for _, holds in pairs(rig.holds) do
     for _, h in ipairs(holds) do
-      if not placed[h.tname] then
+      if not h.car and not placed[h.tname] then
         local d = obj:getNodePosition(h.tcid) - E
         local p = vec3(cam.x - d:dot(right), cam.y - d:dot(fwd), cam.z + d:dot(up))
         if p.x ~= p.x or p.y ~= p.y or p.z ~= p.z or p:distance(h.torso) > SETTLE_MAX then return end   -- a torso that is not where it should be: no correction
@@ -180,12 +193,12 @@ local function settleTorso()
     end
   end
   for _, holds in pairs(rig.holds) do
-    for _, h in ipairs(holds) do h.torso = placed[h.tname] end
+    for _, h in ipairs(holds) do if not h.car then h.torso = placed[h.tname] end end
   end
   log('I', 'slrrDriverFeed', 'flex torso settled')
 end
 
-local stats = {calls = 0, skipped = 0, t = 0}
+local stats = {calls = 0, skipped = 0, t = 0, carSkipped = 0, carExtra = 0}   -- (carExtra: the longest a car hold got past its rest length)
 local function movePose(dt)
   if not rig then return end
   local k = math.min(1, dt * 40)
@@ -217,18 +230,26 @@ local function movePose(dt)
       if not (n and e) then return 0 end
       return obj:getNodePosition(n):distance(obj:getNodePosition(camNode)) - rig.rest[name].pos:distance(vec3(e.pos))
     end
-    log('I', 'slrrDriverFeed', string.format('flex pose: %d beams set, %d skipped in %.0f s; %d of %d beams broken; drift from the eye: head %.2f l_sh %.2f r_wr %.2f',
-      stats.calls, stats.skipped, stats.t, broken, #rig.all, dist('head'), dist('l_sh'), dist('r_wr')))
+    log('I', 'slrrDriverFeed', string.format('flex pose: %d beams set, %d skipped in %.0f s; %d of %d beams broken; drift from the eye: head %.2f l_sh %.2f r_wr %.2f; car holds: %d skipped, longest %.2f m past rest',
+      stats.calls, stats.skipped, stats.t, broken, #rig.all, dist('head'), dist('l_sh'), dist('r_wr'), stats.carSkipped, stats.carExtra))
     end)
     if not okh then log('W', 'slrrDriverFeed', 'health log failed: ' .. tostring(err)) end
-    stats.calls, stats.skipped, stats.t = 0, 0, 0
+    stats.calls, stats.skipped, stats.t, stats.carSkipped, stats.carExtra = 0, 0, 0, 0, 0
   end
   for j, c in pairs(now) do
     for _, h in ipairs(rig.holds[j] or {}) do
       local len = c:distance(h.torso)
-      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
-      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
-      else stats.skipped = stats.skipped + 1 end
+      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length. A hold to a car node
+      -- pulls on the car (a wrong length of 1 m on 20000 N/m is 20 kN), so it keeps a bound of its own: at most 1 m past its rest
+      -- length and 2 m in all (a hand reaching the wheel from a seat node); stats show how much of that is used
+      local limit = h.car and math.min(2.0, h.rest + 1.0) or h.rest * 1.5 + 0.3
+      if rig.mine[h.bcid] and len == len and len < limit then
+        obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
+        if h.car and len - h.rest > stats.carExtra then stats.carExtra = len - h.rest end
+      else
+        stats.skipped = stats.skipped + 1
+        if h.car then stats.carSkipped = stats.carSkipped + 1 end
+      end
     end
   end
 end
