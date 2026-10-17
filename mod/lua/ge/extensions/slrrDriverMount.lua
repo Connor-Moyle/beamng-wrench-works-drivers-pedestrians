@@ -21,9 +21,9 @@ local flags = {ragdoll = false, selfCollision = false, noCamera = true, passenge
 -- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
 local driverRig = 'props'
 local optOut = {}
--- which nodes the flexbodies bind to (setFlexBind, to bisect the engine's 'VY node not found'): 'near' = the 3-4 joint
--- nodes around each part, 'all' = all 16 joint nodes for every part, 'car' = the six car nodes nearest the seat
-local flexBind = 'near'
+-- which nodes the flexbodies bind to (setFlexBind): 'all' (default) = all 16 joint nodes for every part, 'near' = the 3-4 joint
+-- nodes around each part (the engine says 'VY node not found' for the body and thighs), 'car' = the six car nodes nearest the seat
+local flexBind = 'all'
 local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node one at the car's origin, one 1.2 m above the seat and one 1.6 m to the car's left (outside the body)
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
@@ -231,7 +231,11 @@ local function addRagdoll(objID, vehicle, camCid)
       group = {'slrr_ragdoll', 'slrr_rd_' .. name}, partOrigin = 'slrr_ragdoll', name = 'slrr_rd_' .. name})
     ids[name], ours[cid] = cid, true
   end
+  local seen = {}   -- one beam per pair of nodes (the loader warns about duplicates)
   local function beam(a, b, opts)
+    local key = math.min(a, b) .. ':' .. math.max(a, b)
+    if seen[key] then return nil end
+    seen[key] = true
     return jbeamUtils.addBeamWithOptions(vehicle, a, b, opts.beamType or 0, opts)
   end
   local BONE = {beamSpring = 400000, beamDamp = 60, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
