@@ -38,6 +38,7 @@ function Obj:addObject() end
 function Obj:setTransform(m) self.m = m self.pos = m:getPosition() self.fwd = m:getColumn(1) end
 function Obj:getTransform() return self.m end
 function Obj:delete() self.dead = true end
+function Obj:setHidden(h) self.hidden = h end
 function createObject(cls) local o = setmetatable({cls = cls}, Obj) table.insert(objects, o) return o end
 function simObjectExists(o) return o and not o.dead end
 scenetree = {findObject = function() return nil end, MissionGroup = setmetatable({}, Obj)}
@@ -112,7 +113,7 @@ def main():
         dx, dy = (b[0] - a[0]) / ln, (b[1] - a[1]) / ln
         px, py_ = -dy, dx                        # along the road: perpendicular to the crossing
         half = max(1.0, ln / 2 - 0.9)
-        n1, n2 = (mx - px * 40, my - py_ * 40, a[2]), (mx + px * 40, my + py_ * 40, a[2])
+        n1, n2 = (mx - px * 10, my - py_ * 10, a[2]), (mx + px * 10, my + py_ * 10, a[2])
         road_nodes["r%da" % i] = {"pos": {"x": n1[0], "y": n1[1], "z": n1[2]}, "radius": half, "links": {"r%db" % i: {"drivability": 1}}}
         road_nodes["r%db" % i] = {"pos": {"x": n2[0], "y": n2[1], "z": n2[2]}, "radius": half, "links": {"r%da" % i: {"drivability": 1}}}
         road_segs.append((n1[0], n1[1], n2[0], n2[1], half - 0.2))
@@ -334,6 +335,37 @@ def player():
         seen.append((speed, live[-1].shapeName.rsplit("/", 1)[-1], len(live)))
     print("player walker:", seen)
     assert [x[1] for x in seen] == ["idle.dae", "walk.dae", "walk_fast.dae", "idle.dae"] and all(x[2] == 1 for x in seen), seen
+    # T52: in a career the snowman (the unicycle's own mesh) goes while the walker is shown, and the walker has no body in first person
+    lua.execute("alphaCalls = {}; function uni:setMeshAlpha(a, name, flag) table.insert(alphaCalls, a) end")
+    g.career_career = None
+    M.onPreRender()
+    assert len(list(g.alphaCalls.values())) == 0, "no career: the snowman is left alone"
+    g.career_career = lua.eval("{isActive = function() return true end}")
+    M.onPreRender()
+    calls = list(g.alphaCalls.values())
+    assert calls == [0], "career: the unicycle mesh is hidden every frame (%s)" % calls
+    g.career_career = None
+    g.sl_career = lua.eval("{isActive = function() return true end}")
+    M.onPreRender()
+    assert list(g.alphaCalls.values()) == [0, 0], "Street Legal's career counts as a career too"
+    g.sl_career = None
+    live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
+    M.onUpdate(1 / 30, 1 / 30)
+    assert live[-1].hidden is False, "camera far away: the walker shows"
+    g.camPos = lua.eval("vec3(10, 20.4, 6.3)")      # in his head, first person
+    M.onUpdate(1 / 30, 1 / 30)
+    live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
+    assert live[-1].hidden is True, "first person: no body"
+    g.camPos = lua.eval("vec3(10, 26, 7)")
+    M.onUpdate(1 / 30, 1 / 30)
+    live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
+    assert live[-1].hidden is False, "camera back out: the body shows"
+    print("T52: snowman hidden in a career only, walker hidden in first person")
+    M.followPlayer(None)
+    g.career_career = lua.eval("{isActive = function() return true end}")
+    M.onPreRender()
+    assert list(g.alphaCalls.values()) == [0, 0], "no walker: the snowman stays (nobody would be seen)"
+    M.followPlayer(7, "/art/slrr_drivers/slrr_mitch/walker")
     g.uni.gone = True
     M.onUpdate(1 / 30, 1 / 30)
     assert not [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"], "walker left behind"

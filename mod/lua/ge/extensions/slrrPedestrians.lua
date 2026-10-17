@@ -886,6 +886,7 @@ end
 -- folder in the pedestrian format (<dir>/ped.json: walks {shape: speed}, idle). slrrDrivers' walker shapes use it.
 local player              -- {veh, walks, idle, obj, shape, switch}
 local PLAYER_STAND = 0.3  -- m/s: slower than this the walker stands (idle)
+local PLAYER_HEAD, PLAYER_HIDE_NEAR = 1.65, 1.1   -- the walker's head height; the camera this near it is first person: no body
 
 local function followPlayer(vehId, dir)
   if player and player.obj and simObjectExists(player.obj) then player.obj:delete() end
@@ -918,6 +919,22 @@ local function updatePlayer(dt)
     player.obj, player.shape, player.switch = makeObj(want, m), want, 0.5
   end
   place(player.obj, vec3(pos.x, pos.y, groundZ(pos)), fwd)
+  -- in first person the camera is inside his head: no body (as the game hides the unicycle's own mesh within 1.1 m of the driver node)
+  if player.obj and player.obj.setHidden and core_camera and core_camera.getPosition then
+    local cam = vec3(core_camera.getPosition())
+    player.obj:setHidden(cam:distance(vec3(pos.x, pos.y, pos.z + PLAYER_HEAD)) < PLAYER_HIDE_NEAR)
+  end
+end
+
+-- In a career the walker IS the player's body: the unicycle's own mesh (the snowman) is hidden for as long as the walker is shown.
+-- gameplay_walk sets the unicycle's mesh alpha every frame in its update, so this runs after it, in onPreRender.
+local function careerOn()
+  return (career_career and career_career.isActive and career_career.isActive() == true) or (sl_career and sl_career.isActive and sl_career.isActive() == true)
+end
+local function hideSnowman()
+  if not (player and player.obj) or not careerOn() then return end
+  local v = be:getObjectByID(player.veh)
+  if v and v.setMeshAlpha then v:setMeshAlpha(0, '', false) end
 end
 
 -- recording for review (tools/ped_replay.py): every pedestrian's place and shape each frame
@@ -1083,6 +1100,8 @@ M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) e
 M.onSlrrRaceFinished = function() cheerAll(6) end
 -- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
 M.followPlayer = followPlayer
+M.onPreRender = function() if player then hideSnowman() end end
+M.hasPlayerWalker = function() return player ~= nil end
 -- slrrPedestrians.record(seconds, path): write every pedestrian's place and shape per frame to path (json)
 M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
