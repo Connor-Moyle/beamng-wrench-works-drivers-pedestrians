@@ -29,7 +29,8 @@ v = {data = {
     [0] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0},
     [1] = {id1 = 3, id2 = 2, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0},
     [2] = {id1 = 4, id2 = 1, beamSpring = 4000000, partOrigin = 'covet_body', beamType = 0},   -- a car beam
-    [3] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0, breakGroup = 'x'}}}}   -- has a break group: not ours
+    [3] = {id1 = 3, id2 = 1, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0, breakGroup = 'x'},   -- has a break group: not ours
+    [4] = {id1 = 3, id2 = 4, beamSpring = 150000, partOrigin = 'slrr_ragdoll', beamType = 0}}}}   -- ours: a hold to a car node
 """
 
 
@@ -61,7 +62,7 @@ def main():
     assert lua.eval("#calls") == 0, "a far-off joint resized a beam"
     lua.execute("calls = {} now = {} M.pose(" + pose(good) + ") M.updateGFX(1)")
     beams = sorted({lua.eval("calls[%d][1]" % (i + 1)) for i in range(lua.eval("#calls"))})
-    assert beams == [0, 1], "only our own beams may be resized, got %s" % beams
+    assert beams == [0, 1, 4], "only our own beams may be resized (a car node hold is ours), got %s" % beams
     # the health log line (every 5 s) runs and does not break posing
     lua.execute("""logged = {} log = function(l, t, m) logged[#logged + 1] = l .. ' ' .. m end
                    obj.beamIsBroken = function(_, b) return b == 1 end

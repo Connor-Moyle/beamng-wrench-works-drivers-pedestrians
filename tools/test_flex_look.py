@@ -25,7 +25,7 @@ def build(look):
       springs = {}
       package.preload['jbeam/utils'] = function() return {
         increaseMax = function(v, k) v.maxIDs = v.maxIDs or {} v.maxIDs[k] = (v.maxIDs[k] or 0) + 1 return v.maxIDs[k] end,
-        addNodeWithOptions = function(v, pos, ntype, o) nodes[o.name] = pos return #v.nodes + 100 + #nodes end,
+        addNodeWithOptions = function(v, pos, ntype, o) nodes[o.name] = pos ncid = (ncid or 100) + 1 return ncid end,
         addBeamWithOptions = function(v, a, b, t, o) springs[#springs + 1] = o.beamSpring return 0 end}
       end
     """)
@@ -66,6 +66,8 @@ def passenger():
     assert not errors, errors
     seat = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 60000 then n = n + 1 end end return n end)()")
     assert seat >= 2, ("a flex driver rests on several seat nodes", seat)
+    stiff = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 150000 then n = n + 1 end end return n end)()")
+    assert stiff > 36, ("hands and feet are also held by car nodes ahead of the torso's plane", stiff)
 
 
 def main():

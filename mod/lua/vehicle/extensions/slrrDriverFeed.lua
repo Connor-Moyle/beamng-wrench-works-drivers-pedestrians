@@ -101,20 +101,31 @@ local function findRig()
     if type(name) == 'string' and name:sub(1, 8) == 'slrr_rd_' then byName[cid] = name:sub(9) end
   end
   if not next(byName) then return false end
-  local r = {holds = {}, rest = {}, mine = {}, all = {}, cid = {}}
+  local r = {holds = {}, rest = {}, carRest = {}, mine = {}, all = {}, cid = {}}
   for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} r.cid[name] = cid end
   for bcid, b in pairs(v.data.beams) do if b.partOrigin == 'slrr_ragdoll' then r.all[#r.all + 1] = bcid end end   -- (for the health log)
   local isJoint = {}
   for _, j in ipairs(JOINTS) do isJoint[j] = true end
   for bcid, b in pairs(v.data.beams) do
     local a, c = byName[b.id1], byName[b.id2]
+    -- a hold to a car node (a hand or foot tied to a node ahead of the torso's plane): the node's place is fixed
+    if (a == nil) ~= (c == nil) then
+      local carCid = a == nil and b.id1 or b.id2
+      local cn = v.data.nodes[carCid]
+      if cn and cn.pos then
+        r.carRest['#car' .. carCid] = {cid = carCid, pos = vec3(cn.pos)}
+        a, c = a or '#car' .. carCid, c or '#car' .. carCid
+        if a == c then a, c = nil, nil end   -- (cannot happen: one end is a driver node)
+      else a, c = nil, nil end
+    end
     -- only our own beams are ever resized: both ends are driver nodes, plain type, our part, no break group
     if a and c and b.beamSpring == 150000 and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
       local joint, torso = a, c
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
-        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, tname = torso, tcid = r.rest[torso].cid, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
+        local t = r.rest[torso] or r.carRest[torso]
+        table.insert(r.holds[joint], {bcid = bcid, torso = t.pos, tname = torso, tcid = t.cid, car = r.carRest[torso] ~= nil, rest = b.beamLength or t.pos:distance(r.rest[joint].pos)})
         r.mine[bcid] = true
       end
     end
@@ -171,7 +182,7 @@ local function settleTorso()
   local placed = {}
   for _, holds in pairs(rig.holds) do
     for _, h in ipairs(holds) do
-      if not placed[h.tname] then
+      if not h.car and not placed[h.tname] then
         local d = obj:getNodePosition(h.tcid) - E
         local p = vec3(cam.x - d:dot(right), cam.y - d:dot(fwd), cam.z + d:dot(up))
         if p.x ~= p.x or p.y ~= p.y or p.z ~= p.z or p:distance(h.torso) > SETTLE_MAX then return end   -- a torso that is not where it should be: no correction
@@ -180,7 +191,7 @@ local function settleTorso()
     end
   end
   for _, holds in pairs(rig.holds) do
-    for _, h in ipairs(holds) do h.torso = placed[h.tname] end
+    for _, h in ipairs(holds) do if not h.car then h.torso = placed[h.tname] end end
   end
   log('I', 'slrrDriverFeed', 'flex torso settled')
 end
