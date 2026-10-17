@@ -398,6 +398,8 @@ M.onPreRender = function(dt)
     elseif t > dt then alphaDue[vid] = t - dt
     else
       alphaDue[vid] = nil
+      -- dumpFlex and flexReport (what made the driver appear in game) both read the vehicle data first: do that too
+      core_vehicle_manager.getVehicleData(vid)
       local shown = 0
       for _, name in ipairs(flexMeshes[vid] or {}) do if veh:setMeshAlpha(1, name, false) then shown = shown + 1 end end
       log('I', 'slrrDriverMount', 'flex meshes made visible for ' .. tostring(vid) .. ': ' .. shown .. ' of ' .. #(flexMeshes[vid] or {}))
