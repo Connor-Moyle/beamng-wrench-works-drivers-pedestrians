@@ -68,6 +68,7 @@ for _, d in ipairs(py_signals()) do
     pos = vec3(d.pos[1], d.pos[2], d.pos[3]), dir = vec3(d.dir[1], d.dir[2], d.dir[3])}, Sig))
 end
 core_trafficSignals = {getSignals = function() return sigs end}
+map = {getMap = function() return {nodes = py_roads()} end}
 """
 
 
@@ -93,6 +94,36 @@ def main():
         "/art/slrr_pedestrians/" + os.path.relpath(os.path.join(dp, f), root_abs).replace("\\", "/")
         for dp, _, fs in os.walk(root_abs) for f in fs if f.endswith(pat.lstrip("*"))])
     g.py_signals = lambda: to_lua(lua, SIGNALS)
+    # roads for T51: under every road crossing of the walk file, a road across the middle of the link, 0.9 m narrower than the link each
+    # side (the sidewalk ends stand just off it); the offline check of 'nobody stops on a carriageway' uses the same
+    walk0 = json.load(open(os.path.join(MOD, "art", "slrr_pedestrians", "walk_slrr_valo_city.json")))
+    lines0 = walk0["lines"]
+    road_segs, road_nodes = [], {}
+    for i, k in enumerate(walk0["links"]):
+        if not k[4]:
+            continue
+        la, lb = lines0[k[0]], lines0[k[2]]
+        a = la[0] if k[1] else la[-1]
+        b = lb[0] if k[3] else lb[-1]
+        ln = math.dist(a[:2], b[:2])
+        if ln < 5:
+            continue
+        mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+        dx, dy = (b[0] - a[0]) / ln, (b[1] - a[1]) / ln
+        px, py_ = -dy, dx                        # along the road: perpendicular to the crossing
+        half = max(1.0, ln / 2 - 0.9)
+        n1, n2 = (mx - px * 40, my - py_ * 40, a[2]), (mx + px * 40, my + py_ * 40, a[2])
+        road_nodes["r%da" % i] = {"pos": {"x": n1[0], "y": n1[1], "z": n1[2]}, "radius": half, "links": {"r%db" % i: {"drivability": 1}}}
+        road_nodes["r%db" % i] = {"pos": {"x": n2[0], "y": n2[1], "z": n2[2]}, "radius": half, "links": {"r%da" % i: {"drivability": 1}}}
+        road_segs.append((n1[0], n1[1], n2[0], n2[1], half - 0.2))
+    g.py_roads = lambda: to_lua(lua, road_nodes)
+    seg = np.array(road_segs)
+
+    def on_road(x, y):
+        ax, ay, bx, by, r = seg[:, 0], seg[:, 1], seg[:, 2], seg[:, 3], seg[:, 4]
+        dx, dy = bx - ax, by - ay
+        tt = np.clip(((x - ax) * dx + (y - ay) * dy) / np.maximum(dx * dx + dy * dy, 1e-9), 0, 1)
+        return bool(np.any(np.hypot(x - (ax + dx * tt), y - (ay + dy * tt)) < r))
     lua.execute(FAKE)
     M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
     M.onExtensionLoaded()
@@ -118,6 +149,7 @@ def main():
     worst_side = 0.0
     spawns = in_view_spawns = 0
     road_starts = car_conflicts = 0
+    road_stops = cross_stops = cross_frames = forced_starts = 0
     for frame in range(int(240 / dt)):
         g.time = frame * dt
         slow = 1800 <= frame < 2700          # 30 s of slow frames (40 ms) in the middle
@@ -135,8 +167,17 @@ def main():
             if p._still > longest_stand[0]:
                 longest_stand[0], longest_stand[1] = p._still, p.state
             c = p.cross
+            # T51: nobody is stopped, waiting or looking round on a carriageway, and a crossing is never interrupted
+            if c is not None:
+                cross_frames += 1
+                cross_stops += p.state != "walk"
+            if p.state != "walk" and p.pos is not None and on_road(p.pos.x, p.pos.y):
+                road_stops += 1
             if c is not None and c.t <= dt * p.speed / c.len + 1e-9 and seen.get(id(c)) is None:
                 seen[id(c)] = True
+                if c.forced:
+                    forced_starts += 1
+                    continue
                 if c.road:
                     # K5: the car must not come within 3 m of the crossing before they're over (+2 s)
                     road_starts += 1
@@ -188,6 +229,10 @@ def main():
     print("walking %.1f%% of the time; longest standing %.0f s (%s)" % (100 * walk_frames[0] / max(1, walk_frames[1]), longest_stand[0], longest_stand[1]))
     assert walk_frames[0] / walk_frames[1] > 0.92, "pedestrians stand about too much: walking only %.1f%% of the time" % (100 * walk_frames[0] / walk_frames[1])
     assert longest_stand[0] <= 30, "somebody stood still for %.0f s (%s)" % (longest_stand[0], longest_stand[1])
+    print("T51: %d frames in a crossing, %d of them not walking; %d frames stopped on a road; %d crossings begun because they stood on a road" % (cross_frames, cross_stops, road_stops, forced_starts))
+    assert cross_frames > 1000, "too few crossings seen to say anything (%d frames)" % cross_frames
+    assert cross_stops == 0, "a pedestrian stopped mid-crossing in %d frames" % cross_stops
+    assert road_stops == 0, "a pedestrian stood, waited or looked round on a road in %d frames" % road_stops
     print("states seen:", sorted(states))
     print("crossings started:", crossings)
     print("furthest beyond the pavement room beside the line: %.3f m" % worst_side)

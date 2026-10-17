@@ -41,6 +41,8 @@ local STOP_RATE = 1 / 120                -- chance per second (times the pedestr
 local SPAWN_STANDING = 0.05              -- share spawned standing (for a few seconds)
 local WAIT_MAX = 20                      -- seconds at a kerb for a gap or a light; then they turn back along the pavement instead of standing on
 local CROSS_MIN = 5         -- a link this long or more crosses a road
+local ROAD_SHRINK = 0.2     -- metres: a spot counts as on a road only this far inside its edge (a kerb is not the road)
+local CROSS_PACE = 1.15     -- on a carriageway they walk this much faster than on the pavement (a little hurry, never a stop)
 local JUNCTION_REACH = 35   -- a crossing this close to a signalled junction's centre obeys its lights
 local GREEN, RED = 'greenTrafficLight', 'redTrafficLight'
 local GAP_MARGIN = 2        -- seconds: no crossing while a car would reach it before they're over plus this
@@ -383,6 +385,55 @@ local function setShape(p, shape)
   p.obj, p.shape = makeObj(shape, m), shape
 end
 
+-- The roads (T51): public, drivable links of the navgraph in a grid, to tell whether a spot is on a carriageway. A pedestrian on one
+-- never stands, waits or turns back: it goes on across to the far kerb. nil roads (no navgraph yet) = nowhere is a road.
+local roadGrid, roadsTried
+local ROAD_CELL = 20
+local function buildRoads(nodes)
+  roadGrid = {}
+  for a, n in pairs(nodes) do
+    for b, l in pairs(n.links or {}) do
+      local o = nodes[b]
+      if a < b and o and (l.drivability or 1) >= 0.9 and not l.hiddenInNavi and (l.type == nil or l.type == 'public') then
+        local seg = {ax = n.pos.x, ay = n.pos.y, az = n.pos.z, bx = o.pos.x, by = o.pos.y, bz = o.pos.z, ra = n.radius or 2, rb = o.radius or 2}
+        local x0, x1 = math.min(seg.ax, seg.bx), math.max(seg.ax, seg.bx)
+        local y0, y1 = math.min(seg.ay, seg.by), math.max(seg.ay, seg.by)
+        for cx = math.floor(x0 / ROAD_CELL) - 1, math.floor(x1 / ROAD_CELL) + 1 do
+          for cy = math.floor(y0 / ROAD_CELL) - 1, math.floor(y1 / ROAD_CELL) + 1 do
+            local k = cx .. ',' .. cy
+            roadGrid[k] = roadGrid[k] or {}
+            table.insert(roadGrid[k], seg)
+          end
+        end
+      end
+    end
+  end
+end
+local function onRoad(pos)
+  if not roadGrid then
+    if roadsTried and os.clock() - roadsTried < 5 then return false end
+    roadsTried = os.clock()
+    local ok, nodes = pcall(function() return map.getMap().nodes end)
+    if not (ok and type(nodes) == 'table' and next(nodes)) then return false end
+    buildRoads(nodes)
+  end
+  for _, s in ipairs(roadGrid[math.floor(pos.x / ROAD_CELL) .. ',' .. math.floor(pos.y / ROAD_CELL)] or {}) do
+    local dx, dy = s.bx - s.ax, s.by - s.ay
+    local l2 = dx * dx + dy * dy
+    local t = l2 > 0 and math.max(0, math.min(1, ((pos.x - s.ax) * dx + (pos.y - s.ay) * dy) / l2)) or 0
+    local qx, qy = s.ax + dx * t, s.ay + dy * t
+    local r = s.ra + (s.rb - s.ra) * t - ROAD_SHRINK
+    if r > 0 and (pos.x - qx) ^ 2 + (pos.y - qy) ^ 2 < r * r and math.abs(pos.z - (s.az + (s.bz - s.az) * t)) < 3 then return true end
+  end
+  return false
+end
+-- may p stand (idle, wait, look at a crash) where it is: not on a road
+local function mayStand(p)
+  if not p.pos then return true end
+  if onRoad(p.pos) then return false end
+  return not (p.fwd and onRoad(p.pos + p.fwd * 0.4))        -- (and not a step ahead, where the walk is about to go)
+end
+
 -- stand still (idle animation) for `time` seconds, or until a signal lets them go when `time` is nil
 local function stand(p, time)
   p.state, p.timer = time and 'idle' or 'wait', time
@@ -443,7 +494,7 @@ local function spawnNear(cam)
       local p = {type = t, walk = w, speed = w.speed, line = pick.line, s = lines[pick.line].len[pick.k],
                  dir = math.random() < 0.5 and 1 or -1, lane = (math.random() * 2 - 1) * LANE, side = 0,
                  idleChance = t.idle and math.random() * 0.6 or 0, zTimer = 0, dodgeSide = 0}
-      if t.idle and opts.idling and math.random() < SPAWN_STANDING then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN)) else walkOn(p) end
+      if t.idle and opts.idling and math.random() < SPAWN_STANDING and not onRoad(at) then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN)) else walkOn(p) end
       return p
     end
   end
@@ -473,12 +524,12 @@ local function crossesRoad(e, o)
   return e.p:distance(o.p) >= CROSS_MIN
 end
 
-local function startLink(p)
+local function startLink(p, forced)
   local l = p.link
   local e, o = l.from, l.to
   p.link = nil
   p.cross = {from = e.p, to = o.p, t = 0, len = math.max(0.5, e.p:distance(o.p)), signal = l.signal, across = l.across,
-             road = l.cross}
+             road = l.cross, forced = forced}          -- (forced: begun because they stood on a road, light or not)
   p.line, p.dir = o.line, o.atStart and 1 or -1
   p.s = o.atStart and 0 or lines[o.line].total
 end
@@ -537,9 +588,10 @@ local function reachEnd(p)
   if cross then signal, junction, across = signalFor(e.p, o.p) end
   p.link = {from = e, to = o, len = e.p:distance(o.p), cross = cross, signal = signal, junction = junction,
             across = across}
-  if opts.idling and math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
-  elseif not mayCross(p) then stand(p)
-  else startLink(p) end
+  local standable = mayStand(p) and not onRoad(e.p)        -- (a sidewalk end on a carriageway: no standing there, straight across)
+  if standable and opts.idling and math.random() < p.idleChance then stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
+  elseif standable and not mayCross(p) then stand(p)
+  else startLink(p, not standable) end
 end
 
 local function updateStanding(p, dt)
@@ -574,9 +626,15 @@ end
 
 local function updatePed(p, dt, vehicles, near)
   local pos, fwd
-  if p.state ~= 'walk' then
+  if p.cross and p.state ~= 'walk' then
+    walkOn(p)                                     -- a crossing is never interrupted
+  elseif p.state ~= 'walk' and not mayStand(p) then
+    -- standing, waiting or looking where there is a road: not for a moment; across it, or on along the pavement
+    if p.link then startLink(p, true) end
+    walkOn(p)
+  elseif p.state ~= 'walk' then
     updateStanding(p, dt)
-  elseif opts.idling and not p.cross and p.idleChance > 0 and math.random() < STOP_RATE * p.idleChance * dt then
+  elseif opts.idling and not p.cross and p.idleChance > 0 and math.random() < STOP_RATE * p.idleChance * dt and mayStand(p) then
     stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   end
   local moving = p.state == 'walk'
@@ -598,8 +656,9 @@ local function updatePed(p, dt, vehicles, near)
     end
   end
   local speed = p.hurry and p.hurry.speed or p.speed
+  local crossSpeed = (p.cross and p.cross.road and not p.hurry) and speed * CROSS_PACE or speed     -- a little faster over a carriageway
   if p.cross then
-    if moving then p.cross.t = p.cross.t + dt * speed / p.cross.len end
+    if moving then p.cross.t = p.cross.t + dt * crossSpeed / p.cross.len end
     if p.cross.t >= 1 then
       p.cross = nil
       if p.hurry and not p.hurryTime then
@@ -710,7 +769,7 @@ local function react(at)
         if (d * p.dir):dot(p.pos - at) < 0 then p.dir = -p.dir end   -- the way along the path that leads away
         p.link = nil
         hurry(p, 6)
-      elseif p.state == 'walk' then
+      elseif p.state == 'walk' and mayStand(p) then
         stand(p, 3 + math.random() * 5)
         p.face = at
       end
@@ -1014,6 +1073,8 @@ M.onUpdate = function(dtReal, dtSim)
   end
 end
 M.pickType, M.kindsAt = pickType, kindsAt       -- (tests)
+M.onRoad = onRoad
+M.resetRoads = function() roadGrid, roadsTried = nil, nil end
 M.getTypes = function() return types end
 M.setDensity = function(d) density = d end      -- a density table in place of the level's file (tests, mod makers)
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
