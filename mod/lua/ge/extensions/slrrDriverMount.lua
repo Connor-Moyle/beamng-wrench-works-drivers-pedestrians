@@ -298,11 +298,25 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- the seat: pelvis and chest rest on it (soft, so he settles into it)
   local SEAT = {beamSpring = 20000, beamDamp = 200, beamDeform = math.huge, beamStrength = 25000, breakGroup = 'slrr_belt',
                 partOrigin = 'slrr_ragdoll'}
+  -- flex driver: three seat nodes each within 0.7 m (a big cab has no node within 0.4 m of the spot: the body hung from its belts
+  -- and sank 0.4 m in a pickup), stiffer; the spring sag under 69 kg is then a few millimetres
+  local SEATS, REACH = 1, 0.4
+  if driverRig == 'flex' then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 400, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
+  local seated = {}
   for _, a in ipairs({{'pelvis', off(P.pelvis, {0, -0.05, -0.15})}, {'chest', off(P.chest, {0, -0.2, 0})}}) do
-    local node, d = nearestNode(vehicle, a[2], ours)
-    if node and d < 0.4 then beam(ids[a[1]], node, SEAT) end
+    local skip = {}
+    for cid in pairs(ours) do skip[cid] = true end
+    for i = 1, SEATS do
+      local node, d = nearestNode(vehicle, a[2], skip)
+      if node and d < REACH then
+        beam(ids[a[1]], node, SEAT)
+        seated[#seated + 1] = string.format('%s %.2f', a[1], d)
+        skip[node] = true
+      end
+    end
   end
-  ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid}
+  log('I', 'slrrDriverMount', 'seat beams for ' .. tostring(objID) .. ': ' .. (#seated > 0 and table.concat(seated, ', ') or 'none'))
+  ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid, rest = P}
   return #belts, P
 end
 
@@ -429,6 +443,7 @@ M.showFlex = function(vid)
   return shown
 end
 M.flexShown = function(vid) return flex[vid] ~= nil and alphaDue[vid] == nil end   -- (made visible once already)
+M.setPassengerShare = function(share) PASSENGER_SHARE = math.max(0, math.min(1, tonumber(share) or PASSENGER_SHARE)) end   -- (not saved: 1 gives every car a passenger, for testing)
 M.getFlexSkin = function(vid) return flexSkin[vid] end
 M.onPreRender = function(dt)
   -- injected flexbodies come up invisible (found in game: visible only after veh:setMeshAlpha(1, mesh) had been called, which
@@ -532,7 +547,8 @@ M.flexSnapshot = function(objID, path)
   local right = fwd:cross(up):normalized()
   up = right:cross(fwd)
   local cam = vec3(veh:getNodePositionXYZ(rd.cam))
-  local out = {nodes = {}, targets = {}, speed = vec3(veh:getVelocity()):length()}
+  local out = {nodes = {}, targets = {}, rest = rd.rest, speed = vec3(veh:getVelocity()):length(),
+               axes = {fwd = {fwd.x, fwd.y, fwd.z}, up = {up.x, up.y, up.z}}}   -- (rest: where the nodes were put, seat frame; axes: the car's, world)
   for name, cid in pairs(rd.nodes) do
     local d = vec3(veh:getNodePositionXYZ(cid)) - cam
     out.nodes[name] = {d:dot(right), d:dot(fwd), d:dot(up)}

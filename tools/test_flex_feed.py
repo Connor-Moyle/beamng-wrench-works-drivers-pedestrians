@@ -62,7 +62,15 @@ def main():
     lua.execute("calls = {} now = {} M.pose(" + pose(good) + ") M.updateGFX(1)")
     beams = sorted({lua.eval("calls[%d][1]" % (i + 1)) for i in range(lua.eval("#calls"))})
     assert beams == [0, 1], "only our own beams may be resized, got %s" % beams
-    print("ok: bad poses dropped")
+    # the health log line (every 5 s) runs and does not break posing
+    lua.execute("""logged = {} log = function(l, t, m) logged[#logged + 1] = l .. ' ' .. m end
+                   obj.beamIsBroken = function(_, b) return b == 1 end
+                   obj.getNodePosition = function(_, c) return vec3(c, 0, 0) end
+                   calls = {} now = {} M.pose(""" + pose(good) + """) M.updateGFX(6)""")
+    assert lua.eval("#calls") > 0, "posing stopped after the health log"
+    line = lua.eval("table.concat(logged, '|')")
+    assert "1 of" in line and "broken" in line and "health log failed" not in line, line
+    print("ok: bad poses dropped, health log line written")
 
 
 if __name__ == "__main__":

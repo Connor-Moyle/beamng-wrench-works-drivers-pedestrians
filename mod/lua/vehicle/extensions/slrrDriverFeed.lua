@@ -101,8 +101,9 @@ local function findRig()
     if type(name) == 'string' and name:sub(1, 8) == 'slrr_rd_' then byName[cid] = name:sub(9) end
   end
   if not next(byName) then return false end
-  local r = {holds = {}, rest = {}, mine = {}}
-  for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} end
+  local r = {holds = {}, rest = {}, mine = {}, all = {}, cid = {}}
+  for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} r.cid[name] = cid end
+  for bcid, b in pairs(v.data.beams) do if b.partOrigin == 'slrr_ragdoll' then r.all[#r.all + 1] = bcid end end   -- (for the health log)
   local isJoint = {}
   for _, j in ipairs(JOINTS) do isJoint[j] = true end
   for bcid, b in pairs(v.data.beams) do
@@ -167,7 +168,19 @@ local function movePose(dt)
   fitBones()
   stats.t = stats.t + dt
   if stats.t > 5 and stats.calls + stats.skipped > 0 then
-    log('I', 'slrrDriverFeed', 'flex pose: ' .. stats.calls .. ' beams set, ' .. stats.skipped .. ' skipped in ' .. string.format('%.0f', stats.t) .. ' s')
+    -- health: how many of the driver's beams broke, and how far head / shoulder / wrist sit from the eye now against at rest (m)
+    local okh, err = pcall(function()
+    local broken = 0
+    for _, bcid in ipairs(rig.all) do if obj:beamIsBroken(bcid) then broken = broken + 1 end end
+    local function dist(name)
+      local n, e = rig.cid[name], v.data.nodes[camNode]
+      if not (n and e) then return 0 end
+      return obj:getNodePosition(n):distance(obj:getNodePosition(camNode)) - rig.rest[name].pos:distance(vec3(e.pos))
+    end
+    log('I', 'slrrDriverFeed', string.format('flex pose: %d beams set, %d skipped in %.0f s; %d of %d beams broken; drift from the eye: head %.2f l_sh %.2f r_wr %.2f',
+      stats.calls, stats.skipped, stats.t, broken, #rig.all, dist('head'), dist('l_sh'), dist('r_wr')))
+    end)
+    if not okh then log('W', 'slrrDriverFeed', 'health log failed: ' .. tostring(err)) end
     stats.calls, stats.skipped, stats.t = 0, 0, 0
   end
   for j, c in pairs(now) do
