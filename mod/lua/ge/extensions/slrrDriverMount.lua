@@ -21,6 +21,9 @@ local flags = {ragdoll = false, selfCollision = false, noCamera = true, passenge
 -- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
 local driverRig = 'props'
 local optOut = {}
+-- which nodes the flexbodies bind to (setFlexBind, to bisect the engine's 'VY node not found'): 'near' = the 3-4 joint
+-- nodes around each part, 'all' = all 16 joint nodes for every part, 'car' = the six car nodes nearest the seat
+local flexBind = 'near'
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
@@ -286,14 +289,39 @@ local ORIGIN = {body = 'eye', head = 'neck', r_upperarm = 'r_sh', r_forearm = 'r
                 l_forearm = 'l_el', l_hand = 'l_wr', r_thigh = 'r_hip', r_calf = 'r_kn', r_foot = 'r_an',
                 l_thigh = 'l_hip', l_calf = 'l_kn', l_foot = 'l_an'}
 
+local ALL = {'head', 'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_hip', 'l_hip', 'r_kn', 'l_kn', 'r_an', 'l_an'}
+
+-- tag the car's own nodes nearest the seat with a group and return its name (flexBind 'car')
+local function tagSeatNodes(vehicle, cam)
+  local near = {}
+  for _, n in pairs(vehicle.nodes) do
+    if type(n) == 'table' and n.cid and n.pos and n.partOrigin ~= 'slrr_ragdoll' and not onPanel(n) then
+      near[#near + 1] = {n = n, d = vec3(n.pos):distance(cam)}
+    end
+  end
+  table.sort(near, function(a, b) return a.d < b.d end)
+  for i = 1, math.min(6, #near) do
+    local n, g = near[i].n, near[i].n.group
+    if type(g) == 'string' then n.group = {g, 'slrr_fx_car'}
+    elseif type(g) == 'table' then table.insert(g, 'slrr_fx_car')
+    else n.group = {'slrr_fx_car'} end
+  end
+  return 'slrr_fx_car'
+end
+
 local function addFlexbodies(objID, vehicle, cam, P, skin)
   if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no meshes for skin ' .. tostring(skin) .. ', no flexbodies') return 0 end
   vehicle.flexbodies = vehicle.flexbodies or {}
+  local carGroup = flexBind == 'car' and tagSeatNodes(vehicle, cam) or nil
   local n = 0
   for _, part in ipairs(PARTS) do
     local at = ORIGIN[part] == 'eye' and vec3(cam.x, cam.y, cam.z) or J(cam, P[ORIGIN[part]])
     local groups = {}
-    for _, j in ipairs(BIND[part]) do groups[#groups + 1] = 'slrr_rd_' .. j end
+    if flexBind == 'car' then groups = {carGroup}
+    else
+      for _, j in ipairs(flexBind == 'all' and ALL or BIND[part]) do groups[#groups + 1] = 'slrr_rd_' .. j end
+    end
+    log('I', 'slrrDriverMount', string.format('  flexbody %s at jbeam (%.3f %.3f %.3f), seat node (%.3f %.3f %.3f), bound to %s', part, at.x, at.y, at.z, cam.x, cam.y, cam.z, table.concat(groups, ',')))
     table.insert(vehicle.flexbodies, {
       mesh = skin .. '_' .. part, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = 1, y = 1, z = 1},
       ['[group]:nodes'] = groups, partOrigin = 'slrr_driver'})
@@ -316,7 +344,8 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
   local ok, err = pcall(function()
     local camCid = driverCamera(vehicle)
     if camCid and not byCid(vehicle)[camCid] then camCid = nil end
-    local model = tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
+    local obj = be:getObjectByID(objID)
+    local model = obj and obj:getJBeamFilename() or tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
     local wantFlex = driverRig == 'flex' and camCid and not optOut[objID] and not (model and optOut[model])
     if driverRig == 'flex' and not wantFlex then
       log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
@@ -389,6 +418,7 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+M.setFlexBind = function(mode) if mode == 'near' or mode == 'all' or mode == 'car' then flexBind = mode end end   -- cars spawned afterwards
 M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or objID: no flex driver
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
