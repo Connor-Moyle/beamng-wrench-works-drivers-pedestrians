@@ -279,6 +279,53 @@ slrrPedestrians.setCount(n)          -- how many walk at once (saved)
 slrrPedestrians.getCount()
 ```
 
+### Crowds, scripted walkers, waves and slumps
+
+For mods that build scenes (a venue, a garage arrival, a meet). All of these are safe to call at any time; a call about
+a car or walker that is gone does nothing.
+
+**Spectators at a venue** the level's own file has no crowd for. `kind` is `'race'` or `'meet'`; `c` and `r` are the
+venue's centre and radius, `spots` the places people may stand (`x, y, z` and the way they face `fx, fy`). The same `id` replaces its
+zone. People come out of the same budget as the pedestrians.
+
+```lua
+slrrPedestrians.addSpectatorZones({ {
+  id = 'my_drag_strip', kind = 'race', c = {120, 40, 8}, r = 60,
+  spots = { {110, 52, 8, 0, -1}, {114, 52, 8, 0, -1}, {118, 52, 8, 0, -1} } } })
+slrrPedestrians.cheer(6)             -- the crowd cheers for 6 seconds (a win at an event that is not one of the map's races)
+slrrPedestrians.clearSpectatorZones()
+```
+
+**A scripted walker** (an actor): a driver's walker shapes (`<driver folder>/walker/`, with its `ped.json`) walks through
+points, waits at the ones that have a `wait`, and stands at the last. A point is a position (`vec3` or `{x=, y=, z=}`) or
+`{pos = position, wait = seconds}`. It returns an id, or nil when the folder has no walker.
+
+```lua
+local id = slrrPedestrians.playActor('/art/slrr_drivers/hd_eric/walker/',
+  { {pos = vec3(10, 20, 5), wait = 1}, vec3(14, 20, 5), vec3(14, 26, 5) }, {speedScale = 1.0})
+-- later:
+slrrPedestrians.actorDone(id)        -- true when he stands at the last point (or the id is gone)
+slrrPedestrians.actorPos(id)         -- vec3, or nil
+slrrPedestrians.stopActor(id)        -- takes him away
+```
+
+**A wave and a slump.** `wave` makes the driver of a car wave out of his window for a few seconds (1 to 8, default 3), with the hand
+that is not on the lever; not in first person and not for far drivers. `setSlump` makes the full driver slump over the wheel (knocked
+out, dead) or sit up again. The injury add-on does this by itself; other mods can use it.
+
+```lua
+slrrDrivers.wave(vehId, 4)
+slrrDrivers.setSlump(vehId, true)    -- false: he sits up
+```
+
+**What is drawn on a car.** `figures` lists what could show as a figure on or in a car (the walker, the mount's props, the full driver), logs it
+and returns it: useful when a figure shows where none should.
+
+```lua
+local info = slrrDrivers.figures(be:getPlayerVehicleID(0))
+dump(info)
+```
+
 A car shows its driver only while it is driven: the player is in it, or its AI is on (any mode but
 `disabled`). `setDriver` picks who sits in a car, not whether anyone does, so parked, lot and garage
 cars stay empty whatever was chosen for them.
