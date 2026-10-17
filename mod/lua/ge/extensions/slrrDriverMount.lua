@@ -24,7 +24,7 @@ local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind, to bisect the engine's 'VY node not found'): 'near' = the 3-4 joint
 -- nodes around each part, 'all' = all 16 joint nodes for every part, 'car' = the six car nodes nearest the seat
 local flexBind = 'near'
-local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node and one at the car's origin
+local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node one at the car's origin, one 1.2 m above the seat and one 1.6 m to the car's left (outside the body)
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
@@ -332,7 +332,7 @@ local function addFlexbodies(objID, vehicle, cam, P, skin)
     n = n + 1
   end
   if flexDebug then
-    for i, at in ipairs({vec3(cam.x, cam.y, cam.z), vec3(0, 0, 0)}) do
+    for i, at in ipairs({vec3(cam.x, cam.y, cam.z), vec3(0, 0, 0), vec3(cam.x, cam.y, cam.z + 1.2), vec3(cam.x + 1.6, cam.y, cam.z)}) do
       table.insert(vehicle.flexbodies, {mesh = 'slrr_dbg_cube', pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 0}, scale = {x = 1, y = 1, z = 1},
         ['[group]:nodes'] = flexBind == 'car' and {carGroup} or ALL_GROUPS, partOrigin = 'slrr_driver'})
       log('I', 'slrrDriverMount', '  debug cube ' .. i .. ' at jbeam ' .. tostring(at))
