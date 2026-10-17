@@ -72,7 +72,8 @@ local cars = {}             -- this frame's vehicles near the camera, {pos, vel}
 local retryTimer = 0
 local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
 -- spectators (spectators_<level>.json, tools/spectators.py): crowds at the venues and meets, standing at fixed spots
-local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}}}
+local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}, ground = true: z is where to look from, the ground is found}}
+local extraZones = {}          -- zones other mods add at run time
 local spectators = {}       -- {obj, shape, type, spot, cheer = seconds left}
 local specZone              -- the zone being filled, or nil
 local specTimer = 0
@@ -153,6 +154,10 @@ local function loadWalks()
   density = lvl and jsonReadFile(ROOT .. 'density_' .. lvl .. '.json')
   local sp = lvl and jsonReadFile(ROOT .. 'spectators_' .. lvl .. '.json')
   specZones = sp and sp.zones
+  if #extraZones > 0 then            -- zones another mod registered (M.addSpectatorZones) stay for the level
+    specZones = specZones or {}
+    for _, z in ipairs(extraZones) do table.insert(specZones, z) end
+  end
   if not data then return end
   loadTypes()
   if #types == 0 then return end
@@ -792,7 +797,9 @@ local function specSet(sp, cheer)
   m:setColumn(0, f:cross(vec3(0, 0, 1)))
   m:setColumn(1, f)
   m:setColumn(2, vec3(0, 0, 1))
-  m:setPosition(vec3(sp.spot[1], sp.spot[2], sp.spot[3]))
+  local p = vec3(sp.spot[1], sp.spot[2], sp.spot[3])
+  if specZone and specZone.ground then p.z = groundZ(p) end          -- (a zone from a mod: the height is a guess, the ground is found)
+  m:setPosition(p)
   sp.obj, sp.shape = makeObj(shape, m), shape
 end
 
@@ -1168,10 +1175,25 @@ M.onExtensionLoaded = function() loadSettings() loadWalks() end
 M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) for id in pairs(actors) do M.stopActor(id) end end
 -- a race finishing (Valo City's races): the crowd cheers
 M.onSlrrRaceFinished = function() cheerAll(6) end
+M.cheer = function(seconds) cheerAll(seconds or 6) end          -- the crowd cheers (a win at an event that is not one of the map's races)
 -- slrrPedestrians.followPlayer(vehId, '/art/slrr_drivers/<id>/walker/') shows that walker on the vehicle; nil stops
 M.followPlayer = followPlayer
 M.onPreRender = function() if player then hideSnowman() end end
 M.hasPlayerWalker = function() return player ~= nil end
+-- slrrPedestrians.addSpectatorZones({ { id, kind = 'race' | 'meet', c = {x,y,z}, r, spots = { {x, y, z, fx, fy} }, ground = true } }): crowds for a venue
+-- the level's own file does not have (Street Legal's drag strip, race track and meets on West Coast USA). The same id replaces its zone.
+M.addSpectatorZones = function(zones)
+  for _, z in ipairs(type(zones) == 'table' and zones or {}) do
+    if type(z.id) == 'string' and type(z.c) == 'table' and type(z.spots) == 'table' and #z.spots > 0 then
+      for i = #extraZones, 1, -1 do if extraZones[i].id == z.id then table.remove(extraZones, i) end end
+      table.insert(extraZones, z)
+      specZones = specZones or {}
+      for i = #specZones, 1, -1 do if specZones[i].id == z.id then table.remove(specZones, i) end end
+      table.insert(specZones, z)
+    end
+  end
+end
+M.clearSpectatorZones = function() extraZones = {} end
 -- slrrPedestrians.record(seconds, path): write every pedestrian's place and shape per frame to path (json)
 M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
