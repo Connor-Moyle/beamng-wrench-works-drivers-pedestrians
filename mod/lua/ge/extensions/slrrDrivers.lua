@@ -684,6 +684,7 @@ end
 
 local FLEX_JOINT = {{'r_forearm', 'r_el'}, {'l_forearm', 'l_el'}, {'r_hand', 'r_wr'}, {'l_hand', 'l_wr'},
                     {'r_calf', 'r_kn'}, {'l_calf', 'l_kn'}, {'r_foot', 'r_an'}, {'l_foot', 'l_an'}}
+local FLEX_SEND = 1 / 30
 local FLEX_HEAD = vec3(0, 0.04, 0.12)   -- the head node from the neck, at rest (slrrDriverMount's ragdoll)
 local function flushFlex(vid, c)
   local out = {}
@@ -696,10 +697,12 @@ local function flushFlex(vid, c)
   if not (h and h.p) then return end
   local ax = h.y:cross(h.z)   -- x = y cross z
   out[#out + 1] = h.p + ax * FLEX_HEAD.x + h.y * FLEX_HEAD.y + h.z * FLEX_HEAD.z
+  c.sendWait = (c.sendWait or 0) + (c.lastDt or 0)
+  if c.sent and c.sendWait < FLEX_SEND then return end   -- at most 30 a second: the car eases between them
   local moved = not c.sent
   if c.sent then for i, p in ipairs(out) do if p:distance(c.sent[i]) > 0.0015 then moved = true break end end end
   if not moved then return end
-  c.sent = out
+  c.sent, c.sendWait = out, 0
   local veh = be:getObjectByID(vid)
   if not veh then return end
   local n = {}
@@ -1558,7 +1561,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     if c.parts.helmet then place(c.parts.helmet, world(lean(rig.parts.head)), R, compose(L, turnHead)) end
   end
   c.posed = true
-  if c.flex then flushFlex(vid, c) end
+  if c.flex then c.lastDt = dt flushFlex(vid, c) end
   if c.rec then record(c, eye, R, dt, veh, wheel + c.seat) end
 end
 

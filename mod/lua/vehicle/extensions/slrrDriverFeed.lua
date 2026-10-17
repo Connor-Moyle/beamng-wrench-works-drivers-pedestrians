@@ -101,18 +101,20 @@ local function findRig()
     if type(name) == 'string' and name:sub(1, 8) == 'slrr_rd_' then byName[cid] = name:sub(9) end
   end
   if not next(byName) then return false end
-  local r = {holds = {}, rest = {}}
+  local r = {holds = {}, rest = {}, mine = {}}
   for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} end
   local isJoint = {}
   for _, j in ipairs(JOINTS) do isJoint[j] = true end
   for bcid, b in pairs(v.data.beams) do
     local a, c = byName[b.id1], byName[b.id2]
-    if a and c and b.beamSpring == 150000 then            -- the stiff pose beams
+    -- only our own beams are ever resized: both ends are driver nodes, plain type, our part, no break group
+    if a and c and b.beamSpring == 150000 and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
       local joint, torso = a, c
       if not isJoint[a] then joint, torso = c, a end
       if isJoint[joint] and not isJoint[torso] then
         r.holds[joint] = r.holds[joint] or {}
         table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos})
+        r.mine[bcid] = true
       end
     end
   end
@@ -136,7 +138,9 @@ local function movePose(dt)
     local c = now[j]
     c = c and (c + (tg - c) * k) or tg
     now[j] = c
-    for _, h in ipairs(rig.holds[j] or {}) do obj:setBeamLength(h.bcid, c:distance(h.torso)) end
+    for _, h in ipairs(rig.holds[j] or {}) do
+      if rig.mine[h.bcid] then obj:setBeamLength(h.bcid, c:distance(h.torso)) end   -- never a car's beam (dent crashes)
+    end
   end
 end
 
