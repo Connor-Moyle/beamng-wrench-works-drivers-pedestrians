@@ -294,7 +294,7 @@ local function addRagdoll(objID, vehicle, camCid)
     local node, d = nearestNode(vehicle, a[2], ours)
     if node and d < 0.4 then beam(ids[a[1]], node, SEAT) end
   end
-  ragdolls[objID] = {nodes = ids, belts = #belts}
+  ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid}
   return #belts, P
 end
 
@@ -451,8 +451,9 @@ M.onPreRender = function(dt)
   end
 end
 M.startRagdollRec = function(vid)
-  local cam = core_camera.getDriverDataById(vid)
+  local cam = ragdolls[vid] and ragdolls[vid].cam or core_camera.getDriverDataById(vid)
   if ragdolls[vid] and cam then recs[vid] = {cam = cam, frames = {}} return true end
+  log('W', 'slrrDriverMount', 'startRagdollRec: no ragdoll for ' .. tostring(vid))
   return false
 end
 M.stopRagdollRec = function(vid, path)
@@ -478,6 +479,27 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+-- writes at once (no log buffering): where the ragdoll nodes are now (seat frame), what slrrDrivers asked of them, the wheel
+M.flexSnapshot = function(objID, path)
+  local rd, c = ragdolls[objID], slrrDrivers and slrrDrivers.getState and slrrDrivers.getState(objID)
+  local veh = be:getObjectByID(objID)
+  if not (rd and veh) then return false end
+  local fwd = vec3(veh:getDirectionVector()):normalized()
+  local up = vec3(veh:getDirectionVectorUp())
+  local right = fwd:cross(up):normalized()
+  up = right:cross(fwd)
+  local cam = vec3(veh:getNodePositionXYZ(rd.cam))
+  local out = {nodes = {}, targets = {}, speed = vec3(veh:getVelocity()):length()}
+  for name, cid in pairs(rd.nodes) do
+    local d = vec3(veh:getNodePositionXYZ(cid)) - cam
+    out.nodes[name] = {d:dot(right), d:dot(fwd), d:dot(up)}
+  end
+  if c and c.sent then for i, p in ipairs(c.sent) do out.targets[i] = {p.x, p.y, p.z} end end
+  if c and c.wheelAt then out.wheel = {c.wheelAt.x, c.wheelAt.y, c.wheelAt.z} end
+  if c and c.lastGrips then out.grips = {r = c.lastGrips.r and c.lastGrips.r.a, l = c.lastGrips.l and c.lastGrips.l.a} end
+  jsonWriteFile(path, out, true)
+  return true
+end
 -- where each ragdoll node is now, in the seat frame (x right, y forward, z up, from the driver camera node): to see whether
 -- the skeleton holds its seated shape or collapses
 M.ragdollPositions = function(objID)

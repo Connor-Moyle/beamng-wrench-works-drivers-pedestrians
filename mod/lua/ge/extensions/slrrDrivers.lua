@@ -1418,6 +1418,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
 
   local wheel = liveWheel(c, toSeat)
+  c.wheelAt = wheel   -- (for slrrDriverMount.flexSnapshot)
   -- Reach (worked out once per car): drivers sit with the elbows bent, at about REACH of full arm length.
   -- A wheel further away moves the seat forward (up to SEAT_SLIDE), then the rest is a lean from the
   -- hips, instead of the arms locking straight. Everything the driver reaches for is then measured from
