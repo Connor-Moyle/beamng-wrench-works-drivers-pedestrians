@@ -296,6 +296,40 @@ def check_presence():
     print("presence ok")
 
 
+def check_flex_gestures():
+    """The rigged (flex) driver waves and is dazed like the prop one: both use head0, which only the physics set-up made (the game's
+    log showed 'driver update failed ... bad argument #1 to __add' after a car's spawn jolt, and the flex driver was removed)."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    errors = []
+    g.py_err = lambda msg: errors.append(msg)
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("""
+      local oldlog = log
+      log = function(l, t, m) if l == 'E' then py_err(tostring(m)) end if oldlog then oldlog(l, t, m) end end
+      slrrDriverMount = {hasFlexDriver = function() return true end, getFlexSkin = function() return nil end, getFlexMeshes = function() return nil end,
+                         getFlexScale = function() return 1 end, flexShown = function() return true end, showFlex = function() return 0 end,
+                         getMount = function() return nil end}
+      shim_start(M)""")
+    for _ in range(30):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    st = M.getState(7)
+    assert st is not None and st["flex"], ("no flex driver", errors)
+    M.wave(7, 2)
+    for _ in range(int(3 / DT)):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    assert not errors and M.getState(7) is not None, ("the flex driver failed in a wave", errors)
+    M.getState(7)["daze"] = 0.5   # dazed after a crash: the hand goes to the forehead
+    for _ in range(int(2 / DT)):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    assert not errors and M.getState(7) is not None, ("the flex driver failed when dazed", errors)
+    print("flex gestures ok: a flex driver waves without an error")
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -632,6 +666,7 @@ if __name__ == "__main__":
     check_modes()
     check_presence()
     check_passenger()
+    check_flex_gestures()
     check_mount()
     check_far()
     check_feed_mass()

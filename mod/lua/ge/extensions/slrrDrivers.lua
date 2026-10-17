@@ -892,6 +892,7 @@ local function attach(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
     if not n then return false end
     c.cam0, c.flex = vec3(n.pos), true
+    c.head0 = rig.parts.head + vec3(0, 0.04, 0.12)   -- (the wave and the daze reach from it; the physics set-up, skipped for him, made it)
     partList = {}
     for _, p in ipairs(PARTS) do c.parts[p] = flexPart(c) end
   end
