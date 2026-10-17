@@ -734,6 +734,9 @@ local function attach(vid)
   if not id then removeCar(vid) hideMount(vid) return true end
   local veh = be:getObjectByID(vid)
   if not veh then return true end
+  -- the player's car draws no props: hidden at once, not only when its camera data is ready (a car entered right after its spawn sat with
+  -- the mount's unposed figure showing, on its roof, while the camera data came late)
+  if vid == be:getPlayerVehicleID(0) then hideMount(vid) end
   local camNode, rhd = core_camera.getDriverDataById(vid)
   local mount = slrrDriverMount and slrrDriverMount.getMount and slrrDriverMount.getMount(vid)
   local seatOff            -- jbeam offset from camNode to the eye: a car with no driver camera (slrrDriverMount's guess)
