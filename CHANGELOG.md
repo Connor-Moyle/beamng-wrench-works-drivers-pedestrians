@@ -1,5 +1,12 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
+## Unreleased
+
+### Drivers
+- **The rigged driver takes setAppearance.** Size (0.9 to 1.1) resizes his nodes and meshes when the car spawns; a helmet (models that
+  have one) is a fifteenth flexbody bound to the head; shirt, trousers and helmet colours redefine the skin's and the helmet's
+  shared material, so every car with that skin shows the last colour set.
+
 ## 1.5.0 (the rigged driver, an option)
 
 ### Drivers

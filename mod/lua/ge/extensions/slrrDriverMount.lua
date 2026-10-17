@@ -27,6 +27,7 @@ local flexBind = 'near'
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
+local flexScale = {}           -- objID -> the size its flex driver was built at (setAppearance scale)
 local flexMeshes = {}          -- objID -> mesh names of its flexbodies
 local flex = {}                  -- objID -> flexbody count, for cars given the flex driver
 local ragdolls = {}                -- objID -> {nodes = {name = cid}, belts = {cid...}}
@@ -209,7 +210,7 @@ end
 
 
 M.driverMass = 69   -- kg: the sum of KG in addRagdoll, all of it in the seat (head to ankles), none added elsewhere
-local function addRagdoll(objID, vehicle, camCid)
+local function addRagdoll(objID, vehicle, camCid, k)
   local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel(objID) .. '/rig.json')
   if not rig then return 0 end
   local cam = vec3(byCid(vehicle)[camCid].pos)
@@ -221,6 +222,11 @@ local function addRagdoll(objID, vehicle, camCid)
     r_sh = rig.arms.r.shoulder, l_sh = rig.arms.l.shoulder, r_el = rig.arms.r.elbow, l_el = rig.arms.l.elbow,
     r_wr = rig.arms.r.wrist, l_wr = rig.arms.l.wrist, r_hip = rig.legs.r.hip, l_hip = rig.legs.l.hip,
     r_kn = rig.legs.r.knee, l_kn = rig.legs.l.knee, r_an = rig.legs.r.ankle, l_an = rig.legs.l.ankle}
+  if k ~= 1 then   -- a body of another size (setAppearance scale): every joint about the eye
+    local Q = {}
+    for name, p in pairs(P) do Q[name] = {p[1] * k, p[2] * k, p[3] * k} end
+    P = Q
+  end
   local KG = {head = 5.5, neck = 1.5, chest = 14, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
               r_hip = 6, l_hip = 6, r_kn = 4, l_kn = 4, r_an = 2, l_an = 2}
   local ids, ours = {}, {}
@@ -333,24 +339,29 @@ local function tagSeatNodes(vehicle, cam)
   return 'slrr_fx_car'
 end
 
-local function addFlexbodies(objID, vehicle, cam, P, skin)
+local function addFlexbodies(objID, vehicle, cam, P, skin, k, helmet)
   if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no meshes for skin ' .. tostring(skin) .. ', no flexbodies') return 0 end
   vehicle.flexbodies = vehicle.flexbodies or {}
   flexMeshes[objID] = {}
   local carGroup = flexBind == 'car' and tagSeatNodes(vehicle, cam) or nil
   local n = 0
-  for _, part in ipairs(PARTS) do
-    local at = ORIGIN[part] == 'eye' and vec3(cam.x, cam.y, cam.z) or J(cam, P[ORIGIN[part]])
+  local parts = {}
+  for _, part in ipairs(PARTS) do parts[#parts + 1] = part end
+  if helmet then parts[#parts + 1] = 'helmet' end   -- bound like the head, same pivot
+  for _, part in ipairs(parts) do
+    local isHelmet = part == 'helmet'
+    local mesh = isHelmet and helmet or skin .. '_' .. part
+    local at = ORIGIN[part] == 'eye' and vec3(cam.x, cam.y, cam.z) or J(cam, P[ORIGIN[isHelmet and 'head' or part]])
     local groups = {}
     if flexBind == 'car' then groups = {carGroup}
     else
-      for _, j in ipairs(flexBind == 'all' and ALL or BIND[part]) do groups[#groups + 1] = 'slrr_rd_' .. j end
+      for _, j in ipairs(flexBind == 'all' and ALL or BIND[isHelmet and 'head' or part]) do groups[#groups + 1] = 'slrr_rd_' .. j end
     end
     log('I', 'slrrDriverMount', string.format('  flexbody %s at jbeam (%.3f %.3f %.3f), seat node (%.3f %.3f %.3f), bound to %s', part, at.x, at.y, at.z, cam.x, cam.y, cam.z, table.concat(groups, ',')))
     flexMeshes[objID] = flexMeshes[objID] or {}
-    table.insert(flexMeshes[objID], skin .. '_' .. part)
+    if isHelmet then flexMeshes[objID].helmet = mesh else table.insert(flexMeshes[objID], mesh) end
     table.insert(vehicle.flexbodies, {
-      mesh = skin .. '_' .. part, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = 1, y = 1, z = 1},
+      mesh = mesh, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = k, y = k, z = k},
       ['[group]:nodes'] = groups, partOrigin = 'slrr_driver'})
     n = n + 1
   end
@@ -386,12 +397,17 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
     if not camCid then return end
     if wantFlex or flags.ragdoll or ragdollNext then
       ragdollNext = false
-      local belts, P = addRagdoll(objID, vehicle, camCid)
+      local look = wantFlex and slrrDrivers and slrrDrivers.getAppearance and slrrDrivers.getAppearance(objID) or {}
+      local k = math.max(0.9, math.min(1.1, tonumber(look.scale) or 1))
+      if wantFlex then flexScale[objID] = k end
+      local belts, P = addRagdoll(objID, vehicle, camCid, k)
       log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. tostring(belts))
       if wantFlex and P then
-        local _, skin = driverInfo(objID)
+        local dmodel, skin = driverInfo(objID)
+        local hm = 'slrr_' .. tostring(dmodel) .. '_helmet'   -- (only the models with a helmet shape: police, vin)
+        local helmet = look.helmet and FS:fileExists('/vehicles/common/slrr_drivers/' .. hm .. '.dae') and hm or nil
         alphaDue[objID] = 0.3
-        flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin)
+        flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin, k, helmet)
         log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat')
       end
     end
@@ -416,6 +432,7 @@ M.onPreRender = function(dt)
       core_vehicle_manager.getVehicleData(vid)
       local shown = 0
       for _, name in ipairs(flexMeshes[vid] or {}) do if veh:setMeshAlpha(1, name, false) then shown = shown + 1 end end
+      if flexMeshes[vid] and flexMeshes[vid].helmet and veh:setMeshAlpha(1, flexMeshes[vid].helmet, false) then shown = shown + 1 end
       log('I', 'slrrDriverMount', 'flex meshes made visible for ' .. tostring(vid) .. ': ' .. shown .. ' of ' .. #(flexMeshes[vid] or {}))
     end
   end
@@ -425,8 +442,10 @@ M.onPreRender = function(dt)
     local hide = vid == fpVid
     if headHidden[vid] ~= hide then
       local veh = be:getObjectByID(vid)
-      local head = flexMeshes[vid] and flexMeshes[vid][2]
-      if veh and head and veh:setMeshAlpha(hide and 0 or 1, head, false) then headHidden[vid] = hide end
+      local fm = flexMeshes[vid] or {}
+      local done = veh and fm[2] and veh:setMeshAlpha(hide and 0 or 1, fm[2], false)
+      if done and fm.helmet then done = veh:setMeshAlpha(hide and 0 or 1, fm.helmet, false) end
+      if done then headHidden[vid] = hide end
     end
   end
   for vid, r in pairs(recs) do
@@ -577,5 +596,6 @@ M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
 M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 end end
-M.onVehicleDestroyed = function(objID) alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
+M.getFlexScale = function(objID) return flexScale[objID] end
+M.onVehicleDestroyed = function(objID) flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M
