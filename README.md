@@ -83,6 +83,21 @@ slrrDrivers.setDriver(be:getPlayerVehicleID(0), 'slrr_opponent1')  -- just this 
 slrrDrivers.setDriver(be:getPlayerVehicleID(0), nil)      -- no driver in this car
 ```
 
+### The rigged driver (option)
+
+The default driver is drawn as vehicle props. A second kind, off by default, is built into the car: sixteen joint nodes in the seat
+carry his weight (69 kg), and the character is drawn by the car as flexbodies bound to them, so he rides exactly in the seat and
+shows in the mirrors. Turn it on (saved, for cars spawned afterwards) and off in the Lua console:
+
+```lua
+slrrDriverMount.setDriverRig('flex')    -- the rigged driver
+slrrDriverMount.setDriverRig('props')   -- the prop driver (default)
+slrrDriverMount.setOptOut('pickup', true)   -- a car model that always keeps the prop driver
+```
+
+A car where no seat is found keeps the prop driver. Limits for now: no clothing colours, size, helmet or passenger on the rigged
+driver, and on big cabs (pickup, midtruck) the hands may not show on the wheel.
+
 ### Display modes
 
 Wrench Works' garage has a **Driver** setting for this. Without the garage, use the console:

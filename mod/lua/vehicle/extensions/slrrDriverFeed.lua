@@ -43,7 +43,9 @@ local function couplerCids()
   return out
 end
 
+local camNode
 local function setDriverMass(camCid, kg)
+  camNode = camCid
   removeMass()
   local coupled = couplerCids()
   local cam = v.data.nodes[camCid] and v.data.nodes[camCid].pos
@@ -83,7 +85,103 @@ local function keepMass(dt)
   end
 end
 
+-- Flex driver (slrrDriverMount, driverRig 'flex'): the joints of his skeleton are nodes held by stiff beams to the torso.
+-- slrrDrivers works out where each joint should be (seat frame: x right, y forward, z up, from the camera node) and
+-- sends it with pose(); here every frame each target is eased toward and each holding beam is set to the distance
+-- between the torso node and the target, which moves the joint. Torso nodes are taken at their rest places.
+local JOINTS = {'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an', 'head'}
+local rig                      -- nil until looked up; false when this car has no flex skeleton
+local target = {}              -- joint -> vec3, jbeam space
+local now = {}
+
+local function findRig()
+  local byName = {}
+  for cid, n in pairs(v.data.nodes) do
+    local name = type(n) == 'table' and n.name
+    if type(name) == 'string' and name:sub(1, 8) == 'slrr_rd_' then byName[cid] = name:sub(9) end
+  end
+  if not next(byName) then return false end
+  local r = {holds = {}, rest = {}, mine = {}}
+  for cid, name in pairs(byName) do r.rest[name] = {cid = cid, pos = vec3(v.data.nodes[cid].pos)} end
+  local isJoint = {}
+  for _, j in ipairs(JOINTS) do isJoint[j] = true end
+  for bcid, b in pairs(v.data.beams) do
+    local a, c = byName[b.id1], byName[b.id2]
+    -- only our own beams are ever resized: both ends are driver nodes, plain type, our part, no break group
+    if a and c and b.beamSpring == 150000 and b.partOrigin == 'slrr_ragdoll' and (b.beamType or 0) == 0 and not b.breakGroup then
+      local joint, torso = a, c
+      if not isJoint[a] then joint, torso = c, a end
+      if isJoint[joint] and not isJoint[torso] then
+        r.holds[joint] = r.holds[joint] or {}
+        table.insert(r.holds[joint], {bcid = bcid, torso = r.rest[torso].pos, rest = b.beamLength or r.rest[torso].pos:distance(r.rest[joint].pos)})
+        r.mine[bcid] = true
+      end
+    end
+  end
+  local nh = 0
+  for _ in pairs(r.holds) do nh = nh + 1 end
+  log('I', 'slrrDriverFeed', 'flex skeleton: ' .. tableSize(r.rest) .. ' nodes, ' .. nh .. ' held joints, ' .. tableSize(r.mine) .. ' own beams')
+  return r
+end
+
+local function pose(t)    -- t: 27 numbers, three per joint in JOINTS order, seat frame
+  if rig == nil then rig = findRig() end
+  if not rig or not camNode or type(t) ~= 'table' then return end
+  for i = 1, #JOINTS * 3 do   -- a bad frame (NaN, inf, absent) is dropped whole
+    local x = t[i]
+    if type(x) ~= 'number' or x ~= x or math.abs(x) > 5 then return end
+  end
+  local cam = v.data.nodes[camNode].pos
+  for i, j in ipairs(JOINTS) do
+    local k = (i - 1) * 3
+    target[j] = vec3(cam.x - t[k + 1], cam.y - t[k + 2], cam.z + t[k + 3])   -- seat frame -> jbeam (x left, y back)
+  end
+end
+
+-- each joint stays a bone's length from the joint before it (the bone beams are stiff: a target a little off would make the
+-- truss and the bones fight, with big forces on light nodes)
+local CHAINS = {{'r_el', 'r_sh'}, {'r_wr', 'r_el'}, {'l_el', 'l_sh'}, {'l_wr', 'l_el'},
+                {'r_kn', 'r_hip'}, {'r_an', 'r_kn'}, {'l_kn', 'l_hip'}, {'l_an', 'l_kn'}, {'head', 'neck'}}
+local function fitBones()
+  for _, ch in ipairs(CHAINS) do
+    local j, p = ch[1], ch[2]
+    local jr, pr = rig.rest[j], rig.rest[p]
+    local from = now[p] or (pr and pr.pos)
+    if now[j] and jr and pr and from then
+      local d = now[j] - from
+      local len = jr.pos:distance(pr.pos)
+      if d:length() > 1e-6 then now[j] = from + d:normalized() * len end
+    end
+  end
+end
+
+local stats = {calls = 0, skipped = 0, t = 0}
+local function movePose(dt)
+  if not rig then return end
+  local k = math.min(1, dt * 40)
+  for j, tg in pairs(target) do
+    local c = now[j]
+    c = c and (c + (tg - c) * k) or tg
+    now[j] = c
+  end
+  fitBones()
+  stats.t = stats.t + dt
+  if stats.t > 5 and stats.calls + stats.skipped > 0 then
+    log('I', 'slrrDriverFeed', 'flex pose: ' .. stats.calls .. ' beams set, ' .. stats.skipped .. ' skipped in ' .. string.format('%.0f', stats.t) .. ' s')
+    stats.calls, stats.skipped, stats.t = 0, 0, 0
+  end
+  for j, c in pairs(now) do
+    for _, h in ipairs(rig.holds[j] or {}) do
+      local len = c:distance(h.torso)
+      -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
+      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
+      else stats.skipped = stats.skipped + 1 end
+    end
+  end
+end
+
 local function updateGFX(dt)
+  movePose(dt)
   local e = electrics.values
   obj:queueGameEngineLua(fmt('if slrrDrivers then slrrDrivers.feed(%d,%.2f,%.0f,%.0f,%d,%.2f,%.2f,%.2f) end',
     objectId, e.steering or 0, e.rpm or 0, e.maxrpm or 0, e.gearIndex or 0, e.throttle or 0, e.brake or 0, e.clutch or 0))
@@ -91,8 +189,9 @@ local function updateGFX(dt)
 end
 
 M.updateGFX = updateGFX
+M.pose = pose
 M.setDriverMass = setDriverMass
-M.onReset = function() checkTimer = 1 end   -- re-check straight away
+M.onReset = function() checkTimer = 1 now = {} end   -- re-check straight away
 M.onExtensionUnloaded = removeMass
 M.addedMass = function() local s = 0 for _, kg in pairs(extra) do s = s + kg end return s end
 return M
