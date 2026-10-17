@@ -22,10 +22,11 @@ def build(look):
     lua.execute("""
       function log(level, tag, msg) if level == 'E' then py_err(msg) end end
       nodes = {}
+      springs = {}
       package.preload['jbeam/utils'] = function() return {
         increaseMax = function(v, k) v.maxIDs = v.maxIDs or {} v.maxIDs[k] = (v.maxIDs[k] or 0) + 1 return v.maxIDs[k] end,
         addNodeWithOptions = function(v, pos, ntype, o) nodes[o.name] = pos return #v.nodes + 100 + #nodes end,
-        addBeamWithOptions = function() return 0 end}
+        addBeamWithOptions = function(v, a, b, t, o) springs[#springs + 1] = o.beamSpring return 0 end}
       end
     """)
     lua.globals().LOOK = lua.table_from(look)
@@ -63,6 +64,8 @@ def passenger():
     assert n == 14 and drv == 0, ("passenger props", n, "driver props", drv, errors)
     assert M.getMount(7).passenger and lua.eval("#v.flexbodies") == 14, "the driver is still flexbodies"
     assert not errors, errors
+    seat = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 60000 then n = n + 1 end end return n end)()")
+    assert seat >= 2, ("a flex driver rests on several seat nodes", seat)
 
 
 def main():

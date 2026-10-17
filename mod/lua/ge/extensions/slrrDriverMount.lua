@@ -298,10 +298,24 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- the seat: pelvis and chest rest on it (soft, so he settles into it)
   local SEAT = {beamSpring = 20000, beamDamp = 200, beamDeform = math.huge, beamStrength = 25000, breakGroup = 'slrr_belt',
                 partOrigin = 'slrr_ragdoll'}
+  -- flex driver: three seat nodes each within 0.7 m (a big cab has no node within 0.4 m of the spot: the body hung from its belts
+  -- and sank 0.4 m in a pickup), stiffer; the spring sag under 69 kg is then a few millimetres
+  local SEATS, REACH = 1, 0.4
+  if driverRig == 'flex' then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 400, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
+  local seated = {}
   for _, a in ipairs({{'pelvis', off(P.pelvis, {0, -0.05, -0.15})}, {'chest', off(P.chest, {0, -0.2, 0})}}) do
-    local node, d = nearestNode(vehicle, a[2], ours)
-    if node and d < 0.4 then beam(ids[a[1]], node, SEAT) end
+    local skip = {}
+    for cid in pairs(ours) do skip[cid] = true end
+    for i = 1, SEATS do
+      local node, d = nearestNode(vehicle, a[2], skip)
+      if node and d < REACH then
+        beam(ids[a[1]], node, SEAT)
+        seated[#seated + 1] = string.format('%s %.2f', a[1], d)
+        skip[node] = true
+      end
+    end
   end
+  log('I', 'slrrDriverMount', 'seat beams for ' .. tostring(objID) .. ': ' .. (#seated > 0 and table.concat(seated, ', ') or 'none'))
   ragdolls[objID] = {nodes = ids, belts = #belts, cam = camCid, rest = P}
   return #belts, P
 end
