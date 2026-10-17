@@ -501,7 +501,6 @@ local function wantedDriver(vid)
   if id == false then return nil end
   local veh = be:getObjectByID(vid)
   if veh and veh:getJBeamFilename() == 'unicycle' then return nil end   -- the on-foot player
-  if slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid) then return nil end   -- the car draws its own
   if not isDriven(vid) then return nil end
   return drivers[id or defaultDriver] and (id or defaultDriver) or nil
 end
@@ -664,6 +663,50 @@ local function propPart(c, p)
   return o
 end
 
+-- A flex driver (slrrDriverMount, driverRig 'flex') is drawn by the car from its own nodes: its parts here only record where
+-- each joint should be (seat frame); flushFlex sends those to the car (slrrDriverFeed.pose), which moves the nodes.
+local function flexPart(c)
+  local o = {isProp = true, hidden = false, m = MatrixF(true)}   -- (isProp: removeCar calls delete)
+  function o:setTransform(m)
+    self.m = m
+    local R, eye = c.frameR, c.frameEye
+    if not (R and eye) then return end
+    local function seat(v) return vec3(v:dot(R.x), v:dot(R.y), v:dot(R.z)) end
+    local p = seat(m:getPosition() - eye)
+    if finite(p) then self.p, self.y, self.z = p, seat(m:getColumn(1)), seat(m:getColumn(2)) end
+  end
+  function o:getTransform() return self.m end
+  function o:setHidden(h) self.hidden = h end
+  function o:isHidden() return self.hidden end
+  function o:delete() end
+  return o
+end
+
+local FLEX_JOINT = {{'r_forearm', 'r_el'}, {'l_forearm', 'l_el'}, {'r_hand', 'r_wr'}, {'l_hand', 'l_wr'},
+                    {'r_calf', 'r_kn'}, {'l_calf', 'l_kn'}, {'r_foot', 'r_an'}, {'l_foot', 'l_an'}}
+local FLEX_HEAD = vec3(0, 0.04, 0.12)   -- the head node from the neck, at rest (slrrDriverMount's ragdoll)
+local function flushFlex(vid, c)
+  local out = {}
+  for _, j in ipairs(FLEX_JOINT) do
+    local o = c.parts[j[1]]
+    if not (o and o.p) then return end
+    out[#out + 1] = o.p
+  end
+  local h = c.parts.head
+  if not (h and h.p) then return end
+  local ax = h.y:cross(h.z)   -- x = y cross z
+  out[#out + 1] = h.p + ax * FLEX_HEAD.x + h.y * FLEX_HEAD.y + h.z * FLEX_HEAD.z
+  local moved = not c.sent
+  if c.sent then for i, p in ipairs(out) do if p:distance(c.sent[i]) > 0.0015 then moved = true break end end end
+  if not moved then return end
+  c.sent = out
+  local veh = be:getObjectByID(vid)
+  if not veh then return end
+  local n = {}
+  for _, p in ipairs(out) do n[#n + 1] = string.format('%.4f,%.4f,%.4f', p.x, p.y, p.z) end
+  veh:queueLuaCommand('if slrrDriverFeed and slrrDriverFeed.pose then slrrDriverFeed.pose({' .. table.concat(n, ',') .. '}) end')
+end
+
 -- the props slrrDriverMount gave this car for a skin, part -> prop (nil unless all are there). Their
 -- material is in the mesh: a material override on a prop crashes the engine, so clothing tints
 -- (tinted materials) don't reach a driver drawn by the car
@@ -756,8 +799,9 @@ local function attach(vid)
   -- spawn, in the skin it was given, with no body physics and no injuries. The player's car keeps the full
   -- driver (his own choice of skin), and its props stay hidden
   local player = vid == be:getPlayerVehicleID(0)
+  local flex = slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid)
   local props
-  if not player then
+  if not player and not flex then
     local pd = mount and mount.driver and driverBySkin(mount.driver) or d
     props = driverProps(veh, pd.skin)
     if props then d = pd end
@@ -766,7 +810,7 @@ local function attach(vid)
   if not rig then log('E', 'slrrDrivers', 'missing rig for model ' .. tostring(d.model)) return true end
   local look = appearanceFor(vid)
   local size = clamp(tonumber(look.scale) or 1, 0.9, 1.1)
-  if math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) props = nil end   -- (props can't be scaled)
+  if math.abs(size - 1) > 1e-3 and not flex then rig = scaledRig(rig, size) props = nil end   -- (props can't be scaled)
   removeCar(vid)
   if not props then hideMount(vid) end
 
@@ -782,8 +826,8 @@ local function attach(vid)
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
              e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0, slumped = slumped[vid],
              eyeOff = seatOff and vec3(-seatOff.x, -seatOff.y, seatOff.z) or nil}   -- (seat frame: x right, y forward)
-  c.material = tintMaterial(d, look)
-  if not c.material then return false end   -- a tint texture is still baking: try again next frame
+  if not flex then c.material = tintMaterial(d, look) end   -- (a flex driver wears the skin's own material)
+  if not flex and not c.material then return false end   -- a tint texture is still baking: try again next frame
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
@@ -793,6 +837,14 @@ local function attach(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
     c.cam0 = n and (vec3(n.pos) + (seatOff and vec3(seatOff.x, seatOff.y, seatOff.z) or vec3(0, 0, 0)))
     if not c.cam0 then props = nil end
+  end
+  if flex then
+    local vd = core_vehicle_manager.getVehicleData(vid)
+    local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
+    if not n then return false end
+    c.cam0, c.flex = vec3(n.pos), true
+    partList = {}
+    for _, p in ipairs(PARTS) do c.parts[p] = flexPart(c) end
   end
   for _, p in ipairs(partList) do
     if props and props[p] then
@@ -816,7 +868,7 @@ local function attach(vid)
     c.parts[p] = o
     ::continue::
   end
-  c.drawnByCar = props and true or false
+  c.drawnByCar = (props or flex) and true or false
   -- gear lever: the highest node of any "shifter" group, if the car has one
   local vdata = core_vehicle_manager.getVehicleData(vid)
   local best
@@ -931,7 +983,7 @@ local function attach(vid)
   c.shiftSide = c.rhd and 'l' or 'r'
   c.inward = c.rhd and -1 or 1
   c.mass = d.mass
-  setupCollision(c, vid)
+  if not flex then setupCollision(c, vid) end
   -- the passenger slrrDriverMount gave the car (W9): posed once beside the driver, then he rides with the car.
   -- Never in the player's car (it keeps the full driver, its props stay hidden): a car bought on a lot got its roll at spawn
   local pd = not player and mount and mount.passenger and mount.passengerAt and driverBySkin(mount.passenger)
@@ -1283,7 +1335,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local eyeNow, Rnow = eye, basis(fwd, up)   -- for measuring the car's own nodes
   -- TSStatic transforms show up one frame late, so the driver is placed where the car will be
   -- when this frame is drawn: one step of its velocity and turn rate ahead
-  if dtSim > 0 then
+  if dtSim > 0 and not c.flex then
     -- the frame time is averaged (a jumpy dt made the driver jitter at speed); rotation isn't led, the
     -- car's direction vectors are too noisy for it
     -- the guard is on the frame time, not the distance: a distance cap dropped the lead at speed (50 m/s
@@ -1506,6 +1558,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     if c.parts.helmet then place(c.parts.helmet, world(lean(rig.parts.head)), R, compose(L, turnHead)) end
   end
   c.posed = true
+  if c.flex then flushFlex(vid, c) end
   if c.rec then record(c, eye, R, dt, veh, wheel + c.seat) end
 end
 
