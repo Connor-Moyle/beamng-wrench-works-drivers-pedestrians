@@ -27,6 +27,11 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
   pedestrians walk SLRR's own sidewalks with SLRR's walk and idle animations, their feet planted.
   They go round corners, stand about on corners, wait for green to cross at traffic lights, keep out of
   each other's way, step round parked cars and jump out of the way of fast ones.
+- **Waves and slumps.** A driver waves out of the window, and a knocked-out one slumps over the wheel until he wakes (with the injury add-on).
+- **HD characters.** Alison, Carla, Eric and Manuel drive and also walk the streets.
+- **Crowds at venues.** Spectators stand at the drag strip, the race tracks and car meets, and cheer when a race ends.
+- **A scripted walker** walks a driver to a point, waits and stands, for scenes such as arriving at a garage.
+- **Optional injuries add-on** (`addon_injury`): crashes bruise, break an arm or a leg, knock the driver out and, in the right mode, kill him.
 - **Remastered PBR textures.** Every skin is upscaled 4x and has normal, roughness and AO maps.
 - **Easy to extend.** New skins and new bodies drop in as folders. See [docs/MODDING.md](docs/MODDING.md).
 
@@ -37,6 +42,10 @@ garage's Services drawer gets a **Driver** choice.
 ## With the career
 
 Part of **Wrench Works Street Legal - West Coast**. In the career the garage's **Drivers** tab picks who sits in your car, the shirt-and-trousers outfit and a helmet (only where the driver has a helmet mesh); at track events the helmet is put on for you when there is one, and your own choice comes back afterwards. People walk the sidewalks of West Coast USA (`density_west_coast_usa.json`), and the whole mod is optional: the career works without this mod.
+
+## Requirements
+
+BeamNG.drive 0.39. Nothing else: Wrench Works (the garage) and Street Legal (the career) are optional, and the mod works without them.
 
 ## Install
 
@@ -95,7 +104,7 @@ slrrDrivers.setAppearance(be:getPlayerVehicleID(0), {helmet = true, helmetColor 
 ## Pedestrians
 
 They appear around the camera on maps that have a sidewalk file. Valo City has one; it's converted
-from SLRR's own pedestrian paths. 30 walk at a time by default, fewer while the frame rate is low:
+from SLRR's own pedestrian paths. 36 walk at a time by default (busy districts get more of them, quiet ones fewer), fewer while the frame rate is low, but never below half:
 
 ```lua
 slrrPedestrians.setCount(50)   -- more (saved)
@@ -138,11 +147,23 @@ materials under BeamNG's lighting.
 
 **Pedestrians** are skinned models with SLRR's walk cycle built in, so the game animates them by
 itself. The mod moves them along the sidewalks at the speed measured from each walk cycle, so the feet
-stay planted, keeps about 30 near the camera and removes the ones you leave behind. Each has its own
+stay planted, keeps about 36 near the camera and removes the ones you leave behind. Each has its own
 pace (three tempos per type) and its own habit of stopping; standing ones switch to SLRR's idle
 animation. At a signalled junction they cross only when the light for their direction will stay green
-until they're over. When the frame time goes over 18 ms (55 fps), they thin out, and they come back
+until they're over. When the frame time goes over the budget (18 ms, 55 fps, by default), they thin out, to half of the number asked for at the least, and they come back
 once it drops again.
+
+## Settings
+
+In the Wrench Works garage (Settings): driver mode (full, still, hidden in first person, hidden), who drives, shirt and trouser colours, size and helmet, how many pedestrians (off, low, medium, high, very high, and a maximum), thinning with the frame rate and the frame rate aimed at, idling, crossing, busy districts. The console commands above do the same. Settings are saved between sessions.
+
+## Known issues
+
+- Pedestrians have no collision; cars drive through them and they only dodge.
+- The driver is not a ragdoll: he cannot be thrown out of the car, and because a car's physics points are spread out his head can slip between two of them through a panel.
+- The arms are rigid pieces, so a thin seam can show at the elbows up close.
+- A car bought or built away from its record may keep the full driver (and its small lag behind the car) until it is next spawned from its record.
+- Nobody is in cars that are parked, for sale on a lot or in a garage.
 
 ## Limits
 
