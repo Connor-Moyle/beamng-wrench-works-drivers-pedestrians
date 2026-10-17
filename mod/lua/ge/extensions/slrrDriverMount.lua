@@ -596,6 +596,7 @@ M.setOptOut = function(key, on) optOut[key] = on or nil end   -- a model name or
 M.hasFlexDriver = function(objID) return flex[objID] ~= nil end   -- slrrDrivers: no props, and the driver's mass is in the nodes
 M.getRagdoll = function(objID) return ragdolls[objID] end
 M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 end end
+M.getFlexMeshes = function(objID) return flexMeshes[objID] end
 M.getFlexScale = function(objID) return flexScale[objID] end
 M.onVehicleDestroyed = function(objID) flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
 return M

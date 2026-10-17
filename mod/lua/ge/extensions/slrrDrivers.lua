@@ -391,14 +391,13 @@ local function runBakes()
   end
 end
 
--- asName: redefine that material instead of making a tinted copy (a flex driver's meshes carry the skin's own material)
-local function tintMaterial(d, a, asName)
+local function tintMaterial(d, a)
   if not a.shirt and not a.trousers then return d.skin .. '_driver' end
-  local name = asName or d.skin .. '_t' .. (hex(a.shirt) or 'x') .. (hex(a.trousers) or 'x') .. '_driver'
-  if not asName and tints[name] and scenetree.findObject(name) then tintOrder = tintOrder + 1 tints[name].order = tintOrder return name end
-  if not asName then tints[name] = nil end   -- (a new level drops every material: one made in an earlier level is made again)
+  local name = d.skin .. '_t' .. (hex(a.shirt) or 'x') .. (hex(a.trousers) or 'x') .. '_driver'
+  if tints[name] and scenetree.findObject(name) then tintOrder = tintOrder + 1 tints[name].order = tintOrder return name end
+  tints[name] = nil                      -- (a new level drops every material: one made in an earlier level is made again)
   local n, oldest = 0, nil
-  for k, t in pairs(asName and {} or tints) do
+  for k, t in pairs(tints) do
     n = n + 1
     if t.users == 0 and (not oldest or t.order < tints[oldest].order) then oldest = k end
   end
@@ -434,39 +433,9 @@ local function tintMaterial(d, a, asName)
   local path = '/temp/slrr_drivers/' .. name .. '.materials.json'
   jsonWriteFile(path, {[name] = {name = name, mapTo = name, class = 'Material', version = 1.5, materialTag0 = 'beamng', Stages = stages}}, true)
   loadJsonMaterialsFile(path)
-  if asName then return name end
   tintOrder = tintOrder + 1
   tints[name] = {users = 0, order = tintOrder}
   return name
-end
-
--- A flex driver's clothes: its skin's material redefined with the tint (shared by every car wearing that skin, the last
--- one set wins), the shared helmet material in the helmet colour. false while a baked tint is still being made.
-local flexTinted = {}            -- skin -> true while its material is a tinted one
-local function flexLook(d, look)
-  local name = d.skin .. '_driver'
-  local key = (hex(look.shirt) or 'x') .. (hex(look.trousers) or 'x')
-  if look.shirt or look.trousers then
-    if flexTinted[d.skin] == key then return true end   -- (already this colour)
-    if not tintMaterial(d, look, name) then return false end
-    flexTinted[d.skin] = key
-  elseif flexTinted[d.skin] then
-    loadJsonMaterialsFile(ROOT .. d.id .. '/main.materials.json')
-    flexTinted[d.skin] = nil
-  else return true end
-  local m = scenetree.findObject(name)
-  if m and m.reload then m:reload() end
-  return true
-end
-local helmetShown
-local function flexHelmetColor(look)
-  if not look.helmet or helmetShown == (hex(look.helmetColor) or '') then return end
-  helmetShown = hex(look.helmetColor) or ''
-  local m = scenetree.findObject('base_helmet')
-  if not (m and m.setField) then return end
-  local c = look.helmetColor and rgb(look.helmetColor) or {0.9, 0.9, 0.9, 1}
-  m:setField('baseColorFactor', 0, string.format('%.3f %.3f %.3f 1', c[1], c[2], c[3]))
-  if m.reload then m:reload() end
 end
 
 local function helmetMaterial(a)
@@ -478,6 +447,41 @@ local function helmetMaterial(a)
     loadJsonMaterialsFile(path)
   end
   return name
+end
+
+-- A flex driver's clothes, per car: the car's own meshes are switched to the tinted material (the same one a props driver
+-- gets) and the helmet's to a coloured one; the skin's and the helmet's shared materials stay as they are, so other cars
+-- wearing the skin keep theirs. Returns the tinted material's name, false while it is not ready (a baked tint, or the car's
+-- meshes not known to the engine yet).
+local flexSwitch = {}            -- vid -> switchable materials in use on its meshes
+local flexTries = {}
+local function flexLook(veh, vid, d, look)
+  local fm = slrrDriverMount.getFlexMeshes and slrrDriverMount.getFlexMeshes(vid)
+  if not fm then return d.skin .. '_driver' end
+  local skinMat = d.skin .. '_driver'
+  local tint = tintMaterial(d, look)
+  if not tint then return false end
+  local used, want = {}, 0
+  local function switch(from, to, mesh)
+    want = want + 1
+    local msc = veh:getSwitchableMaterial(from, from, mesh)
+    if msc and msc >= 0 then veh:switchMaterial(msc, to) used[#used + 1] = msc end
+  end
+  local ok, err = pcall(function()
+    for _, msc in ipairs(flexSwitch[vid] or {}) do veh:resetMaterials(msc) end
+    flexSwitch[vid] = nil
+    if tint ~= skinMat then for _, mesh in ipairs(fm) do switch(skinMat, tint, mesh) end end
+    if fm.helmet and look.helmetColor then switch('base_helmet', helmetMaterial(look), fm.helmet) end
+  end)
+  if not ok then log('E', 'slrrDrivers', 'flex clothes failed: ' .. tostring(err)) end
+  flexSwitch[vid] = used
+  if #used < want then   -- the meshes are not in the engine yet: try again, for a while
+    flexTries[vid] = (flexTries[vid] or 0) + 1
+    if flexTries[vid] < 600 and ok then return false end
+    log('W', 'slrrDrivers', 'flex clothes: ' .. #used .. ' of ' .. want .. ' meshes switched for ' .. tostring(vid))
+  end
+  flexTries[vid] = nil
+  return tint
 end
 
 -- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
@@ -849,9 +853,10 @@ local function attach(vid)
   if flex then size = slrrDriverMount.getFlexScale and slrrDriverMount.getFlexScale(vid) or 1 end   -- (the size it was built at)
   if math.abs(size - 1) > 1e-3 and not flex then rig = scaledRig(rig, size) props = nil end   -- (props can't be scaled)
   if flex and math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) end
+  local flexMat
   if flex then
-    if not flexLook(d, look) then return false end
-    flexHelmetColor(look)
+    flexMat = flexLook(veh, vid, d, look)
+    if not flexMat then return false end
   end
   removeCar(vid)
   if not props then hideMount(vid) end
@@ -868,8 +873,8 @@ local function attach(vid)
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
              e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0, slumped = slumped[vid],
              eyeOff = seatOff and vec3(-seatOff.x, -seatOff.y, seatOff.z) or nil}   -- (seat frame: x right, y forward)
-  if not flex then c.material = tintMaterial(d, look) end   -- (a flex driver wears the skin's own material)
-  if not flex and not c.material then return false end   -- a tint texture is still baking: try again next frame
+  c.material = flex and flexMat or tintMaterial(d, look)
+  if not c.material then return false end   -- a tint texture is still baking: try again next frame
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
@@ -1827,8 +1832,8 @@ M.onAiModeChange = function(vid, mode)
   aiModes[vid] = mode
   if was ~= mode then pending[vid] = 0 end
 end
-M.onVehicleDestroyed = function(vid) slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
-M.onClientStartMission = function() group = nil cars = {} flexTinted, helmetShown = {}, nil loadedMaterials, tints = {}, {} loadDrivers() markAll() end   -- (a level load drops the materials: load them again)
+M.onVehicleDestroyed = function(vid) flexSwitch[vid] = nil flexTries[vid] = nil slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
+M.onClientStartMission = function() group = nil cars = {} loadedMaterials, tints = {}, {} loadDrivers() markAll() end   -- (a level load drops the materials: load them again)
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 
 return M
