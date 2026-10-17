@@ -449,6 +449,40 @@ local function helmetMaterial(a)
   return name
 end
 
+-- A flex driver's helmet colour, per car: the car's own helmet mesh is switched to a coloured material; the shared helmet
+-- material stays as it is, so other cars keep theirs. Returns the skin's material, false while the car's meshes are not
+-- known to the engine yet.
+local flexSwitch = {}            -- vid -> switchable materials in use on its meshes
+local flexTries = {}
+local function flexLook(veh, vid, d, look)
+  local fm = slrrDriverMount.getFlexMeshes and slrrDriverMount.getFlexMeshes(vid)
+  if not fm then return d.skin .. '_driver' end
+  if not slrrDriverMount.flexShown(vid) then return false end   -- (after the meshes were first shown: a switch before it left them invisible)
+  local skinMat = d.skin .. '_driver'
+  -- shirt and trousers: a switched tint showed no colour in game (flex driver stays in its own clothes), later item
+  local used, want = {}, 0
+  local function switch(from, to, mesh)
+    want = want + 1
+    local msc = veh:getSwitchableMaterial(from, from, mesh)
+    if msc and msc >= 0 then veh:switchMaterial(msc, to) used[#used + 1] = msc end
+  end
+  local ok, err = pcall(function()
+    for _, msc in ipairs(flexSwitch[vid] or {}) do veh:resetMaterials(msc) end
+    flexSwitch[vid] = nil
+    if fm.helmet and look.helmetColor then switch('base_helmet', helmetMaterial(look), fm.helmet) end
+  end)
+  if not ok then log('E', 'slrrDrivers', 'flex clothes failed: ' .. tostring(err)) end
+  flexSwitch[vid] = used
+  if #used > 0 then slrrDriverMount.showFlex(vid) end
+  if #used < want then   -- the meshes are not in the engine yet: try again, for a while
+    flexTries[vid] = (flexTries[vid] or 0) + 1
+    if flexTries[vid] < 600 and ok then return false end
+    log('W', 'slrrDrivers', 'flex clothes: ' .. #used .. ' of ' .. want .. ' meshes switched for ' .. tostring(vid))
+  end
+  flexTries[vid] = nil
+  return skinMat
+end
+
 -- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
 local function scaledRig(rig, k)
   local function sc(v) return v * k end
@@ -811,11 +845,20 @@ local function attach(vid)
     props = driverProps(veh, pd.skin)
     if props then d = pd end
   end
+  local flexSkin = flex and slrrDriverMount.getFlexSkin and slrrDriverMount.getFlexSkin(vid)
+  if flexSkin and flexSkin ~= d.skin then d = driverBySkin(flexSkin) or d end   -- (the skin the car was built with, as the props)
   local rig = getRig(d.model)
   if not rig then log('E', 'slrrDrivers', 'missing rig for model ' .. tostring(d.model)) return true end
   local look = appearanceFor(vid)
   local size = clamp(tonumber(look.scale) or 1, 0.9, 1.1)
+  if flex then size = slrrDriverMount.getFlexScale and slrrDriverMount.getFlexScale(vid) or 1 end   -- (the size it was built at)
   if math.abs(size - 1) > 1e-3 and not flex then rig = scaledRig(rig, size) props = nil end   -- (props can't be scaled)
+  if flex and math.abs(size - 1) > 1e-3 then rig = scaledRig(rig, size) end
+  local flexMat
+  if flex then
+    flexMat = flexLook(veh, vid, d, look)
+    if not flexMat then return false end
+  end
   removeCar(vid)
   if not props then hideMount(vid) end
 
@@ -831,8 +874,8 @@ local function attach(vid)
   local c = {id = id, rig = rig, camNode = camNode, rhd = rhd or false, parts = {},
              e = {steer = 0, rpm = 0, maxrpm = 0, gear = 0, throttle = 0, brake = 0, clutch = 0}, reach = 0, slumped = slumped[vid],
              eyeOff = seatOff and vec3(-seatOff.x, -seatOff.y, seatOff.z) or nil}   -- (seat frame: x right, y forward)
-  if not flex then c.material = tintMaterial(d, look) end   -- (a flex driver wears the skin's own material)
-  if not flex and not c.material then return false end   -- a tint texture is still baking: try again next frame
+  c.material = flex and flexMat or tintMaterial(d, look)
+  if not c.material then return false end   -- a tint texture is still baking: try again next frame
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
@@ -1790,7 +1833,7 @@ M.onAiModeChange = function(vid, mode)
   aiModes[vid] = mode
   if was ~= mode then pending[vid] = 0 end
 end
-M.onVehicleDestroyed = function(vid) slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
+M.onVehicleDestroyed = function(vid) flexSwitch[vid] = nil flexTries[vid] = nil slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
 M.onClientStartMission = function() group = nil cars = {} loadedMaterials, tints = {}, {} loadDrivers() markAll() end   -- (a level load drops the materials: load them again)
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 
