@@ -74,6 +74,7 @@ local retryTimer = 0
 local lastVel = {}          -- vehicle id -> last frame's velocity, for spotting crashes
 local axesOf = {}           -- vehicle id -> {at, cx, cy, right, fwdv, fwd, rightFlat, hx, hy}: a car's axes and box, read every AXES_EVERY s (they change slowly)
 local AXES_EVERY, CELLS_EVERY = 0.1, 0.2
+local seenAt, pruneAt = {}, 0     -- vehicle id -> when last near the camera; axesOf and lastVel forget the ones gone for 5 s
 local cellsAt, cells = -1, {}   -- the 2 m cells of pedestrians (integer keys), rebuilt every CELLS_EVERY s
 -- spectators (spectators_<level>.json, tools/spectators.py): crowds at the venues and meets, standing at fixed spots
 local specZones             -- {{id, kind, c, r, spots = {{x, y, z, fx, fy}}, ground = true: z is where to look from, the ground is found}}
@@ -1071,6 +1072,7 @@ local function onUpdate(dtReal, dtSim)
       local id = v:getId()
       if lastVel[id] and dt > 0 and (car.vel - lastVel[id]):length() > CRASH_DV then react(car.pos) end
       lastVel[id] = car.vel
+      seenAt[id] = now
       local ax = axesOf[id]
       if not ax or now - ax.at > AXES_EVERY then
         ax = {at = now}
@@ -1096,6 +1098,10 @@ local function onUpdate(dtReal, dtSim)
     end
   end
   cars = vehicles
+  if now - pruneAt > 5 then
+    pruneAt = now
+    for id, t in pairs(seenAt) do if now - t > 5 then seenAt[id], axesOf[id], lastVel[id] = nil, nil, nil end end
+  end
   -- pedestrians by 2 m cell (integer keys), for spacing: rebuilt a few times a second, a pedestrian moves 1.4 m/s
   if now - cellsAt > CELLS_EVERY then
     cellsAt, cells = now, {}
