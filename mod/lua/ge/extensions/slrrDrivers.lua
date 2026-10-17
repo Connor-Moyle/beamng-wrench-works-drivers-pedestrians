@@ -989,6 +989,16 @@ local function attach(vid)
   c.inward = c.rhd and -1 or 1
   c.mass = d.mass
   if not flex then setupCollision(c, vid) end
+  if flex then
+    local vd = core_vehicle_manager.getVehicleData(vid)
+    local nd = vd and vd.vdata and vd.vdata.nodes
+    local function at(cid)
+      local n = cid and nd and nd[cid]
+      return n and n.pos and string.format('(%.2f %.2f %.2f)', n.pos.x, n.pos.y, n.pos.z) or 'none'
+    end
+    log('I', 'slrrDrivers', string.format('flex driver in %s: eye node %s %s, steering hub %s, rhd %s, pedalZ %.2f, shifter %s, manual %s',
+      tostring(veh:getJBeamFilename()), tostring(camNode), at(camNode), at(c.wheelNode), tostring(c.rhd), c.pedalZ or 0, tostring(c.shifterNode), tostring(c.manual)))
+  end
   -- the passenger slrrDriverMount gave the car (W9): posed once beside the driver, then he rides with the car.
   -- Never in the player's car (it keeps the full driver, its props stay hidden): a car bought on a lot got its roll at spawn
   local pd = not player and mount and mount.passenger and mount.passengerAt and driverBySkin(mount.passenger)
