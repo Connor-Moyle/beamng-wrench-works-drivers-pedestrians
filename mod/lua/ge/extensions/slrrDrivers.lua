@@ -394,7 +394,8 @@ end
 local function tintMaterial(d, a)
   if not a.shirt and not a.trousers then return d.skin .. '_driver' end
   local name = d.skin .. '_t' .. (hex(a.shirt) or 'x') .. (hex(a.trousers) or 'x') .. '_driver'
-  if tints[name] then tintOrder = tintOrder + 1 tints[name].order = tintOrder return name end
+  if tints[name] and scenetree.findObject(name) then tintOrder = tintOrder + 1 tints[name].order = tintOrder return name end
+  tints[name] = nil                      -- (a new level drops every material: one made in an earlier level is made again)
   local n, oldest = 0, nil
   for k, t in pairs(tints) do
     n = n + 1
@@ -1719,7 +1720,7 @@ M.onAiModeChange = function(vid, mode)
   if was ~= mode then pending[vid] = 0 end
 end
 M.onVehicleDestroyed = function(vid) slumped[vid] = nil aiModes[vid] = nil removeCar(vid) pending[vid] = nil choice[vid] = nil carMode[vid] = nil carAppearance[vid] = nil end
-M.onClientStartMission = function() group = nil cars = {} markAll() end
+M.onClientStartMission = function() group = nil cars = {} loadedMaterials, tints = {}, {} loadDrivers() markAll() end   -- (a level load drops the materials: load them again)
 M.onClientEndMission = function() group = nil cars = {} pending = {} end
 
 return M
