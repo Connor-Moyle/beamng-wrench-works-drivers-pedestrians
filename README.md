@@ -34,6 +34,10 @@ It works on its own, and it also plugs into
 [Wrench Works](https://github.com/Connor-Moyle/beamng-wrench-works): with both installed, the
 garage's Services drawer gets a **Driver** choice.
 
+## With the career
+
+Part of **Wrench Works Street Legal - West Coast**. In the career the garage's **Drivers** tab picks who sits in your car, the shirt-and-trousers outfit and a helmet (only where the driver has a helmet mesh); at track events the helmet is put on for you when there is one, and your own choice comes back afterwards. People walk the sidewalks of West Coast USA (`density_west_coast_usa.json`), and the whole mod is optional: the career works without this mod.
+
 ## Install
 
 1. Download `slrr_drivers_and_pedestrians.zip` from the latest release.
