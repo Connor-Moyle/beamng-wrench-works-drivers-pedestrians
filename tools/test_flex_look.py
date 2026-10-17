@@ -23,10 +23,9 @@ def build(look):
       function log(level, tag, msg) if level == 'E' then py_err(msg) end end
       nodes = {}
       springs = {}
-      weights = {}
       package.preload['jbeam/utils'] = function() return {
         increaseMax = function(v, k) v.maxIDs = v.maxIDs or {} v.maxIDs[k] = (v.maxIDs[k] or 0) + 1 return v.maxIDs[k] end,
-        addNodeWithOptions = function(v, pos, ntype, o) nodes[o.name] = pos weights[o.name] = o.nodeWeight ncid = (ncid or 100) + 1 return ncid end,
+        addNodeWithOptions = function(v, pos, ntype, o) nodes[o.name] = pos ncid = (ncid or 100) + 1 return ncid end,
         addBeamWithOptions = function(v, a, b, t, o) springs[#springs + 1] = o.beamSpring return 0 end}
       end
     """)
@@ -69,6 +68,8 @@ def passenger():
     assert seat >= 2, ("a flex driver rests on several seat nodes", seat)
     stiff = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 150000 then n = n + 1 end end return n end)()")
     assert stiff >= 36, ("the truss is 9 joints x 4 beams", stiff)
+    soft = lua.eval("(function() local n = 0 for _, k in ipairs(springs) do if k == 20000 then n = n + 1 end end return n end)()")
+    assert soft >= 6, ("hands and feet are also held, softly, by car nodes ahead of the torso's plane", soft)
 
 
 def main():
@@ -77,8 +78,6 @@ def main():
     n1 = lua.eval("#v.flexbodies")
     assert n1 == 14 and lua.eval("v.flexbodies[1].scale.x") == 1 and M.getFlexScale(7) == 1, ("plain", n1)
     sh1 = lua.eval("nodes.slrr_rd_r_sh.x")
-    mass = lua.eval("(function() local m = 0 for _, w in pairs(weights) do m = m + w end return m end)()")
-    assert abs(mass - 69) < 1e-9 and lua.eval("nodes.slrr_rd_bump ~= nil"), ("the driver weighs 69 kg with the off-plane chest node", mass)
     lua, M, errors2 = build({"scale": 1.1, "helmet": True})
     assert lua.eval("#v.flexbodies") == 15, "a helmet adds one flexbody"
     helmet = lua.eval("v.flexbodies[15]")

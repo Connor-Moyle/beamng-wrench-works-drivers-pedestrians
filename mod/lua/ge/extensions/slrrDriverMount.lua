@@ -227,22 +227,17 @@ local function addRagdoll(objID, vehicle, camCid, k)
     r_sh = rig.arms.r.shoulder, l_sh = rig.arms.l.shoulder, r_el = rig.arms.r.elbow, l_el = rig.arms.l.elbow,
     r_wr = rig.arms.r.wrist, l_wr = rig.arms.l.wrist, r_hip = rig.legs.r.hip, l_hip = rig.legs.l.hip,
     r_kn = rig.legs.r.knee, l_kn = rig.legs.l.knee, r_an = rig.legs.r.ankle, l_an = rig.legs.l.ankle}
-  -- flex driver: the torso nodes all lie in one plane (the body is flat from the side), so a hand or foot half a metre ahead of it
-  -- fits its four beam lengths in two places, in front of the plane and as a mirror image behind it (in game: a midtruck wrist
-  -- behind the shoulder, 0.6 m off). A light node 0.14 m in front of the chest, braced to the torso, is off that plane and settles
-  -- which one (holds to car nodes did too, but cracked the car's windscreen)
-  if driverRig == 'flex' then P.bump = {P.chest[1], P.chest[2] + 0.14, P.chest[3]} end
   if k ~= 1 then   -- a body of another size (setAppearance scale): every joint about the eye
     local Q = {}
     for name, p in pairs(P) do Q[name] = {p[1] * k, p[2] * k, p[3] * k} end
     P = Q
   end
-  local KG = {head = 5.5, neck = 1.5, chest = driverRig == 'flex' and 13.5 or 14, bump = 0.5, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
+  local KG = {head = 5.5, neck = 1.5, chest = 14, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
               r_hip = 6, l_hip = 6, r_kn = 4, l_kn = 4, r_an = 2, l_an = 2}
   local ids, ours = {}, {}
   for name, p in pairs(P) do
     local cid = jbeamUtils.addNodeWithOptions(vehicle, J(cam, p), 0, {
-      nodeWeight = KG[name], collision = name ~= 'bump', selfCollision = flags.selfCollision, frictionCoef = 0.8,
+      nodeWeight = KG[name], collision = true, selfCollision = flags.selfCollision, frictionCoef = 0.8,
       group = {'slrr_ragdoll', 'slrr_rd_' .. name}, partOrigin = 'slrr_ragdoll', name = 'slrr_rd_' .. name})
     ids[name], ours[cid] = cid, true
   end
@@ -268,8 +263,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- Made before the soft beams so those do not take the pairs (one beam per pair): the head and knees stay driven
   if driverRig == 'flex' then
     local STIFF = {beamSpring = 150000, beamDamp = 80, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
-    local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip', 'bump'}
-    for _, t in ipairs({'chest', 'neck', 'r_sh', 'l_sh', 'pelvis'}) do beam(ids.bump, ids[t], BONE) end
+    local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
     for _, j in ipairs({'head', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
       local near = {}
       for _, t in ipairs(TORSO) do
@@ -278,6 +272,25 @@ local function addRagdoll(objID, vehicle, camCid, k)
       table.sort(near, function(x, y) return x[2] < y[2] end)
       for i = 1, 4 do beam(ids[j], ids[near[i][1]], STIFF) end
     end
+    -- the torso nodes all lie in one plane (the body is flat from the side), so a hand or foot half a metre ahead of it has two
+    -- places that fit its four beam lengths, in front of the plane and a mirror image behind it (in game: wrists behind the
+    -- shoulders, 0.6 m off). Two car nodes ahead of the joint, within 0.12 to 0.8 m of its place, settle which one: stiff beams
+    -- to them, the same sort of hold (slrrDriverFeed sets their lengths too)
+    local anchored = {}
+    local CARHOLD = {beamSpring = 20000, beamDamp = 60, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}   -- (soft: 150000 cracked the car's windscreen and dash)
+    for _, j in ipairs({'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
+      local skip, got = {}, 0
+      for cid in pairs(ours) do skip[cid] = true end
+      for _ = 1, 8 do
+        if got >= 2 then break end
+        local node, d = nearestNode(vehicle, J(cam, P[j]), skip, {'glass', 'window', 'windshield', 'mirror', 'wiper'})
+        if not node or d > 0.8 then break end
+        skip[node] = true
+        if d >= 0.12 then beam(ids[j], node, CARHOLD) got = got + 1 end
+      end
+      anchored[#anchored + 1] = j .. ' ' .. got
+    end
+    log('I', 'slrrDriverMount', 'car-node holds for ' .. tostring(objID) .. ': ' .. table.concat(anchored, ', '))
   end
   -- the head holds its posture loosely; arms and legs hang in the seated pose (limp, but not folded flat)
   for _, b in ipairs({{'head', 'r_sh'}, {'head', 'l_sh'}, {'head', 'chest'}, {'r_el', 'chest'}, {'l_el', 'chest'},
@@ -433,7 +446,7 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
         alphaDue[objID] = 0.3
         flexSkin[objID] = skin
         flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin, k, helmet)
-        log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 17 nodes, ' .. M.driverMass .. ' kg at the seat')
+        log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat')
       end
     end
   end)
