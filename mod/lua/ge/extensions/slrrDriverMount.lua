@@ -24,7 +24,6 @@ local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind): 'all' (default) = all 16 joint nodes for every part, 'near' = the 3-4 joint
 -- nodes around each part (the engine says 'VY node not found' for the body and thighs), 'car' = the six car nodes nearest the seat
 local flexBind = 'all'
-local flexDebug = false   -- setFlexDebug: also a 0.4 m red cube flexbody at the seat node one at the car's origin, one 1.2 m above the seat and one 1.6 m to the car's left (outside the body)
 local ragdollNext = false          -- one-shot: the next vehicle with a driver camera gets the ragdoll
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
@@ -331,9 +330,6 @@ local function tagSeatNodes(vehicle, cam)
   return 'slrr_fx_car'
 end
 
-local ALL_GROUPS = {}
-for i, j in ipairs(ALL) do ALL_GROUPS[i] = 'slrr_rd_' .. j end
-
 local function addFlexbodies(objID, vehicle, cam, P, skin)
   if not hasMeshes(skin) then log('W', 'slrrDriverMount', objID .. ': no meshes for skin ' .. tostring(skin) .. ', no flexbodies') return 0 end
   vehicle.flexbodies = vehicle.flexbodies or {}
@@ -354,14 +350,6 @@ local function addFlexbodies(objID, vehicle, cam, P, skin)
       mesh = skin .. '_' .. part, pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 180}, scale = {x = 1, y = 1, z = 1},
       ['[group]:nodes'] = groups, partOrigin = 'slrr_driver'})
     n = n + 1
-  end
-  if flexDebug then
-    for i, at in ipairs({vec3(cam.x, cam.y, cam.z), vec3(0, 0, 0), vec3(cam.x, cam.y, cam.z + 1.2), vec3(cam.x + 1.6, cam.y, cam.z)}) do
-      table.insert(vehicle.flexbodies, {mesh = 'slrr_dbg_cube', pos = {x = at.x, y = at.y, z = at.z}, rot = {x = 0, y = 0, z = 0}, scale = {x = 1, y = 1, z = 1},
-        ['[group]:nodes'] = flexBind == 'car' and {carGroup} or ALL_GROUPS, partOrigin = 'slrr_driver'})
-      table.insert(flexMeshes[objID], 'slrr_dbg_cube')
-      log('I', 'slrrDriverMount', '  debug cube ' .. i .. ' at jbeam ' .. tostring(at))
-    end
   end
   return n
 end
@@ -526,7 +514,6 @@ M.dumpFlex = function(objID)
   if stock then show('stock', stock) end
   if ours then show('ours', ours) end
 end
-M.setFlexDebug = function(on) flexDebug = on and true or false end
 -- what the engine made of the flexbodies (run after the spawn): per mesh, whether the vehicle knows the mesh name
 -- (setMeshAlpha answers true only for a mesh it has; it also forces alpha 1) and the loader's own record of it
 M.flexReport = function(objID)
