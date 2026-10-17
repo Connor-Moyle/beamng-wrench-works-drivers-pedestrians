@@ -429,6 +429,30 @@ M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passe
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode) if mode == 'props' or mode == 'flex' then driverRig = mode end end   -- applies to cars spawned afterwards
 M.getDriverRig = function() return driverRig end
+-- every field of two flexbody records as the loader holds them after the spawn: a stock one (the car's body) and ours,
+-- to compare (node lists shown as counts)
+M.dumpFlex = function(objID)
+  local vd = core_vehicle_manager.getVehicleData(objID)
+  local fbs = vd and vd.vdata and vd.vdata.flexbodies or {}
+  local function show(tag, f)
+    local t = {}
+    for k, v in pairs(f) do
+      t[#t + 1] = tostring(k) .. '=' .. (type(v) == 'table' and (k == '_group_nodes' and ('#' .. #v) or dumps(v):gsub('%s+', ' ')) or tostring(v))
+    end
+    table.sort(t)
+    log('I', 'slrrDriverMount', tag .. ': ' .. table.concat(t, ' | '))
+  end
+  local stock, ours, total = nil, nil, 0
+  for _, f in pairs(fbs) do
+    if type(f) == 'table' then
+      total = total + 1
+      if f.partOrigin == 'slrr_driver' then ours = ours or f elseif not stock and f.pos then stock = f end
+    end
+  end
+  log('I', 'slrrDriverMount', 'flexbodies in the loader: ' .. total)
+  if stock then show('stock', stock) end
+  if ours then show('ours', ours) end
+end
 M.setFlexDebug = function(on) flexDebug = on and true or false end
 -- what the engine made of the flexbodies (run after the spawn): per mesh, whether the vehicle knows the mesh name
 -- (setMeshAlpha answers true only for a mesh it has; it also forces alpha 1) and the loader's own record of it
