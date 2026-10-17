@@ -429,6 +429,7 @@ M.showFlex = function(vid)
   return shown
 end
 M.flexShown = function(vid) return flex[vid] ~= nil and alphaDue[vid] == nil end   -- (made visible once already)
+M.setPassengerShare = function(share) PASSENGER_SHARE = math.max(0, math.min(1, tonumber(share) or PASSENGER_SHARE)) end   -- (not saved: 1 gives every car a passenger, for testing)
 M.getFlexSkin = function(vid) return flexSkin[vid] end
 M.onPreRender = function(dt)
   -- injected flexbodies come up invisible (found in game: visible only after veh:setMeshAlpha(1, mesh) had been called, which
