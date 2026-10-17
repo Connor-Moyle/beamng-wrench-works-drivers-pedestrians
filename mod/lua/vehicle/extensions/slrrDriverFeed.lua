@@ -118,6 +118,9 @@ local function findRig()
       end
     end
   end
+  local nh = 0
+  for _ in pairs(r.holds) do nh = nh + 1 end
+  log('I', 'slrrDriverFeed', 'flex skeleton: ' .. tableSize(r.rest) .. ' nodes, ' .. nh .. ' held joints, ' .. tableSize(r.mine) .. ' own beams')
   return r
 end
 
@@ -135,6 +138,24 @@ local function pose(t)    -- t: 27 numbers, three per joint in JOINTS order, sea
   end
 end
 
+-- each joint stays a bone's length from the joint before it (the bone beams are stiff: a target a little off would make the
+-- truss and the bones fight, with big forces on light nodes)
+local CHAINS = {{'r_el', 'r_sh'}, {'r_wr', 'r_el'}, {'l_el', 'l_sh'}, {'l_wr', 'l_el'},
+                {'r_kn', 'r_hip'}, {'r_an', 'r_kn'}, {'l_kn', 'l_hip'}, {'l_an', 'l_kn'}, {'head', 'neck'}}
+local function fitBones()
+  for _, ch in ipairs(CHAINS) do
+    local j, p = ch[1], ch[2]
+    local jr, pr = rig.rest[j], rig.rest[p]
+    local from = now[p] or (pr and pr.pos)
+    if now[j] and jr and pr and from then
+      local d = now[j] - from
+      local len = jr.pos:distance(pr.pos)
+      if d:length() > 1e-6 then now[j] = from + d:normalized() * len end
+    end
+  end
+end
+
+local stats = {calls = 0, skipped = 0, t = 0}
 local function movePose(dt)
   if not rig then return end
   local k = math.min(1, dt * 40)
@@ -142,10 +163,19 @@ local function movePose(dt)
     local c = now[j]
     c = c and (c + (tg - c) * k) or tg
     now[j] = c
+  end
+  fitBones()
+  stats.t = stats.t + dt
+  if stats.t > 5 and stats.calls + stats.skipped > 0 then
+    log('I', 'slrrDriverFeed', 'flex pose: ' .. stats.calls .. ' beams set, ' .. stats.skipped .. ' skipped in ' .. string.format('%.0f', stats.t) .. ' s')
+    stats.calls, stats.skipped, stats.t = 0, 0, 0
+  end
+  for j, c in pairs(now) do
     for _, h in ipairs(rig.holds[j] or {}) do
       local len = c:distance(h.torso)
       -- never a car's beam (dent crashes), and never a length that is not a number or far from the rest length
-      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) end
+      if rig.mine[h.bcid] and len == len and len < h.rest * 1.5 + 0.3 then obj:setBeamLength(h.bcid, len) stats.calls = stats.calls + 1
+      else stats.skipped = stats.skipped + 1 end
     end
   end
 end

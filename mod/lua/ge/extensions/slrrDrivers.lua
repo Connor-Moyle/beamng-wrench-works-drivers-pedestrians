@@ -1418,10 +1418,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * REACH
       need = math.max(need, d)
     end
-    local slide = clamp(need, 0, SEAT_SLIDE)
+    local slide = c.flex and 0 or clamp(need, 0, SEAT_SLIDE)   -- (a flex driver's torso is fixed: no slide, no lean)
     c.seat = vec3(0, slide, 0)
     local lever = (rig.parts.head - rig.pelvis):length()
-    c.reachLean = need > slide and rotX(-clamp((need - slide) / lever, 0, 0.3)) or IDENT
+    c.reachLean = need > slide and not c.flex and rotX(-clamp((need - slide) / lever, 0, 0.3)) or IDENT
   end
   measureWell(c, wheel, toSeat, dt)
   wheel = wheel - c.seat

@@ -15,6 +15,7 @@ MOD = os.path.join(HERE, "..", "mod")
 
 SETUP = """
 calls = {}
+log = function() end
 objectId = 1
 electrics = {values = {}}
 tableSize = function(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
