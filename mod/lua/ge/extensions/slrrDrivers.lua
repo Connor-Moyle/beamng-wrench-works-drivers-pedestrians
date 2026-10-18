@@ -209,6 +209,10 @@ local WHEEL_N0 = vec3(0, -math.cos(WHEEL_TILT), math.sin(WHEEL_TILT))
 local WHEEL_UP0 = WHEEL_N0:cross(WHEEL_X0):normalized()
 -- the rim's frame for the car being updated (set per car each frame: a damaged column tilts it)
 local wheelX, wheelN, wheelUp = WHEEL_X0, WHEEL_N0, WHEEL_UP0
+local wheelR = WHEEL_RADIUS
+-- rim radius by steering mesh (half the mesh's width in the game's files; any other mesh keeps WHEEL_RADIUS)
+local WHEEL_RADII = {pickup_steeringwheel = 0.20, pickup_steeringwheel_airbag = 0.20, pickup_steer = 0.20,
+                     vivace_steering_wheel = 0.18, vivace_steering_wheel_S = 0.18}
 
 -- distance along o + d*t to triangle a b c (Moller-Trumbore), or nil
 local function rayTri(o, d, a, b, c)
@@ -228,7 +232,7 @@ end
 local HOME = {r = GRIP_ANGLE, l = math.pi - GRIP_ANGLE}
 local function wrapAngle(a) return (a + math.pi) % (2 * math.pi) - math.pi end
 local function rimPoint(center, a, lift)
-  return center + (wheelX * math.cos(a) + wheelUp * math.sin(a)) * WHEEL_RADIUS + wheelN * (WRIST_BACK + lift)
+  return center + (wheelX * math.cos(a) + wheelUp * math.sin(a)) * wheelR + wheelN * (WRIST_BACK + lift)
 end
 
 -- Hand over hand: each hand holds the rim at angle g (measured on the wheel) and turns with it. When it
@@ -995,6 +999,8 @@ local function attach(vid)
     for _, p in pairs(vdata.vdata.props) do
       if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) then
         c.wheelNode, c.wheelNodeX, c.wheelNodeY = tonumber(p.idRef), tonumber(p.idX), tonumber(p.idY)
+        c.wheelMesh = p.mesh
+        c.wheelR = WHEEL_RADII[p.mesh]
         break
       end
     end
@@ -1266,11 +1272,12 @@ local function record(c, eye, R, dt, veh, wheel)
 end
 
 -- The steering wheel, live (sets the rim frame for this car; see liveWheel's caller)
-local function liveWheel(c, toSeat)
+local function liveWheel(c, toSeat, wheelProp)
   -- the wheel, live: the hub must look like a wheel on the first frame; after that it is followed, so a
   -- column pushed in by a crash brings the rim (and the hands) closer and tilts it with the prop's nodes
   local wheel = WHEEL_CENTER
-  wheelX, wheelN, wheelUp = WHEEL_X0, WHEEL_N0, WHEEL_UP0
+  wheelX, wheelN, wheelUp = c.wX0 or WHEEL_X0, c.wN0 or WHEEL_N0, c.wUp0 or WHEEL_UP0
+  wheelR = c.wheelR or WHEEL_RADIUS
   if c.wheelNode then
     local l = toSeat(c.wheelNode)
     local function frame()
@@ -1282,11 +1289,21 @@ local function liveWheel(c, toSeat)
     if c.hub0 == nil then
       c.hub0 = (math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1) and l or false
       c.hubF0 = c.hub0 and frame() or nil
+      -- this car's own wheel: the prop's live transform gives the hub centre and the plane the rim lies in (a truck's wheel stands more upright
+      -- than a saloon's, and its prop sits off its node)
+      local pr = c.hub0 and wheelProp and wheelProp()
+      if pr then
+        c.hubToRim = pr.center - c.hub0
+        c.wX0, c.wN0, c.wUp0 = pr.x, pr.n, pr.up
+        wheelX, wheelN, wheelUp = pr.x, pr.n, pr.up
+        log('I', 'slrrDrivers', string.format('wheel of %s: tilt %.0f deg, hub offset %.3f %.3f %.3f, rim radius %.3f',
+          tostring(c.wheelMesh), math.deg(math.asin(pr.n.z)), c.hubToRim.x, c.hubToRim.y, c.hubToRim.z, c.wheelR or WHEEL_RADIUS))
+      end
     end
     if c.hub0 then
       local off = l - c.hub0
       if off:length() > HUB_MOVE then l = c.hub0 + off:normalized() * HUB_MOVE end
-      wheel = l + WHEEL_HUB_TO_RIM
+      wheel = l + (c.hubToRim or WHEEL_HUB_TO_RIM)
       local F = c.hubF0 and frame()
       if F then
         local D = delta(F, c.hubF0)
@@ -1551,7 +1568,30 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
   end
 
-  local wheel = liveWheel(c, toSeat)
+  local function wheelProp()
+    if not c.wheelMesh then return nil end
+    local ok, r = pcall(function()
+      local pr
+      for pid = 0, (veh.getPropCount and veh:getPropCount() or 0) - 1 do
+        local q = veh:getProp(pid)
+        if q and q:getMeshName() == c.wheelMesh then pr = q break end
+      end
+      local m = pr:getLiveTransformWorld()
+      local function seatDir(d) return vec3(d:dot(Rnow.x), d:dot(Rnow.y), d:dot(Rnow.z)) end
+      local center = seatDir(vec3(m:getColumn(3)) + vec3(vpos) - eyeNow)
+      local best
+      for i = 0, 2 do
+        local a = seatDir(vec3(m:getColumn(i))):normalized()
+        if not best or math.abs(a.y) > math.abs(best.y) then best = a end
+      end
+      local n = best.y < 0 and best or best * -1   -- the normal turned toward the driver
+      local x = (vec3(1, 0, 0) - n * n.x):normalized()
+      if n.z < 0.17 or n.z > 0.94 or center:distance(c.hub0 + WHEEL_HUB_TO_RIM) > 0.15 then return nil end   -- not a wheel we understand: the defaults
+      return {center = center, n = n, x = x, up = n:cross(x):normalized()}
+    end)
+    return ok and r or nil
+  end
+  local wheel = liveWheel(c, toSeat, wheelProp)
   c.wheelAt = wheel   -- (for slrrDriverMount.flexSnapshot)
   -- Reach (worked out once per car): drivers sit with the elbows bent, at about T.reach of full arm length.
   -- A wheel further away moves the seat forward (up to SEAT_SLIDE), then the rest is a lean from the
