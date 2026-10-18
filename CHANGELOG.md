@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Drivers
+- **Settings in the Mods menu.** With Wrench Works installed, the driver's settings (show the driver, who drives, size, helmet and its colour, shirt and trousers colours, the experimental rigged driver and its clothing colours) are on the Drivers tab of ESC > Mods; without it nothing changes. `slrrDrivers.settingsSchema()` and `onSlrrSettingsReady()` register them.
 - **The rigged driver is a per-session choice.** `setDriverRig('flex')` is no longer saved (a saved setting from an earlier version is
   ignored), so the game never starts with it on by surprise. A flex driver is no longer rebuilt when the player switches car, its pose
   feed pauses for half a second around a vehicle switch or reset, and his head is not hidden or shown within half a second of a switch

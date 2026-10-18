@@ -1802,9 +1802,84 @@ M.stopRecording = function(vid, path)
   if path then jsonWriteFile(path, rec, false) end
   return #rec.frames, rec
 end
+-- The Mods menu (ESC > Mods, Wrench Works' slrr_settings registry): the Drivers tab. Registered only if the registry exists (without Wrench Works
+-- the driver runs on its defaults and its settings file). A colour field has no empty state: the neutral grey means "no colour of his own".
+local NEUTRAL = {r = 0.5, g = 0.5, b = 0.5}
+local function rgbTable(c) return {r = c[1] or c.r or 0, g = c[2] or c.g or 0, b = c[3] or c.b or 0} end
+local function isNeutral(c) c = rgbTable(c) return math.abs(c.r - 0.5) < 0.003 and math.abs(c.g - 0.5) < 0.003 and math.abs(c.b - 0.5) < 0.003 end
+local function colourStore(key)
+  return {kind = 'custom',
+    get = function() local c = M.getAppearance(nil)[key] return c and rgbTable(c) or NEUTRAL end,
+    set = function(v) M.setAppearance(nil, {[key] = (type(v) == 'table' and not isNeutral(v)) and rgbTable(v) or false}) end}
+end
+M.settingsSchema = function()
+  local modes = {}
+  for _, m in ipairs({{'full', 'Full'}, {'still', 'Still (no animation)'}, {'hideFirstPerson', 'Hidden in first person'}, {'hidden', 'Hidden'}}) do
+    modes[#modes + 1] = {id = m[1], label = m[2]}
+  end
+  local people = {{id = 'none', label = 'Nobody'}}
+  for _, d in ipairs(M.getDrivers()) do people[#people + 1] = {id = d.id, label = d.name or d.id} end
+  local look = M.getAppearance
+  local fields = {
+    {id = 'mode', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Show the driver', default = 'full', apply = 'live', options = modes,
+     tooltip = 'Full animates him; Still keeps him in the seat without moving; the other two hide him in first person or everywhere.',
+     store = {kind = 'custom', get = function() return M.getDisplayMode() end, set = function(v) M.setDisplayMode(v) end}},
+    {id = 'driver', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Who drives', default = people[2] and people[2].id or 'none', apply = 'live', options = people,
+     tooltip = 'The character behind the wheel of your cars.',
+     store = {kind = 'custom', get = function() return M.getDefaultDriver() or 'none' end, set = function(v) M.setDefaultDriver(v ~= 'none' and v or nil) end}},
+    {id = 'scale', tab = 'drivers', group = 'Look', type = 'slider', label = 'Size', min = 0.9, max = 1.1, step = 0.01, unit = 'x', default = 1, apply = 'live',
+     tooltip = 'How tall he sits, 0.9 to 1.1 times. The rigged driver takes it for cars spawned afterwards.',
+     store = {kind = 'custom', get = function() return tonumber(look(nil).scale) or 1 end, set = function(v) if math.abs(v - 1) < 0.005 then v = false end M.setAppearance(nil, {scale = v}) end}},
+    {id = 'helmet', tab = 'drivers', group = 'Look', type = 'bool', label = 'Helmet', default = false, apply = 'live',
+     tooltip = 'A helmet on his head (the rigged driver: only the police officer and the racer have one).',
+     store = {kind = 'custom', get = function() return look(nil).helmet == true end, set = function(v) M.setAppearance(nil, {helmet = v and true or false}) end}},
+    {id = 'helmetColor', tab = 'drivers', group = 'Look', type = 'color', label = 'Helmet colour', default = NEUTRAL, apply = 'live', visibleIf = {field = 'helmet', equals = true},
+     tooltip = 'Grey is the plain white helmet.', store = colourStore('helmetColor')},
+    {id = 'shirt', tab = 'drivers', group = 'Look', type = 'color', label = 'Shirt colour', default = NEUTRAL, apply = 'live',
+     tooltip = 'Recolours his shirt (the prop driver; the rigged driver has colour sets below). Grey leaves it as it is.', store = colourStore('shirt')},
+    {id = 'trousers', tab = 'drivers', group = 'Look', type = 'color', label = 'Trousers colour', default = NEUTRAL, apply = 'live',
+     tooltip = 'Recolours his trousers (the prop driver). Grey leaves them as they are.', store = colourStore('trousers')},
+    {id = 'colourReset', tab = 'drivers', group = 'Look', type = 'button', label = 'Back to the default colours',
+     action = function() M.setAppearance(nil, {shirt = false, trousers = false, helmetColor = false}) return 'Colours reset' end},
+    {id = 'rigNote', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'note', label = 'Not saved: after a restart it is Props again.'},
+    {id = 'rig', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'enum', label = 'Driver model', default = 'props', apply = 'spawn',
+     options = {{id = 'props', label = 'Props (default)'}, {id = 'flex', label = 'Rigged (experimental)'}},
+     tooltip = 'Experimental. The rigged driver is part of the car (skeleton, his weight in the seat); crashes at car switches were seen in tests. Applies to cars you spawn afterwards.',
+     store = {kind = 'custom', get = function() return slrrDriverMount and slrrDriverMount.getDriverRig and slrrDriverMount.getDriverRig() or 'props' end,
+              set = function(v) if slrrDriverMount and slrrDriverMount.setDriverRig then slrrDriverMount.setDriverRig(v) end end}},
+  }
+  if M.getPresets then
+    local opts = {{id = 'default', label = 'Default'}}
+    local names = {}
+    for name in pairs(M.getPresets().presets or {}) do names[#names + 1] = name end
+    table.sort(names)
+    for _, n in ipairs(names) do opts[#opts + 1] = {id = n, label = n:sub(1, 1):upper() .. n:sub(2)} end
+    fields[#fields + 1] = {id = 'preset', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'enum', label = 'Clothing colours', default = 'default', apply = 'spawn',
+      options = opts, visibleIf = {field = 'rig', equals = 'flex'},
+      tooltip = 'The colours of the rigged driver for the four SLRR characters (Mitch, the two opponents, the police officer).',
+      store = {kind = 'custom', get = function() return look(nil).preset or 'default' end, set = function(v) M.setAppearance(nil, {preset = v ~= 'default' and v or false}) end}}
+  end
+  return {id = 'drivers', title = 'Drivers', description = 'Who sits at the wheel of your cars and how he looks.'}, fields
+end
+-- one page for Pedestrians and Drivers: the pedestrian extension offers its tab the same way (settingsSchema() -> tab, fields) and this one
+-- registers both, because registering a mod again replaces its page
+M.onSlrrSettingsReady = function()
+  local S = rawget(_G, 'slrr_settings')
+  if not (S and S.register) then return end
+  local tabs, fields = {}, {}
+  local ped = rawget(_G, 'slrrPedestrians')
+  if ped and ped.settingsSchema then
+    local ok, tab, f = pcall(ped.settingsSchema)
+    if ok and tab then tabs[#tabs + 1] = tab for _, x in ipairs(f or {}) do fields[#fields + 1] = x end end
+  end
+  local tab, f = M.settingsSchema()
+  tabs[#tabs + 1] = tab
+  for _, x in ipairs(f) do fields[#fields + 1] = x end
+  S.register({mod = 'slrr_drivers', title = 'Pedestrians & Drivers', icon = 'person', order = 30, tabs = tabs, fields = fields})
+end
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end
 
-M.onExtensionLoaded = function() loadDrivers() markAll() end
+M.onExtensionLoaded = function() loadDrivers() markAll() M.onSlrrSettingsReady() end
 M.onExtensionUnloaded = function() for vid in pairs(cars) do removeCar(vid) end end
 M.onPreRender = onPreRender
 M.onVehicleSpawned = function(vid) pending[vid] = 0 end   -- also fires after a part change rebuilds the car

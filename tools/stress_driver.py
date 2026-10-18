@@ -375,6 +375,51 @@ def check_flex_driving():
     print("flex driving ok: hand range %.2f m, %d re-grips, head yaw %.2f..%.2f rad, shift hand %.2f m" % (rng, regrips, min(yaw), max(yaw), far))
 
 
+def check_settings():
+    """The Mods menu registration (Wrench Works' slrr_settings): the Drivers tab's fields read and write the driver's own settings, a
+    colour has no empty state (grey clears it), and without the registry nothing happens."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+    M.onSlrrSettingsReady()   # no registry: nothing, no error
+    lua.execute("""
+      slrr_settings = {register = function(s) registered = s return true end}
+      rig = 'props'
+      slrrDriverMount = {getDriverRig = function() return rig end, setDriverRig = function(m) rig = m end}
+      M.onSlrrSettingsReady()
+      F = {} for _, f in ipairs(registered.fields) do F[f.id] = f end""")
+    assert lua.eval("registered.mod") == "slrr_drivers" and lua.eval("#registered.tabs") == 1 and lua.eval("registered.tabs[1].id") == "drivers"
+    for fid in ("mode", "driver", "scale", "helmet", "helmetColor", "shirt", "trousers", "rig", "rigNote", "colourReset"):
+        assert lua.eval("F.%s ~= nil and F.%s.tab == 'drivers'" % (fid, fid)), fid
+    lua.execute("""
+      F.shirt.store.set({r = 0.8, g = 0.1, b = 0.1})
+      shirtSet = M.getAppearance(nil).shirt
+      sr, sg = F.shirt.store.get().r, F.shirt.store.get().g
+      F.shirt.store.set({r = 0.5, g = 0.5, b = 0.5})
+      shirtGone = M.getAppearance(nil).shirt == nil and F.shirt.store.get().r == 0.5
+      F.scale.store.set(1.05) scaleOn = F.scale.store.get()
+      F.scale.store.set(1) scaleOff = F.scale.store.get() == 1 and M.getAppearance(nil).scale == nil
+      F.helmet.store.set(true) helmetOn = F.helmet.store.get()
+      F.helmet.store.set(false) helmetOff = not F.helmet.store.get()
+      F.mode.store.set('still') modeSet = F.mode.store.get()
+      F.mode.store.set('full')
+      F.rig.store.set('flex') rigSet = rig F.rig.store.set('props')
+      F.shirt.store.set({r = 0.2, g = 0.3, b = 0.4}) F.colourReset.action() colourBack = M.getAppearance(nil).shirt == nil""")
+    assert lua.eval("shirtSet ~= nil and sr == 0.8 and sg == 0.1") and lua.eval("shirtGone") and lua.eval("scaleOn") == 1.05 and lua.eval("scaleOff")
+    assert lua.eval("helmetOn") and lua.eval("helmetOff") and lua.eval("modeSet") == "still" and lua.eval("rigSet") == "flex" and lua.eval("colourBack")
+    # a pedestrian tab offered by slrrPedestrians joins the page, first
+    lua.execute("""slrrPedestrians = {settingsSchema = function() return {id = 'pedestrians', title = 'Pedestrians'}, {{id = 'count', tab = 'pedestrians', type = 'int', label = 'n', min = 0, max = 9, default = 1, store = {kind = 'custom', get = function() return 1 end, set = function() end}}} end}
+                  M.onSlrrSettingsReady()""")
+    assert lua.eval("#registered.tabs") == 2 and lua.eval("registered.tabs[1].id") == "pedestrians" and lua.eval("registered.fields[1].id") == "count"
+    lua.execute("slrrPedestrians = nil slrr_settings = nil")
+    print("settings ok: the Drivers tab reads and writes the driver's settings; a pedestrian tab joins the page")
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -712,6 +757,7 @@ if __name__ == "__main__":
     check_presence()
     check_passenger()
     check_flex_gestures()
+    check_settings()
     check_flex_driving()
     check_mount()
     check_far()
