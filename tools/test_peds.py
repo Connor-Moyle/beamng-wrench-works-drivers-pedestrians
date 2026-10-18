@@ -450,6 +450,19 @@ def player():
     assert abs(a - 0.99) < 1e-6, "twice does not compound"
     a, b = run_cmd(M.limpCommand(None))
     assert abs(a - 1.8) < 1e-6 and abs(b - 5) < 1e-6, (a, b)
+    # the game rebuilt the controller table (the originals are gone) while the speeds were still cut: the next command must not take 0.99 as the original
+    run_cmd(M.limpCommand(0.55))
+    lua.execute("""
+      do
+        local movementSpeedNormal, movementSpeedSprint = 0.99, 0.99
+        local pc = {updateFixedStep = function() return movementSpeedNormal, movementSpeedSprint end}
+        controller = {getController = function() return pc end}
+        readSpeeds = function() return pc.updateFixedStep() end
+      end""")
+    a, b = run_cmd(M.limpCommand(0.55))
+    assert abs(a - 0.99) < 1e-6, (a, b)
+    a, b = run_cmd(M.limpCommand(None))
+    assert abs(a - 1.8) < 1e-6 and abs(b - 5) < 1e-6, ("rebuilt controller: back to the defaults", a, b)
     print("limp ok")
     assert [x[1] for x in seen] == ["idle.dae", "walk.dae", "walk_fast.dae", "idle.dae"] and all(x[2] == 1 for x in seen), seen
     # T52: in a career the snowman (the unicycle's own mesh) goes while the walker is shown, and the walker has no body in first person

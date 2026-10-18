@@ -1011,14 +1011,15 @@ if pc and debug and debug.getupvalue then
   for i = 1, 80 do
     local n, v = debug.getupvalue(f, i)
     if not n then break end
-    if n == 'movementSpeedNormal' then pc.slrrOrigNormal = pc.slrrOrigNormal or v end
-    if n == 'movementSpeedSprint' then pc.slrrOrigSprint = pc.slrrOrigSprint or v end
+    -- (the game's own values, 1.8 and 5; a current value below them is a limp left by a table the game rebuilt, never an original)
+    if n == 'movementSpeedNormal' then pc.slrrOrigNormal = pc.slrrOrigNormal or (v >= 1.8 and v or 1.8) end
+    if n == 'movementSpeedSprint' then pc.slrrOrigSprint = pc.slrrOrigSprint or (v >= 5 and v or 5) end
   end
   for i = 1, 80 do
     local n = debug.getupvalue(f, i)
     if not n then break end
-    if n == 'movementSpeedNormal' and pc.slrrOrigNormal then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigNormal) end
-    if n == 'movementSpeedSprint' and pc.slrrOrigNormal then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigSprint or 5) end
+    if n == 'movementSpeedNormal' then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigNormal) end
+    if n == 'movementSpeedSprint' then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigSprint) end
   end
 end]]
 end
