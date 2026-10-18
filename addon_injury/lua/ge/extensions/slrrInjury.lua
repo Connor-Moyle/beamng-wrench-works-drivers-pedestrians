@@ -154,7 +154,15 @@ local function say(vehId, st, kind)
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
   if not v then return end
   st.voiceAt = now
-  v:queueLuaCommand(string.format("obj:playSFXOnce(%q, 0, 1, 1)", list[math.random(#list)]))
+  local clip = list[math.random(#list)]
+  -- the game plays a sound file only as a GUI sound (obj:playSFXOnce wants a sound profile, which a plain .ogg has none of: "profile not found");
+  -- only the player's driver is ever hurt, so his voice in your ears is right
+  local audio = rawget(_G, 'Engine') and Engine.Audio
+  if audio and audio.playOnce and pcall(audio.playOnce, 'AudioGui', clip, {volume = 1}) then
+    if isPlayer(vehId) then log('I', 'slrrInjury', 'voice ' .. kind .. ': ' .. clip) end
+  else
+    v:queueLuaCommand(string.format("obj:playSFXOnce(%q, 0, 1, 1)", clip))
+  end
 end
 
 -- blood on the injured parts ("full" only), through the driver's overlay layer when it exists

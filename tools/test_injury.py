@@ -36,6 +36,9 @@ rects, audio = {}, 0
 function ColorF(r, g, b, a) return {a = a} end
 scenetree = {ScreenBlurFX = {obj = {addFrameBlurRect = function(self, x0, y0, x1, y1, c) rects[#rects + 1] = c.a end}}}
 core_sounds = {setAudioBlur = function(v) audio = v end}
+played = {}
+Engine = {Audio = {playOnce = function(ch, f, o) table.insert(played, {ch, f}) end}}
+FS = {findFiles = function() return {'/art/sounds/slrr_injury/hurt_1.ogg', '/art/sounds/slrr_injury/wake_1.ogg'} end}
 """
 
 
@@ -278,6 +281,14 @@ def main():
     assert M4.getFeel().amount == 0
     run(l4, M4, crash(40), settle=2.0)
     assert M4.getFeel().amount > 0, "a second bruise is not felt"
+    # the voice: a hurt clip plays through the game's GUI audio (a bare .ogg has no sound profile for obj:playSFXOnce)
+    lv, Mv = lua_env()
+    Mv.setMode("injuries")
+    Mv.onVehicleSpawned(7)
+    run(lv, Mv, [], settle=3.5)
+    run(lv, Mv, crash(40), settle=2.0)
+    assert lv.eval("#played") >= 1 and lv.eval("played[1][1]") == "AudioGui" and "hurt_1" in lv.eval("played[1][2]"), lv.eval("#played")
+    assert not any("playSFXOnce" in c for c in lv.globals().commands.values()), "the profile-less call is still used"
     l2, M2 = hurt()
     assert M2.getState(7).level == "unconscious" and not M2.getState(7).conscious
     l2.execute("rects = {}")
