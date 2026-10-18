@@ -8,6 +8,8 @@ from lupa.luajit21 import LuaRuntime
 
 src = open(os.path.join(os.path.dirname(__file__), "..", "mod", "lua", "ge", "extensions", "slrrDrivers.lua")).read()
 consts = "\n".join(l for l in src.splitlines() if re.match(r"local (GRIP_ANGLE|HAND_RANGE|HAND_DOWN|REGRIP_\w+) =", l))
+# the tunables updateHands reads (T in slrrDrivers.lua is file-local): their defaults, taken from its table
+tunables = "T = {" + ", ".join(m.group(1) + " = " + m.group(2) for m in re.finditer(r"^  (handRange|regripTime) = (.*?),?$", src, re.M)) + "}"
 fn = src[src.index("local HOME = {r ="):src.index("-- rotation R turned by angle")]
 fn = re.sub(r"local function rimPoint.*?\nend\n", "", fn, flags=re.S)
 lua = LuaRuntime()
@@ -15,7 +17,7 @@ lua.execute("""
 function sign(x) return x > 0 and 1 or (x < 0 and -1 or 0) end
 function clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
 function smootheststep(x) return x*x*x*(x*(x*6-15)+10) end
-""" + consts + "\n" + fn + "\nM_updateHands = updateHands")
+""" + tunables + "\n" + consts + "\n" + fn + "\nM_updateHands = updateHands")
 update = lua.globals().M_updateHands
 c = lua.table(shiftSide="r", reach=0)
 dt, worst, regrips, t = 1 / 60, 0.0, 0, 0.0
