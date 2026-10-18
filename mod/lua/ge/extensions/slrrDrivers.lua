@@ -1146,12 +1146,26 @@ end
 
 -- A joint target that moves smoothly: a low-pass that never moves faster than maxSpeed (m/s), and
 -- snaps straight there after a jump (respawn, reset) so the driver never trails off.
-local function follow(c, key, target, dt, maxSpeed, smooth)
+local FOLLOW_ACCEL = 25   -- m/s^2
+-- accel: when given, the hand or foot speeds up and slows down by at most that much a second (no instant start at full speed, which showed as a
+-- snap); without it the move starts at once (a re-grip must land on the rim in time)
+local function follow(c, key, target, dt, maxSpeed, smooth, accel)
   c.smooth = c.smooth or {}
+  c.smoothV = c.smoothV or {}
   local p = c.smooth[key]
-  if not p or p:distance(target) > 0.5 or dt <= 0 then c.smooth[key] = target return target end
+  if not p or p:distance(target) > 0.5 or dt <= 0 then c.smooth[key], c.smoothV[key] = target, nil return target end
   local step = (target - p) * math.min(1, dt * (smooth or 45))
   if step:length() > maxSpeed * dt then step = step:normalized() * (maxSpeed * dt) end
+  if accel and (smooth or 45) < 1e5 then
+    local v = c.smoothV[key] or vec3(0, 0, 0)
+    local dv = step / dt - v
+    if dv:length() > accel * dt then dv = dv:normalized() * (accel * dt) end
+    v = v + dv
+    c.smoothV[key] = v
+    step = v * dt
+  else
+    c.smoothV[key] = nil
+  end
   p = p + step
   c.smooth[key] = p
   return p
@@ -1200,7 +1214,7 @@ local function updateLegs(c, wheel, world, R, dt)
     end
     -- the ball of the foot goes on the pad; the foot pivots toes-down with the pedal
     local footRot = rotX(-angle)
-    target = follow(c, side .. 'Foot', target, dt, T.jointSpeed)
+    target = follow(c, side .. 'Foot', target, dt, T.jointSpeed, nil, FOLLOW_ACCEL)
     local ankleTarget = target - rotate(footRot, leg.foot0)
     -- legs that cannot reach pull the pedals in toward the seat
     local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
@@ -1635,7 +1649,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local _, _, _, _, handR = solve(target)
       target = fistAt - rotate(handR, rig.fist[side])
     end
-    target = follow(c, side .. 'Hand', target, dt, T.jointSpeed, holding and 1e6 or 45)
+    target = follow(c, side .. 'Hand', target, dt, T.jointSpeed, holding and 1e6 or 45, grip.lift == 0 and FOLLOW_ACCEL or nil)
     local elbow, wrist, n, Df, handR = solve(target)
     place(c.parts[side .. '_upperarm'], world(shoulder), R, delta(basis(elbow - shoulder, n), arm.F0u))
     place(c.parts[side .. '_forearm'], world(elbow), R, Df)
