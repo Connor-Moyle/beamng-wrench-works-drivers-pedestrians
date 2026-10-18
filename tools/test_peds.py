@@ -305,6 +305,19 @@ def main():
         idle, long_cross, dict(opts.items())))
     assert idle == 0 and long_cross == 0, (idle, long_cross)
     assert opts.amount == "high" and opts.bogus is None
+    # the Mods menu page: one tab, fields stored through getOptions/setOptions and getCount/setCount
+    tab, fields = M.settingsSchema()
+    by_id = {f.id: f for f in fields.values()}
+    assert tab.id == "pedestrians" and all(f.tab == "pedestrians" for f in by_id.values())
+    assert {"amount", "maxCount", "count", "autoReduce", "targetFps", "idling", "crossing", "busyAreas"} == set(by_id), set(by_id)
+    assert all(f.label and f.tooltip and f.store.get and f.store.set for f in by_id.values())
+    assert by_id["amount"].store.get() == "high" and by_id["idling"].store.get() is False, "the schema reads the live options"
+    by_id["maxCount"].store.set(77)
+    by_id["count"].store.set(30)
+    assert M.getOptions().maxCount == 77 and M.getCount() == 30 and by_id["count"].store.get() == 30
+    by_id["maxCount"].store.set(60)
+    by_id["count"].store.set(48)
+    print("settings schema ok")
     for setting, most in (({"maxCount": 10}, 10), ({"amount": "off"}, 0)):
         M.setOptions(lua.table_from(setting))
         for frame in range(120):
