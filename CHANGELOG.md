@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Pedestrians
+- **Rain.** In rain people walk a faster walk (some run), the streets empty (up to 40 % of the crowd at the heaviest rain), and some stop under a
+  roof on their pavement (an awning, a bus stop, a doorway, a bridge: found by rays upward along the pavement) for 20 to 60 s, or until the rain
+  stops. Options `rainReact`, `rainShelter`, `rainThin`; `setRain(0..1)` overrides the weather (`slrrValoWeather` or Street Legal's weather is read otherwise).
+- **A limp with a broken leg.** On foot, the injury add-on's `limits.slowWalk` (or `slrrPedestrians.setLimp(true)`) cuts the walker's speed to
+  `limpPace` % (55 by default) of a walk and takes sprinting away. Options `limp`, `limpPace`.
+- **The Mods menu page** (`slrrPedestrians.settingsSchema()`) lists every option above, with the crowd size and the other options.
+
 ### Drivers
 - **The rigged driver is a per-session choice.** `setDriverRig('flex')` is no longer saved (a saved setting from an earlier version is
   ignored), so the game never starts with it on by surprise. A flex driver is no longer rebuilt when the player switches car, its pose
