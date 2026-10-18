@@ -43,6 +43,7 @@ def lua_env():
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
     lua.execute(FAKE)
+    lua.execute("function log() end")
     M = lua.execute(open(SRC).read())
     M.onExtensionLoaded()
     return lua, M

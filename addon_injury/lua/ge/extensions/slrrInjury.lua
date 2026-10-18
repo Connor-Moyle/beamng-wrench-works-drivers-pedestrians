@@ -175,6 +175,12 @@ local function feed(vehId, s)
   if (s.jump or 0) > JUMP then st.grace = T.grace return end   -- teleported or glitched: ignore, and a while after
   local hit = false
   st.prev = st.prev or {}
+  -- what the player's crashes actually measure (a hard hit that scores nothing shows here): one line per jolt over 8 g, 0.5 s apart
+  if isPlayer(vehId) and math.max(s.head or 0, s.chest or 0) > 8 and now - (st.logAt or -1) > 0.5 then
+    st.logAt = now
+    log('I', 'slrrInjury', string.format('jolt %.0f g head, %.0f g chest, %.0f g legs at %.0f km/h (hurts from %.0f g head, %.0f g chest)',
+      s.head or 0, s.chest or 0, math.max(s.lleg or 0, s.rleg or 0), (s.speed or 0) * 3.6, SCALE.head[1] * T.toughness, SCALE.chest[1] * T.toughness))
+  end
   for _, r in ipairs(REGIONS) do
     -- a force counts only when it lasts two steps: a one-step spike (a glitch) never hurts anyone
     local g, sc = math.min(s[r] or 0, st.prev[r] or 0), {SCALE[r][1] * T.toughness, SCALE[r][2] * T.toughness}
