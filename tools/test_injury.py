@@ -70,8 +70,8 @@ def crash(speed, stop=0.06):
 
 
 def sampler_check():
-    """The stub sampler: a crash (speed gone and stays gone) counts for two steps so feed sees it."""
-    def chests(vels):
+    """The stub sampler: a crash is the speed lost over 0.1 s, however the frames split it."""
+    def chests(vels, dts):
         lua, M = lua_env()
         lua.execute("""
         function fakeCar(vels)
@@ -81,9 +81,56 @@ def sampler_check():
                   getDirectionVector = function() return 0, 1, 0 end, getDirectionVectorUp = function() return 0, 0, 1 end}
         end""")
         v = lua.eval("fakeCar")(lua.table_from(vels))
-        return [(lambda o: o.chest if o else 0)(M.sampleFromCar(v, STEP)) for _ in vels]
-    crash_ = chests([30, 30, 30, 0, 0, 0])
-    assert crash_[3] > 20 and crash_[4] > 20 and crash_[5] < 20, ("a crash counts for two steps, no more", crash_)
+        return [(lambda o: o.chest if o else 0)(M.sampleFromCar(v, dt)) for dt in dts]
+    # 13.9 m/s (50 km/h) lost in one step, in two, and in one step of a long (hitch) frame: the same ~85 g, for the whole window
+    one = chests([13.9] * 3 + [0] * 8, [STEP] * 11)
+    two = chests([13.9] * 3 + [7, 0] + [0] * 6, [STEP] * 11)
+    hitch = chests([13.9] * 3 + [0] * 8, [STEP] * 3 + [0.4] + [STEP] * 7)
+    for name, c in (("one step", one), ("two steps", two), ("hitch frame", hitch)):
+        assert all(70 < x < 110 for x in c[4:6]), (name, c)
+    assert all(x < 1 for x in chests([13.9] * 10, [STEP] * 10)), "steady speed scores nothing"
+    # a car that stops short of where its speed would take it is a crash (jump 0); one that appears far away is a teleport
+    lua, M = lua_env()
+    lua.execute("""
+    pp, vv, ci = {}, {}, 0
+    car = {getId = function() return 7 end, getPosition = function() ci = ci + 1 return 0, pp[ci], 0 end,
+      getVelocity = function() return 0, vv[ci], 0 end, getDirectionVector = function() return 0, 1, 0 end,
+      getDirectionVectorUp = function() return 0, 0, 1 end}""")
+    def jumps(pos, vel, dt):
+        g = lua.globals()
+        g.pp, g.vv, g.ci = lua.table_from(pos), lua.table_from(vel), 0
+        return [M.sampleFromCar(lua.globals().car, dt) for _ in pos]
+    stop = jumps([0, 0.2, 0.4, 0.45, 0.45], [13.9, 13.9, 13.9, 0, 0], 0.4)
+    assert all(j is None or j.jump < 0.5 for j in stop), "a hard stop in a long frame is not a teleport"
+    tele = jumps([0, 0.2, 50, 50.2, 50.4], [13.9] * 5, STEP)
+    assert max(j.jump for j in tele if j) > 8, "a teleport is one"
+    # quick travel / recovery while driving (50 m in one frame, speed gone): scores nothing, a real stop at the same speed does
+    def level_after(pos, vel):
+        lua, M = lua_env()
+        lua.execute("""
+        pp, vv, ci = {}, {}, 0
+        car = {getId = function() return 7 end, getPosition = function() ci = ci + 1 return 0, pp[ci], 0 end,
+          getVelocity = function() return 0, vv[ci], 0 end, getDirectionVector = function() return 0, 1, 0 end,
+          getDirectionVectorUp = function() return 0, 0, 1 end}""")
+        M.onVehicleSpawned(7)
+        for _ in range(300):
+            M.onUpdate(STEP, STEP)
+        g = lua.globals()
+        g.pp, g.vv, g.ci = lua.table_from(pos), lua.table_from(vel), 0
+        for _ in pos:
+            s = M.sampleFromCar(g.car, STEP)
+            if s:
+                M.feed(7, s)
+            M.onUpdate(STEP, STEP)
+        return M.getState(7).level
+    vel = [13.9] * 20 + [0] * 20
+    walk, x = [], 0
+    for v in vel:
+        x += v * STEP
+        walk.append(x)
+    teleport = [p if i < 20 else p + 50 for i, p in enumerate(walk)]
+    assert level_after(walk, vel) == "bruised", "a real 50 km/h stop is a bruise"
+    assert level_after(teleport, vel) == "none", "quick travel (50 m in a frame) never hurts"
 
 
 def main():

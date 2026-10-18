@@ -26,13 +26,13 @@ local REGIONS = {'head', 'chest', 'pelvis', 'larm', 'rarm', 'lleg', 'rleg'}
 -- what the Mods menu can change (setTune): the lines above and below are the defaults
 local T = {toughness = 1,              -- times the forces in SCALE: below 1 he is more fragile, above 1 tougher
            bruiseAt = 0.15, brokenAt = 0.9,        -- a region's score where it counts as bruised / broken
-           outHead = 0.7, outChest = 0.8,          -- head or chest score where he is knocked out
+           outHead = 0.7, outChest = 0.85,          -- head or chest score where he is knocked out
            recoverBroken = 600, recoverOut = 300,  -- real seconds: per broken region, and after a knock-out
            grace = 3,                              -- seconds ignored after a spawn, reset, teleport or vehicle switch
            voiceGap = 2,                           -- seconds between voice clips per driver
            -- how injuries feel (the player's own driver): 1 = on, 0 = off for the switches
            reduceMotion = 0,                       -- 1: none of the screen effects below (blur), for motion sickness
-           fxBlur = 1, fxBlurStrength = 0.4,       -- the screen edges go blurry after a hit, fading away
+           fxBlur = 1, fxBlurStrength = 1,       -- the screen edges go blurry after a hit, fading away
            fxMuffle = 1, fxMuffleStrength = 0.5,   -- his hearing is muffled for a while after a hit
            fxSeconds = 12,                         -- how long the effects take to fade (a knock-out keeps them until he wakes)
            limp = 1}                               -- on foot with a broken leg: no sprinting
@@ -42,7 +42,7 @@ local TUNE_RANGE = {toughness = {0.5, 2}, bruiseAt = {0.05, 0.5}, brokenAt = {0.
 local T0 = {}
 for k, v in pairs(T) do T0[k] = v end
 local DEATH_HEAD, DEATH_CHEST, DEATH_TIME = 200, 150, 0.025   -- beyond what restrained drivers survive
-local JUMP = 2             -- metres: a body moving this much more than its speed explains in one step = a glitch
+local JUMP = 8             -- metres: a body moving this much more than its speed explains in one step = a glitch (a car in a hard crash jitters by a few)
 local SETTLE, DIE_SETTLE = 1.5, 2
 local TRACK_DIST = 150     -- AI drivers farther than this from the camera aren't tracked
 local RANK = {none = 0, bruised = 1, broken = 2, unconscious = 3, fatal = 4}
@@ -172,7 +172,11 @@ local function feed(vehId, s)
   local st = get(vehId)
   if st.dead then return end
   if st.grace > 0 then return end
-  if (s.jump or 0) > JUMP then st.grace = T.grace return end   -- teleported or glitched: ignore, and a while after
+  if (s.jump or 0) > JUMP then   -- teleported or glitched: ignore, and a while after
+    if isPlayer(vehId) then log('I', 'slrrInjury', string.format('moved %.1f m more than its speed explains: counted as a teleport, ignored for %.0f s', s.jump, T.grace)) end
+    st.grace = T.grace
+    return
+  end
   local hit = false
   st.prev = st.prev or {}
   -- what the player's crashes actually measure (a hard hit that scores nothing shows here): one line per jolt over 8 g, 0.5 s apart
@@ -245,37 +249,39 @@ end
 
 -- the stub input: the car's own acceleration, from its velocity each frame, shared out to the body
 local last = {}
+local WINDOW = 0.1   -- s: a crash is the speed lost over this long, however the frames split it (a hitch frame or two steps give the same)
 local function sampleFromCar(v, dt)
   local id = v:getId()
   local pos, vel = vec3(v:getPosition()), vec3(v:getVelocity())
   local l = last[id]
-  last[id] = {pos = pos, vel = vel, vel2 = l and l.vel}
+  local hist = l and l.hist or {}
+  hist[#hist + 1] = {t = 0, vel = vel}
+  for _, h in ipairs(hist) do h.t = h.t + math.min(dt, 1 / 30) end   -- (a hitch frame ages the window no more than a normal one)
+  while #hist > 2 and hist[2].t >= WINDOW do table.remove(hist, 1) end
+  last[id] = {pos = pos, vel = vel, hist = hist}
   if not l or dt <= 0 then return nil end
-  local dvLen = (vel - l.vel):length()
-  local a = (vel - l.vel) / dt
+  -- the velocity lost since the start of the window, as the force a one-frame (1/60 s) stop of that size would be: this is what the scale
+  -- below was set with (30 km/h = 50 g, 80 km/h = 130 g)
+  local dv = hist[1].vel - vel
+  local a = dv * (60 / G)
   local fwd = vec3(v:getDirectionVector()):normalized()
   local up = vec3(v:getDirectionVectorUp()):normalized()
   local right = fwd:cross(up)
-  local along, side = a:dot(fwd) / G, a:dot(right) / G
-  local g = a:length() / G
-  local jump = (pos - (l.pos + l.vel * dt)):length()
-  local out = {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
+  local along, side = a:dot(fwd), a:dot(right)   -- along: positive when the car lost speed forwards
+  local g = a:length()
+  -- a body that moved further than its speed explains (a teleport, a reset); a car stopped short by a wall moved less, which is a crash
+  local jump = math.max(0, (pos - l.pos):length() - math.max(l.vel:length(), vel:length()) * dt)
+  return {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
           larm = math.abs(side) + 0.3 * math.abs(along), rarm = math.abs(side) + 0.3 * math.abs(along),
-          lleg = math.max(0, -along) * 1.1, rleg = math.max(0, -along) * 1.1,
+          lleg = math.max(0, along) * 1.1, rleg = math.max(0, along) * 1.1,
           jump = jump, speed = l.vel:length()}
-  -- a crash stops the car in one step, but feed counts a force only when it lasts two steps: a hard step is repeated once while the speed
-  -- it took off stays off
-  local sv = last[id]
-  sv.dvLen, sv.out = dvLen, out
-  if l.out and l.dvLen and l.vel2 and l.out.chest > 8 and (vel - l.vel2):length() >= 0.5 * l.dvLen then return l.out end
-  return out
 end
 
 -- How injuries feel (the player's own driver): blurry screen edges and muffled hearing after a hit, fading over T.fxSeconds (a knock-out keeps
 -- them until he wakes), no sprinting on foot with a broken leg. The game offers no camera shake we could use, and no screen darkening
 -- without shipping a shader, so these are the effects there are: ScreenBlurFX rects, core_sounds.setAudioBlur, playerController.setSpeedCoef.
 local fx = {peak = 0, left = 0, dur = 1, muffled = false}
-local FX_LEVEL = {bruised = 0.35, broken = 0.7, unconscious = 1, fatal = 1}
+local FX_LEVEL = {bruised = 0.75, broken = 0.7, unconscious = 1, fatal = 1}
 local walkState                -- the car state of the driver who got out onto the unicycle (his leg)
 local footTimer = 0
 local NO_SPRINT = "local c = controller and controller.getController('playerController') if c and c.setSpeedCoef then c.setSpeedCoef(0) end"
@@ -402,7 +408,7 @@ local SPEC = {
   {key = 'voiceGap', group = 'Voice', label = 'Time between his shouts', tip = 'At least this many seconds between his cries of pain or anger. 0 lets him shout every time.', step = 0.5, unit = 's'},
   {key = 'reduceMotion', group = 'How injuries feel', bool = true, label = 'Reduce motion', tip = 'Turns off the screen effects (blur) for people who get motion sick. Sound and walking effects keep their own switches.'},
   {key = 'fxBlur', group = 'How injuries feel', bool = true, label = 'Blurry edges after a hit', tip = 'The edges of the screen go blurry after a hard hit and clear up again as he recovers.'},
-  {key = 'fxBlurStrength', group = 'How injuries feel', label = 'Blur strength', tip = 'How blurry the edges get (0 to 100 %). Modest is the default.', step = 0.05, unit = '%', scale = 100, showIf = 'fxBlur'},
+  {key = 'fxBlurStrength', group = 'How injuries feel', label = 'Blur strength', tip = 'How blurry the edges get (0 to 100 %). A bruise is clearly visible by default.', step = 0.05, unit = '%', scale = 100, showIf = 'fxBlur'},
   {key = 'fxMuffle', group = 'How injuries feel', bool = true, label = 'Muffled hearing after a hit', tip = 'The sound is dulled for a while after a hard hit, as if his ears were ringing.'},
   {key = 'fxMuffleStrength', group = 'How injuries feel', label = 'Muffling strength', tip = 'How dull the sound gets (0 to 100 %).', step = 0.05, unit = '%', scale = 100, showIf = 'fxMuffle'},
   {key = 'fxSeconds', group = 'How injuries feel', label = 'Effects fade over', tip = 'Seconds the blur and the muffled hearing take to go away. A knock-out keeps them until he wakes up.', step = 1, unit = 's'},
@@ -461,10 +467,15 @@ end
 -- every frame: the effects of the moment (none if the mode is off or the player is not hurt)
 M.onPreRender = function(dtReal)
   local a = (mode ~= 'off') and fxAmount() or 0
+  if a > 0 and not fx.logged then   -- once per effect: is there anything to blur with?
+    fx.logged = true
+    log('I', 'slrrInjury', string.format('feel %.2f: blur %s (screen blur object %s), muffle %s', a, T.fxBlur ~= 0 and T.reduceMotion == 0 and 'on' or 'off',
+      scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj and 'there' or 'MISSING', T.fxMuffle ~= 0 and 'on' or 'off'))
+  elseif a <= 0 then fx.logged = false end
   if a > 0 and T.fxBlur ~= 0 and T.reduceMotion == 0 and ColorF and scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj then
     local alpha = math.min(1, a * T.fxBlurStrength)
     local o = scenetree.ScreenBlurFX.obj
-    for _, r in ipairs({{0, 0, 0.18, 1}, {0.82, 0, 1, 1}, {0.18, 0, 0.82, 0.15}, {0.18, 0.85, 0.82, 1}}) do
+    for _, r in ipairs({{0, 0, 0.26, 1}, {0.74, 0, 1, 1}, {0.26, 0, 0.74, 0.22}, {0.26, 0.78, 0.74, 1}}) do
       pcall(o.addFrameBlurRect, o, r[1], r[2], r[3], r[4], ColorF(1, 1, 1, alpha))
     end
   end
