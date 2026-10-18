@@ -1418,6 +1418,7 @@ local function posePassenger(c, R, eye)
   p.posed = true
 end
 
+local FLEX_ANIM_DIST = 150   -- m
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   -- a still, far driver is re-checked every T.farSkip frames (the vehicle queries below are most of his cost)
   if c.farWait and c.farWait > 0 then c.farWait = c.farWait - 1 return end
@@ -1440,8 +1441,15 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if off then return end
   -- drawn by the car and still, or further than T.animDist from the camera: his last pose rides with the car
   -- at no cost (the props keep their base transforms), which is what pays for 14 traffic drivers (J6)
-  if c.drawnByCar and c.posed and (not animated or camDist > T.animDist) then
-    c.farWait = camDist > T.animDist + 10 and T.farSkip or 0   -- (a car moves T.farSkip frames before it is looked at again)
+  -- (a rigged driver is a real body in a car somebody watches, not one of 14 in traffic: animated up to FLEX_ANIM_DIST at least; the
+  -- game log showed a flex driver in a car 40 m or more from the camera frozen for 200 s, the wheel never turned his hands)
+  local animDist = c.flex and math.max(T.animDist, FLEX_ANIM_DIST) or T.animDist
+  if c.drawnByCar and c.posed and (not animated or camDist > animDist) then
+    c.farWait = camDist > animDist + 10 and T.farSkip or 0   -- (a car moves T.farSkip frames before it is looked at again)
+    if c.flex and animated and (not c.frozenLog or os.clock() - c.frozenLog > 10) then
+      c.frozenLog = os.clock()
+      log('I', 'slrrDrivers', string.format('flex driver in %s not animated: %.0f m from the camera (limit %.0f m)', tostring(vid), camDist, animDist))
+    end
     return
   end
   local fwd = vec3(veh:getDirectionVector()):normalized()
