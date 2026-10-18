@@ -804,7 +804,7 @@ local function flushFlex(vid, c)
     local o, f = c.parts[side .. '_hand'], c.rig.fist and c.rig.fist[side]
     if not (o and o.p and o.x and o.y and o.z and f) then return end
     out[#out + 1] = o.p + (o.x * f.x + o.y * f.y + o.z * f.z) * 1.5
-    out[#out + 1] = o.p + o.x * 0.10
+    out[#out + 1] = o.p + o.x * (f.x > 0 and -0.10 or 0.10)
   end
   for _, p in ipairs(out) do if not finite(p) then return end end   -- a NaN would reach the car as text and break its pose()
   c.sendWait = (c.sendWait or 0) + (c.lastDt or 0)
