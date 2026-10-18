@@ -20,6 +20,7 @@ Built, with offline tests, but not yet seen working in the game. An item leaves 
 - **The Pedestrians & Drivers page in the Mods menu:** the Pedestrians, Drivers and Injury tabs (the pedestrian tab comes from the pedestrian settings).
 
 ### Drivers
+- The rigged driver (still experimental, props stay the default): his head now turns to follow the camera (a node ahead of the head gives it a facing), each hand has its own roll (two nodes round the wrist, so the fingers wrap the rim and the palm faces it), he is animated up to 150 m from the camera (a watched car's driver froze beyond 40 m), more damping on the seat. Tried in game on the Covet (hands, head, no ring); the pickup's and the Vivace's hands are not right yet (rim size is one number for all cars).
 - **The rigged driver is a per-session choice.** `setDriverRig('flex')` is no longer saved (a saved setting from an earlier version is
   ignored), so the game never starts with it on by surprise. A flex driver is no longer rebuilt when the player switches car, its pose
   feed pauses for half a second around a vehicle switch or reset, and his head is not hidden or shown within half a second of a switch
