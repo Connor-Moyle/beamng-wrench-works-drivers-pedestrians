@@ -84,8 +84,38 @@ def passenger():
     assert lua.eval(count) == soft, "a hold went to a dash, glass or roof node"
 
 
+def traffic_gets_props():
+    """The rigged driver is for the player's car only: another car loading gets props, a car the career says is the player's (playerCarNext),
+    one spawned to be entered (autoEnterVehicle) and the car he is in get the rig."""
+    lua, M, errors = build({})
+    lua.execute("""
+      PLAYERID = 7
+      be = {getPlayerVehicleID = function() return PLAYERID end,
+            getObjectByID = function(_, id) return {getJBeamFilename = function() return 'covet' end,
+                                                    getDynDataFieldbyName = function() return id == 55 and 'true' or '' end} end}
+      function newcar() return {nodes = {{cid = 4, name = 'cam', pos = {x = 0.35, y = 0.1, z = 1.15}}}, props = {}, flexbodies = {},
+                                cameras = {onboard = {{name = 'driver', camNodeID = 4}}}} end
+    """)
+    def flexbodies(objid, setup=""):
+        lua.execute(setup + " v = newcar()")
+        M.onJbeamLoadingPhase1(0.5, objid, lua.globals().v)
+        return lua.eval("#v.flexbodies")
+    assert flexbodies(7) == 14, "the car he is in"
+    assert flexbodies(99) == 0, "a traffic car got the rig"
+    assert flexbodies(99) == 0
+    M.playerCarNext()
+    assert flexbodies(100) == 14, "a car the career said is the player's did not get the rig"
+    assert flexbodies(101) == 0, "playerCarNext is one car"
+    assert flexbodies(55) == 14, "a car spawned to be entered did not get the rig"
+    M.playerCarNext()
+    M.playerCarDone()
+    assert flexbodies(102) == 0, "a cleared playerCarNext still took a car"
+    assert not errors, errors
+
+
 def main():
     passenger()
+    traffic_gets_props()
     lua, M, errors = build({})
     n1 = lua.eval("#v.flexbodies")
     assert n1 == 14 and lua.eval("v.flexbodies[1].scale.x") == 1 and M.getFlexScale(7) == 1, ("plain", n1)

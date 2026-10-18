@@ -432,6 +432,23 @@ local skipUntil, noProps = 0, {}
 M.noPropsNext = function() skipUntil = os.clock() + 5 end
 M.noPropsDone = function() skipUntil = 0 end
 
+-- The rigged driver is for the player's car only (traffic, parked and AI cars always get the props: the rig costs physics nodes and flexbodies
+-- per car). A car is the player's when it spawns to be entered (autoEnterVehicle), when the career says so (playerCarNext, like noPropsNext
+-- for the cars nobody drives: a spawn it will drive itself), or when it is the car he is in being rebuilt (a part change). Never a guess made
+-- later: a swap into a traffic car keeps its props until it is respawned, and nothing respawns a car mid-drive.
+local playerUntil, playerCars = 0, {}
+M.playerCarNext = function() playerUntil = os.clock() + 5 end
+M.playerCarDone = function() playerUntil = 0 end
+local function playerBound(objID)
+  if playerCars[objID] then return true end
+  local obj = be and be.getObjectByID and be:getObjectByID(objID)
+  local enters = obj and obj.getDynDataFieldbyName and obj:getDynDataFieldbyName('autoEnterVehicle', 0) == 'true'
+  local told = os.clock() < playerUntil
+  if told then playerUntil = 0 end
+  if enters or told then playerCars[objID] = true return true end
+  return be and be.getPlayerVehicleID and be:getPlayerVehicleID(0) == objID or false
+end
+
 local function onJbeamLoadingPhase1(progress, objID, vehicle)
   if not noProps[objID] and os.clock() < skipUntil then skipUntil = 0 noProps[objID] = true end
   if noProps[objID] then log('I', 'slrrDriverMount', 'no props for ' .. tostring(objID) .. ': a car nobody drives') return end
@@ -443,8 +460,11 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
       local obj = be:getObjectByID(objID)
       model = obj and obj:getJBeamFilename() or tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
     end
-    local wantFlex = driverRig == 'flex' and camCid and not optOut[objID] and not (model and optOut[model])
-    if driverRig == 'flex' and not wantFlex then
+    local mine = driverRig == 'flex' and playerBound(objID)
+    local wantFlex = mine and camCid and not optOut[objID] and not (model and optOut[model])
+    if driverRig == 'flex' and not mine then
+      log('I', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): props (the rigged driver is for the player car only)')
+    elseif driverRig == 'flex' and not wantFlex then
       log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
     end
     -- (no camera: a seat guessed from the wheel)
@@ -455,6 +475,7 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
       local look = wantFlex and slrrDrivers and slrrDrivers.getAppearance and slrrDrivers.getAppearance(objID) or {}
       local k = math.max(0.9, math.min(1.1, tonumber(look.scale) or 1))
       if wantFlex then flexScale[objID] = k end
+      local t0 = os.clock()
       local belts, P = addRagdoll(objID, vehicle, camCid, k)
       log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. tostring(belts))
       if wantFlex and P then
@@ -464,7 +485,7 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
         alphaDue[objID] = 0.3
         flexSkin[objID] = skin
         flex[objID] = addFlexbodies(objID, vehicle, vec3(byCid(vehicle)[camCid].pos), P, skin, k, helmet)
-        log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat')
+        log('I', 'slrrDriverMount', 'flex driver for ' .. tostring(objID) .. ' (' .. tostring(model) .. '): ' .. flex[objID] .. ' flexbodies, 16 nodes, ' .. M.driverMass .. ' kg at the seat, built in ' .. string.format('%.0f', (os.clock() - t0) * 1000) .. ' ms')
       end
     end
   end)
@@ -662,5 +683,5 @@ M.onVehicleResetted = function(objID) if flex[objID] then alphaDue[objID] = 0.3 
 M.onVehicleSwitched = function() switchedAt = os.clock() end
 M.getFlexMeshes = function(objID) return flexMeshes[objID] end
 M.getFlexScale = function(objID) return flexScale[objID] end
-M.onVehicleDestroyed = function(objID) flexSkin[objID] = nil flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil end
+M.onVehicleDestroyed = function(objID) flexSkin[objID] = nil flexScale[objID] = nil alphaDue[objID] = nil headHidden[objID] = nil flexMeshes[objID] = nil flex[objID] = nil ragdolls[objID] = nil mounts[objID] = nil noProps[objID] = nil playerCars[objID] = nil end
 return M
