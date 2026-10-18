@@ -28,8 +28,8 @@ sys.argv = sys.argv[:1]          # convert_drivers reads its own argv at import
 import convert_drivers as cd  # noqa: E402
 
 BLENDER = ARGS[0] if ARGS else r"C:\Program Files\Blender Foundation\Blender 3.6\blender.exe"
-SRC = os.path.join(HERE, "..", "HD Model")
-CACHE = os.path.join(HERE, "..", "build", "hd")
+SRC = os.environ.get("HD_SRC") or os.path.join(HERE, "..", "HD Model")      # (the source folder and its dump cache are not in git: point at them)
+CACHE = os.environ.get("HD_CACHE") or os.path.join(HERE, "..", "build", "hd")
 Image.MAX_IMAGE_PIXELS = None
 
 # id, display name, folder, fbx, texture stem, model name
@@ -75,9 +75,15 @@ def load(fbx):
     return json.load(open(out))
 
 
-# the grip: curl per finger joint (degrees), as SLRR's drivers have their hands modelled as fists
-CURL = {"01": 70, "02": 85, "03": 55}
-THUMB_CURL = {"01": 15, "02": 35, "03": 30}
+# the grip: curl per finger joint (degrees)
+# (a looser curl than a fist: the fingers close round a rim, not on themselves: a 16 to 23 mm hole, see grip_hands.py)
+CURL = {"01": 45, "02": 55, "03": 35}
+THUMB_CURL = {"01": 10, "02": 20, "03": 15}
+if os.environ.get("HD_CURL"):      # "70,85,55" or "70,85,55,15,35,30": try another grip without editing the file
+    v = [float(x) for x in os.environ["HD_CURL"].split(",")]
+    CURL = dict(zip(("01", "02", "03"), v[:3]))
+    if len(v) >= 6:
+        THUMB_CURL = dict(zip(("01", "02", "03"), v[3:6]))
 
 
 def rodrigues(k, a):
