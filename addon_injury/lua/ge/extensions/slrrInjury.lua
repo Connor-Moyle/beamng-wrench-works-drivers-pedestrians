@@ -32,7 +32,7 @@ local T = {toughness = 1,              -- times the forces in SCALE: below 1 he 
            voiceGap = 2,                           -- seconds between voice clips per driver
            -- how injuries feel (the player's own driver): 1 = on, 0 = off for the switches
            reduceMotion = 0,                       -- 1: none of the screen effects below (blur), for motion sickness
-           fxBlur = 1, fxBlurStrength = 0.4,       -- the screen edges go blurry after a hit, fading away
+           fxBlur = 1, fxBlurStrength = 0.7,       -- the screen edges go blurry after a hit, fading away
            fxMuffle = 1, fxMuffleStrength = 0.5,   -- his hearing is muffled for a while after a hit
            fxSeconds = 12,                         -- how long the effects take to fade (a knock-out keeps them until he wakes)
            limp = 1}                               -- on foot with a broken leg: no sprinting
@@ -275,7 +275,7 @@ end
 -- them until he wakes), no sprinting on foot with a broken leg. The game offers no camera shake we could use, and no screen darkening
 -- without shipping a shader, so these are the effects there are: ScreenBlurFX rects, core_sounds.setAudioBlur, playerController.setSpeedCoef.
 local fx = {peak = 0, left = 0, dur = 1, muffled = false}
-local FX_LEVEL = {bruised = 0.35, broken = 0.7, unconscious = 1, fatal = 1}
+local FX_LEVEL = {bruised = 0.6, broken = 0.7, unconscious = 1, fatal = 1}
 local walkState                -- the car state of the driver who got out onto the unicycle (his leg)
 local footTimer = 0
 local NO_SPRINT = "local c = controller and controller.getController('playerController') if c and c.setSpeedCoef then c.setSpeedCoef(0) end"
@@ -402,7 +402,7 @@ local SPEC = {
   {key = 'voiceGap', group = 'Voice', label = 'Time between his shouts', tip = 'At least this many seconds between his cries of pain or anger. 0 lets him shout every time.', step = 0.5, unit = 's'},
   {key = 'reduceMotion', group = 'How injuries feel', bool = true, label = 'Reduce motion', tip = 'Turns off the screen effects (blur) for people who get motion sick. Sound and walking effects keep their own switches.'},
   {key = 'fxBlur', group = 'How injuries feel', bool = true, label = 'Blurry edges after a hit', tip = 'The edges of the screen go blurry after a hard hit and clear up again as he recovers.'},
-  {key = 'fxBlurStrength', group = 'How injuries feel', label = 'Blur strength', tip = 'How blurry the edges get (0 to 100 %). Modest is the default.', step = 0.05, unit = '%', scale = 100, showIf = 'fxBlur'},
+  {key = 'fxBlurStrength', group = 'How injuries feel', label = 'Blur strength', tip = 'How blurry the edges get (0 to 100 %). A bruise is clearly visible by default.', step = 0.05, unit = '%', scale = 100, showIf = 'fxBlur'},
   {key = 'fxMuffle', group = 'How injuries feel', bool = true, label = 'Muffled hearing after a hit', tip = 'The sound is dulled for a while after a hard hit, as if his ears were ringing.'},
   {key = 'fxMuffleStrength', group = 'How injuries feel', label = 'Muffling strength', tip = 'How dull the sound gets (0 to 100 %).', step = 0.05, unit = '%', scale = 100, showIf = 'fxMuffle'},
   {key = 'fxSeconds', group = 'How injuries feel', label = 'Effects fade over', tip = 'Seconds the blur and the muffled hearing take to go away. A knock-out keeps them until he wakes up.', step = 1, unit = 's'},
