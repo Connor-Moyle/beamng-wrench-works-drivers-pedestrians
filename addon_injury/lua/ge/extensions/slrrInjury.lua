@@ -42,7 +42,7 @@ local TUNE_RANGE = {toughness = {0.5, 2}, bruiseAt = {0.05, 0.5}, brokenAt = {0.
 local T0 = {}
 for k, v in pairs(T) do T0[k] = v end
 local DEATH_HEAD, DEATH_CHEST, DEATH_TIME = 200, 150, 0.025   -- beyond what restrained drivers survive
-local JUMP = 2             -- metres: a body moving this much more than its speed explains in one step = a glitch
+local JUMP = 8             -- metres: a body moving this much more than its speed explains in one step = a glitch (a car in a hard crash jitters by a few)
 local SETTLE, DIE_SETTLE = 1.5, 2
 local TRACK_DIST = 150     -- AI drivers farther than this from the camera aren't tracked
 local RANK = {none = 0, bruised = 1, broken = 2, unconscious = 3, fatal = 4}
@@ -172,7 +172,11 @@ local function feed(vehId, s)
   local st = get(vehId)
   if st.dead then return end
   if st.grace > 0 then return end
-  if (s.jump or 0) > JUMP then st.grace = T.grace return end   -- teleported or glitched: ignore, and a while after
+  if (s.jump or 0) > JUMP then   -- teleported or glitched: ignore, and a while after
+    if isPlayer(vehId) then log('I', 'slrrInjury', string.format('moved %.1f m more than its speed explains: counted as a teleport, ignored for %.0f s', s.jump, T.grace)) end
+    st.grace = T.grace
+    return
+  end
   local hit = false
   st.prev = st.prev or {}
   -- what the player's crashes actually measure (a hard hit that scores nothing shows here): one line per jolt over 8 g, 0.5 s apart

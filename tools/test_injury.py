@@ -103,7 +103,7 @@ def sampler_check():
     stop = jumps([0, 0.2, 0.4, 0.45, 0.45], [13.9, 13.9, 13.9, 0, 0], 0.4)
     assert all(j is None or j.jump < 0.5 for j in stop), "a hard stop in a long frame is not a teleport"
     tele = jumps([0, 0.2, 50, 50.2, 50.4], [13.9] * 5, STEP)
-    assert max(j.jump for j in tele if j) > 2, "a teleport is one"
+    assert max(j.jump for j in tele if j) > 8, "a teleport is one"
 
 
 def main():
