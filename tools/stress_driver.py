@@ -435,6 +435,12 @@ def check_settings():
     lua.execute("M.loadTune({jointSpeed = 1.5, bogus = 3, reach = 99})")
     assert lua.eval("M.getTune('jointSpeed')") == 1.5 and lua.eval("M.getTune('reach')") == 0.98 and lua.eval("M.getTune('bogus')") is None
     lua.execute("M.resetTune()")
+    # quick-setup presets: what costs frames declares them (stored values, in order from cheap to rich), the rigged driver never does
+    assert lua.eval("F.rig.presets") is None and lua.eval("F.preset == nil or F.preset.presets == nil")
+    for fid in ("mode", "cullDist", "animDist", "collideDist", "farSkip", "helmet"):
+        assert lua.eval("F.%s.presets ~= nil and F.%s.presets.performance ~= nil" % (fid, fid)), fid
+    assert lua.eval("F.cullDist.presets.performance < F.cullDist.presets.balanced and F.cullDist.presets.balanced < F.cullDist.presets.max")
+    assert lua.eval("F.farSkip.presets.performance > F.farSkip.presets.max") and lua.eval("F.cullDist.presets.balanced") == lua.eval("F.cullDist.default")
     # a pedestrian tab offered by slrrPedestrians joins the page, first
     lua.execute("""slrrPedestrians = {settingsSchema = function() return {id = 'pedestrians', title = 'Pedestrians'}, {{id = 'count', tab = 'pedestrians', type = 'int', label = 'n', min = 0, max = 9, default = 1, store = {kind = 'custom', get = function() return 1 end, set = function() end}}} end}
                   M.onSlrrSettingsReady()""")
@@ -482,6 +488,54 @@ def check_tune_effect():
     base, still = worst({}), worst({"swayGain": 0})
     assert still < base - 0.03, ("body sway 0 should move him less", base, still)
     print("tunables ok: body sway 0 moves him %.3f m instead of %.3f m" % (still, base))
+
+
+def check_stalks():
+    """The driver reaches for a stalk when the car reports one (slrrDrivers.control): the hand on that side moves, only while the wheel is
+    near straight; the wipers on at low speed lean him forward a little, not at speed; the settings switch it all off."""
+    def sim(steer, speed, ev, tune=None, secs=1.0, part="l_hand"):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+        lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+        g = lua.globals()
+        g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+        M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+        g.M = M
+        lua.execute("shim_start(M) math.randomseed(7)")   # (glances and idle motion use math.random)
+        for k, v in (tune or {}).items():
+            assert M.setTune(k, v)
+        for _ in range(90):
+            g.shim_step(DT, speed, 0, steer, 0, 2000, 2, 0.3, 0, 0)
+        if ev:
+            M.control(7, ev[0], ev[1])
+        track = []
+        sim.reached = False
+        for _ in range(int(secs / DT)):
+            g.shim_step(DT, speed, 0, steer, 0, 2000, 2, 0.3, 0, 0)
+            p = getattr(g.shim_parts_local(), part)
+            track.append((p.x, p.y, p.z))
+            sim.reached = sim.reached or M.getState(7)["stalk"] is not None
+        return track
+    def diff(a, b):
+        return max(math.dist(x, y) for x, y in zip(a, b))
+    base = sim(0, 10, None)
+    left = sim(0, 10, ("signal", 1))
+    wiper_hand = sim(0, 10, ("wiper", 1), part="r_hand")
+    base_r = sim(0, 10, None, part="r_hand")
+    assert diff(base, left) > 0.03, ("the left hand did not reach for the indicator", diff(base, left))
+    assert diff(base_r, sim(0, 10, ("signal", 1), part="r_hand")) < 0.005, "the right hand moved for the indicator"
+    assert diff(base_r, wiper_hand) > 0.03, ("the right hand did not reach for the wipers", diff(base_r, wiper_hand))
+    sim(200, 10, ("signal", 1))
+    assert not sim.reached, "he let go of a wheel turned well over"
+    sim(0, 10, ("signal", 1))
+    assert sim.reached, "no reach with the wheel straight"
+    assert diff(base, sim(0, 10, ("signal", 1), {"stalkReach": 0})) < 0.005, "the switch did not turn the reach off"
+    # the wipers on, slow: a forward lean; fast: none
+    head = lambda speed, ev: sim(0, speed, ev, secs=4, part="head")   # noqa: E731
+    slow = diff(head(3, None), head(3, ("wiper", 1)))
+    fast = diff(head(20, None), head(20, ("wiper", 1)))
+    assert slow > 0.01 and fast < 0.005, ("the rain lean", slow, fast)
+    print("stalks ok: the hand reaches %.2f m for the indicator, %.2f m for the wipers, not with the wheel over; rain lean %.3f m slow, %.3f m fast" % (diff(base, left), diff(base_r, wiper_hand), slow, fast))
 
 
 def check_passenger():
@@ -823,6 +877,7 @@ if __name__ == "__main__":
     check_flex_gestures()
     check_settings()
     check_tune_effect()
+    check_stalks()
     check_flex_driving()
     check_mount()
     check_far()

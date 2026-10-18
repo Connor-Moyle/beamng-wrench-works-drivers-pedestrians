@@ -97,6 +97,10 @@ local T = {
   dazeWait = 5,
   dazeTime = 3.5,
   dazeShake = 0.22,
+  stalkReach = 1,                 -- 1: he reaches for the wiper stalk, the light switch and the indicator when they change
+  stalkTime = 0.7,                -- s the reach takes, out and back
+  stalkSteerMax = math.rad(90),   -- the wheel angle past which he does not let go of it for a stalk (both hands stay on the wheel)
+  rainLean = math.rad(3),         -- forward lean at low speed with the wipers on, to see through the wet windscreen (0 = none)
 }
 
 local drivers = {}      -- id -> {id, name, model, skin, preview}
@@ -1426,6 +1430,12 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
   local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
   if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
+  -- slow with the wipers on: he leans forward a little to see through the wet windscreen (not the rigged driver: his torso is fixed)
+  if not c.flex then
+    local wet = animated and c.wipersOn and T.rainLean > 0 and vec3(veh:getVelocity()):length() < 7
+    c.rainK = (c.rainK or 0) + clamp((wet and 1 or 0) - (c.rainK or 0), -dt * 0.5, dt * 0.5)
+    if c.rainK > 0 then L = compose(L, rotX(-T.rainLean * smootheststep(c.rainK))) end
+  end
   updateLook(c, vid, R, dt, vid == fpVid, vec3(veh:getVelocity()):length())
   local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (T.lookHead + LOOK_TORSO) * (1 - (c.revK or 0))
   if math.abs(lookTorso) > 1e-4 then L = compose(L, rotZ(lookTorso)) end
@@ -1494,10 +1504,35 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local turn = animated and math.rad(e.steer) or 0
   local grips = updateHands(c, turn, dt)
   c.lastGrips = grips
+  -- a reach for a stalk or switch (wipers, lights, indicators) with the hand on that side, out and back; never while the wheel is turned well
+  -- over (both hands stay on it: a task waits up to 1.5 s for the wheel to come back, then is dropped) and it is cut short if the wheel
+  -- is turned over during the reach
+  local steerAbs = math.abs(e.steer or 0)
+  local steerMax = math.deg(T.stalkSteerMax)
+  if c.stalkQ and #c.stalkQ > 0 and not c.stalk then
+    if not animated or T.stalkReach == 0 then c.stalkQ = {}
+    elseif steerAbs < steerMax and not c.shiftT and c.reach < 0.1 then c.stalk = {side = table.remove(c.stalkQ, 1), t = 0} c.stalkWait = 0
+    else
+      c.stalkWait = (c.stalkWait or 0) + dt
+      if c.stalkWait > 1.5 then c.stalkQ = {} c.stalkWait = 0 end
+    end
+  end
+  c.stalkK = 0
+  if c.stalk then
+    local st = c.stalk
+    if steerAbs > steerMax * 1.3 and st.t < 0.6 * T.stalkTime then st.t = 0.6 * T.stalkTime end   -- the wheel is turned over: back to it
+    st.t = st.t + dt
+    local u = st.t / T.stalkTime
+    if u >= 1 then c.stalk = nil
+    elseif u < 0.3 then c.stalkK = smootheststep(u / 0.3)
+    elseif u < 0.6 then c.stalkK = 1
+    else c.stalkK = smootheststep(1 - (u - 0.6) / 0.4) end
+  end
   for side, arm in pairs(rig.arms) do
     local grip = grips[side]
     local target = rimPoint(wheel, grip.a, grip.lift) - wheelN * WRIST_BACK   -- the rim itself (+ the re-grip lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
+    if c.stalkK > 0 and c.stalk and side == c.stalk.side then target = lerp(target, target + vec3(0, 0, -0.06) + wheelN * 0.08, c.stalkK) end   -- the stalk: a little lower and toward the dash
     if c.revK > 0 then
       -- looking back: the passenger-side hand goes to the passenger seat back, the other steers from the top
       local k = smootheststep(c.revK)
@@ -1537,7 +1572,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
     -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
-    local holding = grip.lift == 0 and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
+    local holding = grip.lift == 0 and not (c.stalkK > 0.01 and c.stalk and side == c.stalk.side) and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
     if holding and rig.fist and rig.fist[side] then
       -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
       local _, _, _, _, handR = solve(target)
@@ -1764,6 +1799,17 @@ M.getDisplayMode = function(vid) return (vid and carMode[vid]) or displayMode en
 M.setAnimated = function(on) M.setDisplayMode(on and 'full' or 'still') end
 M.getAnimated = function() return displayMode ~= 'still' end
 M.feed = feed
+-- slrrDriverFeed (the car) reports a change of the wipers, the lights or the indicators: kind 'wiper', 'light' or 'signal', on = 1/0.
+-- The hand on the stalk's side reaches for it: the indicator and the light switch are on the stalk on the door side of the wheel, the wipers on
+-- the other (left and right swap in a right-hand-drive car). Wipers on also set him leaning a little at low speed.
+M.control = function(vid, kind, on)
+  local c = cars[vid]
+  if not c then return end
+  if kind == 'wiper' then c.wipersOn = on == 1 end
+  local side = (kind == 'wiper') and (c.rhd and 'l' or 'r') or (c.rhd and 'r' or 'l')
+  c.stalkQ = c.stalkQ or {}
+  if #c.stalkQ < 2 then table.insert(c.stalkQ, side) end
+end
 M.getState = function(vid) return cars[vid] end   -- for debugging
 M.getPerf = function() local n = 0 for _ in pairs(cars) do n = n + 1 end return perfMs, n, badWrites end   -- ms per frame, drivers, transforms refused
 -- ms per frame by section since the last call (body physics, the prop calls, everything), then reset
@@ -1828,6 +1874,14 @@ local TUNE_SPEC = {
    tip = 'How long his hand stays on the lever for a gear change in a manual car.'},
   {key = 'reachRpm', group = 'Animation', label = 'Revs where he reaches for the lever', min = 0.5, max = 1, step = 0.01, unit = '%', scale = 100, advanced = true,
    tip = 'The share of the engine\'s top revs at which his hand goes to the gear lever in a manual car.'},
+  {key = 'stalkReach', group = 'Controls', bool = true, label = 'Reaches for stalks and switches', min = 0, max = 1,
+   tip = 'He reaches for the wiper stalk, the light switch and the indicator when they change, then back to the wheel. He never lets go of the wheel when it is turned well over.'},
+  {key = 'stalkTime', group = 'Controls', label = 'Time per reach', min = 0.3, max = 2, step = 0.05, unit = 's',
+   tip = 'How long a reach for a stalk takes, out and back.'},
+  {key = 'stalkSteerMax', group = 'Controls', label = 'Keeps both hands on the wheel past', min = math.rad(20), max = math.rad(180), step = 5, unit = 'deg', deg = true, advanced = true,
+   tip = 'When the steering wheel is turned further than this he does not take a hand off it for a stalk.'},
+  {key = 'rainLean', group = 'Controls', label = 'Leans forward in the rain', min = 0, max = math.rad(8), step = 0.5, unit = 'deg', deg = true,
+   tip = 'At low speed with the wipers on he leans forward a little to see through the wet windscreen. 0 keeps him upright.'},
   {key = 'breathAngle', group = 'Animation', label = 'Breathing', min = 0, max = math.rad(3), step = 0.1, unit = 'deg', deg = true,
    tip = 'How much his chest moves as he breathes while he sits still. 0 is perfectly still.'},
   {key = 'rollSpeed', group = 'Animation', label = 'Wrist turning speed', min = 1, max = 12, step = 0.5, unit = 'rad/s', advanced = true,
@@ -1864,13 +1918,13 @@ local TUNE_SPEC = {
   {key = 'dazeShake', group = 'After a crash', label = 'Head shake', min = 0, max = 0.5, step = 0.02, unit = '', advanced = true,
    tip = 'How much he shakes his head, slowly, when he is dazed. 0 holds it still.'},
   -- Performance
-  {key = 'cullDist', group = 'Performance', label = 'Drivers drawn up to', min = 40, max = 400, step = 10, unit = 'm',
+  {key = 'cullDist', presets = {performance = 60, balanced = 150, quality = 200, max = 300}, group = 'Performance', label = 'Drivers drawn up to', min = 40, max = 400, step = 10, unit = 'm',
    tip = 'Drivers in cars farther from the camera than this are not drawn or updated. Lower saves frame time in traffic.'},
-  {key = 'animDist', group = 'Performance', label = 'Drivers animated up to', min = 10, max = 150, step = 5, unit = 'm',
+  {key = 'animDist', presets = {performance = 15, balanced = 40, quality = 60, max = 100}, group = 'Performance', label = 'Drivers animated up to', min = 10, max = 150, step = 5, unit = 'm',
    tip = 'Drivers in AI cars animate only this close to the camera; farther away they sit still.'},
-  {key = 'collideDist', group = 'Performance', label = 'Bodies react to the car up to', min = 10, max = 150, step = 5, unit = 'm', advanced = true,
+  {key = 'collideDist', presets = {performance = 10, balanced = 40, quality = 60, max = 100}, group = 'Performance', label = 'Bodies react to the car up to', min = 10, max = 150, step = 5, unit = 'm', advanced = true,
    tip = 'Only drivers this close to the camera can bump against the car\'s parts (it costs work to read the car).'},
-  {key = 'farSkip', group = 'Performance', label = 'Far drivers updated every', min = 1, max = 30, step = 1, unit = 'frames', advanced = true,
+  {key = 'farSkip', presets = {performance = 16, balanced = 8, quality = 4, max = 2}, group = 'Performance', label = 'Far drivers updated every', min = 1, max = 30, step = 1, unit = 'frames', advanced = true,
    tip = 'A far driver in an AI car is updated only once in this many frames. Higher is cheaper and jerkier.'},
   {key = 'maxTints', group = 'Performance', label = 'Clothing colours kept loaded', min = 2, max = 16, step = 1, unit = '', advanced = true,
    tip = 'How many different shirt and trouser colours stay in video memory at once.'},
@@ -1918,12 +1972,19 @@ M.settingsSchema = function()
   local tuneFields = {}
   for _, sp in ipairs(TUNE_SPEC) do
     local k = (sp.deg and 180 / math.pi or 1)
-    tuneFields[#tuneFields + 1] = {id = sp.key, tab = 'drivers', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
-      min = sp.min * k, max = sp.max * k, step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key] * k, apply = 'live',
-      store = {kind = 'custom', get = function() return T[sp.key] * k end, set = function(v) M.setTune(sp.key, v / k) end}}
+    if sp.bool then
+      tuneFields[#tuneFields + 1] = {id = sp.key, tab = 'drivers', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+        default = T0[sp.key] ~= 0, apply = 'live',
+        store = {kind = 'custom', get = function() return T[sp.key] ~= 0 end, set = function(v) M.setTune(sp.key, v and 1 or 0) end}}
+    else
+      tuneFields[#tuneFields + 1] = {id = sp.key, tab = 'drivers', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced, presets = sp.presets,
+        min = sp.min * k, max = sp.max * k, step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key] * k, apply = 'live',
+        store = {kind = 'custom', get = function() return T[sp.key] * k end, set = function(v) M.setTune(sp.key, v / k) end}}
+    end
   end
   local fields = {
     {id = 'mode', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Show the driver', default = 'full', apply = 'live', options = modes,
+     presets = {performance = 'hideFirstPerson', balanced = 'full', quality = 'full', max = 'full'},
      tooltip = 'Full animates him; Still keeps him in the seat without moving; the other two hide him in first person or everywhere.',
      store = {kind = 'custom', get = function() return M.getDisplayMode() end, set = function(v) M.setDisplayMode(v) end}},
     {id = 'driver', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Who drives', default = people[2] and people[2].id or 'none', apply = 'live', options = people,
@@ -1932,7 +1993,7 @@ M.settingsSchema = function()
     {id = 'scale', tab = 'drivers', group = 'Look', type = 'slider', label = 'Size', min = 0.9, max = 1.1, step = 0.01, unit = 'x', default = 1, apply = 'live',
      tooltip = 'How tall he sits, 0.9 to 1.1 times. The rigged driver takes it for cars spawned afterwards.',
      store = {kind = 'custom', get = function() return tonumber(look(nil).scale) or 1 end, set = function(v) if math.abs(v - 1) < 0.005 then v = false end M.setAppearance(nil, {scale = v}) end}},
-    {id = 'helmet', tab = 'drivers', group = 'Look', type = 'bool', label = 'Helmet', default = false, apply = 'live',
+    {id = 'helmet', tab = 'drivers', group = 'Look', type = 'bool', label = 'Helmet', default = false, apply = 'live', presets = {performance = false},
      tooltip = 'A helmet on his head (the rigged driver: only the police officer and the racer have one).',
      store = {kind = 'custom', get = function() return look(nil).helmet == true end, set = function(v) M.setAppearance(nil, {helmet = v and true or false}) end}},
     {id = 'helmetColor', tab = 'drivers', group = 'Look', type = 'color', label = 'Helmet colour', default = NEUTRAL, apply = 'live', visibleIf = {field = 'helmet', equals = true},

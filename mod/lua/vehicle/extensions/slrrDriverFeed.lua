@@ -254,9 +254,39 @@ local function movePose(dt)
   end
 end
 
+-- The wipers, lights and indicators, polled ten times a second: a change is reported to slrrDrivers (kind 'wiper', 'light' or 'signal'), so the
+-- driver can reach for the stalk. The first look only records the state (a car that spawns with the lights on moves nobody's hand). The wipers
+-- are any electrics value with 'wiper' in its name (the blade's angle crosses zero, so they count as running 0.8 s after the last motion).
+local ctl = {t = 0}
+local function pollControls(dt, e)
+  ctl.t = ctl.t - dt
+  if ctl.t > 0 then return end
+  ctl.t = 0.1
+  ctl.clock = (ctl.clock or 0) + 0.1
+  if not ctl.keys or ctl.clock - (ctl.keysAt or 0) > 2 then   -- (looked for again every 2 s: a car may only publish its wiper value once it is used)
+    ctl.keys, ctl.keysAt = {}, ctl.clock
+    for k in pairs(e) do if tostring(k):lower():find('wiper', 1, true) then ctl.keys[#ctl.keys + 1] = k end end
+  end
+  local w = 0
+  for _, k in ipairs(ctl.keys) do local v = tonumber(e[k]) if v then w = math.max(w, math.abs(v)) end end
+  if w > 0.01 then ctl.wiperUntil = ctl.clock + 0.8 end
+  local state = {wiper = (ctl.wiperUntil and ctl.clock < ctl.wiperUntil) and 1 or 0,
+                 light = (tonumber(e.lights_state) or 0) * 4 + (tonumber(e.highbeam) or 0) * 2 + (tonumber(e.lowbeam) or 0),
+                 signal = (tonumber(e.signal_left_input) or 0) * 2 + (tonumber(e.signal_right_input) or 0) + ((tonumber(e.hazard_enabled) or tonumber(e.hazard) or 0) > 0 and 8 or 0)}
+  if ctl.last then
+    for kind, v in pairs(state) do
+      if v ~= ctl.last[kind] then
+        obj:queueGameEngineLua(fmt('if slrrDrivers and slrrDrivers.control then slrrDrivers.control(%d,%q,%d) end', objectId, kind, kind == 'wiper' and v or 1))
+      end
+    end
+  end
+  ctl.last = state
+end
+
 local function updateGFX(dt)
   movePose(dt)
   local e = electrics.values
+  pollControls(dt, e)
   obj:queueGameEngineLua(fmt('if slrrDrivers then slrrDrivers.feed(%d,%.2f,%.0f,%.0f,%d,%.2f,%.2f,%.2f) end',
     objectId, e.steering or 0, e.rpm or 0, e.maxrpm or 0, e.gearIndex or 0, e.throttle or 0, e.brake or 0, e.clutch or 0))
   keepMass(dt)

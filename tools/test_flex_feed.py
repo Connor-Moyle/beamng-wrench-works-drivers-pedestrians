@@ -100,6 +100,23 @@ def main():
       carset, torsoset = false, false
       for _, c in ipairs(calls) do if c[1] == 4 then carset = true end if c[1] == 0 then torsoset = true end end""")
     assert lua.eval("carset") and not lua.eval("torsoset"), "car hold up to 2 m, torso holds keep the 1.5x rule"
+    # the wipers, lights and indicators reported to slrrDrivers (slrrDriverFeed polls ten times a second, edges only)
+    lua.execute("""
+      sent = {}
+      obj.queueGameEngineLua = function(_, c) if c:find('control') then sent[#sent + 1] = c end end
+      electrics.values = {wiper_angle = 0, lights_state = 0, signal_left_input = 0, signal_right_input = 0, highbeam = 0, lowbeam = 0}
+      for i = 1, 25 do M.updateGFX(0.1) end""")   # (the key list is looked for again every 2 s)
+    assert lua.eval("#sent") == 0, "the first look must only record the state"
+    lua.execute("electrics.values.signal_left_input = 1 M.updateGFX(0.1)")
+    assert lua.eval("#sent") == 1 and '"signal"' in lua.eval("sent[1]"), lua.eval("sent[1]")
+    lua.execute("electrics.values.wiper_angle = 0.4 M.updateGFX(0.1) electrics.values.wiper_angle = 0 M.updateGFX(0.1)")
+    assert lua.eval("#sent") == 2 and '"wiper",1' in lua.eval("sent[2]"), lua.eval("sent[2]")
+    lua.execute("for i = 1, 12 do M.updateGFX(0.1) end")   # idle for 1.2 s: the wipers count as stopped
+    assert lua.eval("#sent") == 3 and '"wiper",0' in lua.eval("sent[3]"), lua.eval("sent[3]")
+    lua.execute("electrics.values.lights_state = 2 electrics.values.lowbeam = 1 M.updateGFX(0.1)")
+    assert lua.eval("#sent") == 4 and '"light"' in lua.eval("sent[4]")
+    lua.execute("M.updateGFX(0.1) M.updateGFX(0.1)")
+    assert lua.eval("#sent") == 4, "no change, no report"
     print("ok: bad poses dropped, health log line written, torso settled once after 3 s")
 
 
