@@ -221,6 +221,11 @@ end
 
 
 M.driverMass = 69   -- kg: the sum of KG in addRagdoll, all of it in the seat (head to ankles), none added elsewhere
+local function HAND_NODE(rig, side, thumb)
+  local w, f = rig.arms[side].wrist, rig.fist and rig.fist[side] or {0, 0.06, 0}
+  if thumb then return {w[1] + 0.10, w[2], w[3]} end
+  return {w[1] + f[1] * 1.5, w[2] + f[2] * 1.5, w[3] + f[3] * 1.5}
+end
 local function addRagdoll(objID, vehicle, camCid, k)
   local rig = jsonReadFile('/art/slrr_drivers/models/' .. driverModel(objID) .. '/rig.json')
   if not rig then return 0 end
@@ -232,14 +237,16 @@ local function addRagdoll(objID, vehicle, camCid, k)
     face = {rig.parts.head[1], rig.parts.head[2] + 0.14, rig.parts.head[3] + 0.12},   -- ahead of the head: gives the head a facing, so it can turn
     chest = {0, (sh[2] + rig.pelvis[2]) / 2, (sh[3] + rig.pelvis[3]) / 2 + 0.05}, pelvis = rig.pelvis,
     r_sh = rig.arms.r.shoulder, l_sh = rig.arms.l.shoulder, r_el = rig.arms.r.elbow, l_el = rig.arms.l.elbow,
-    r_wr = rig.arms.r.wrist, l_wr = rig.arms.l.wrist, r_hip = rig.legs.r.hip, l_hip = rig.legs.l.hip,
+    r_wr = rig.arms.r.wrist, l_wr = rig.arms.l.wrist,
+    -- two nodes round each wrist (the knuckles and the thumb side): one wrist node cannot say which way the palm faces
+    r_hk = HAND_NODE(rig, 'r', false), l_hk = HAND_NODE(rig, 'l', false), r_ht = HAND_NODE(rig, 'r', true), l_ht = HAND_NODE(rig, 'l', true), r_hip = rig.legs.r.hip, l_hip = rig.legs.l.hip,
     r_kn = rig.legs.r.knee, l_kn = rig.legs.l.knee, r_an = rig.legs.r.ankle, l_an = rig.legs.l.ankle}
   if k ~= 1 then   -- a body of another size (setAppearance scale): every joint about the eye
     local Q = {}
     for name, p in pairs(P) do Q[name] = {p[1] * k, p[2] * k, p[3] * k} end
     P = Q
   end
-  local KG = {head = 4.5, face = 1.0, neck = 1.5, chest = 14, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
+  local KG = {head = 4.5, face = 1.0, neck = 1.5, chest = 12, pelvis = 8, r_hk = 1, l_hk = 1, r_ht = 1, l_ht = 1, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
               r_hip = 6, l_hip = 6, r_kn = 4, l_kn = 4, r_an = 2, l_an = 2}
   local ids, ours = {}, {}
   for name, p in pairs(P) do
@@ -258,7 +265,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   local BONE = {beamSpring = 400000, beamDamp = 60, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
   local SOFT = {beamSpring = 3000, beamDamp = 30, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
   -- bones, and a braced torso and pelvis (they don't bend in a car seat)
-  for _, b in ipairs({{'head', 'neck'}, {'head', 'face'}, {'neck', 'face'}, {'neck', 'chest'}, {'chest', 'pelvis'}, {'neck', 'r_sh'}, {'neck', 'l_sh'},
+  for _, b in ipairs({{'r_wr', 'r_hk'}, {'r_wr', 'r_ht'}, {'r_hk', 'r_ht'}, {'l_wr', 'l_hk'}, {'l_wr', 'l_ht'}, {'l_hk', 'l_ht'}, {'head', 'neck'}, {'head', 'face'}, {'neck', 'face'}, {'neck', 'chest'}, {'chest', 'pelvis'}, {'neck', 'r_sh'}, {'neck', 'l_sh'},
                       {'r_sh', 'l_sh'}, {'r_sh', 'chest'}, {'l_sh', 'chest'}, {'r_hip', 'l_hip'}, {'pelvis', 'r_hip'},
                       {'pelvis', 'l_hip'}, {'chest', 'r_hip'}, {'chest', 'l_hip'}, {'r_sh', 'r_hip'}, {'l_sh', 'l_hip'},
                       {'r_sh', 'r_el'}, {'r_el', 'r_wr'}, {'l_sh', 'l_el'}, {'l_el', 'l_wr'},
@@ -271,7 +278,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   if driverRig == 'flex' then
     local STIFF = {beamSpring = 150000, beamDamp = 300, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
     local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
-    for _, j in ipairs({'head', 'face', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
+    for _, j in ipairs({'head', 'face', 'r_hk', 'r_ht', 'l_hk', 'l_ht', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
       local near = {}
       for _, t in ipairs(TORSO) do
         near[#near + 1] = {t, math.sqrt((P[j][1] - P[t][1]) ^ 2 + (P[j][2] - P[t][2]) ^ 2 + (P[j][3] - P[t][3]) ^ 2)}
@@ -360,15 +367,15 @@ end
 -- mesh's frame from, and the arm vanished)
 local BIND = {
   body = {'chest', 'r_hip', 'l_hip', 'r_sh', 'l_sh'}, head = {'head', 'neck', 'face'},
-  r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh', 'chest'}, r_hand = {'r_wr', 'r_el', 'r_sh', 'chest'},
-  l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh', 'chest'}, l_hand = {'l_wr', 'l_el', 'l_sh', 'chest'},
+  r_upperarm = {'r_sh', 'r_el', 'chest'}, r_forearm = {'r_el', 'r_wr', 'r_sh', 'chest'}, r_hand = {'r_wr', 'r_hk', 'r_ht'},
+  l_upperarm = {'l_sh', 'l_el', 'chest'}, l_forearm = {'l_el', 'l_wr', 'l_sh', 'chest'}, l_hand = {'l_wr', 'l_hk', 'l_ht'},
   r_thigh = {'r_hip', 'r_kn', 'r_an'}, r_calf = {'r_kn', 'r_an', 'r_hip'}, r_foot = {'r_an', 'r_kn', 'r_hip'},
   l_thigh = {'l_hip', 'l_kn', 'l_an'}, l_calf = {'l_kn', 'l_an', 'l_hip'}, l_foot = {'l_an', 'l_kn', 'l_hip'}}
 local ORIGIN = {body = 'eye', head = 'neck', r_upperarm = 'r_sh', r_forearm = 'r_el', r_hand = 'r_wr', l_upperarm = 'l_sh',
                 l_forearm = 'l_el', l_hand = 'l_wr', r_thigh = 'r_hip', r_calf = 'r_kn', r_foot = 'r_an',
                 l_thigh = 'l_hip', l_calf = 'l_kn', l_foot = 'l_an'}
 
-local ALL = {'head', 'face', 'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_hip', 'l_hip', 'r_kn', 'l_kn', 'r_an', 'l_an'}
+local ALL = {'r_hk', 'r_ht', 'l_hk', 'l_ht', 'head', 'face', 'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_hip', 'l_hip', 'r_kn', 'l_kn', 'r_an', 'l_an'}
 
 -- tag the car's own nodes nearest the seat with a group and return its name (flexBind 'car')
 local function tagSeatNodes(vehicle, cam)

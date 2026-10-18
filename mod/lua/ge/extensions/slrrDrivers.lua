@@ -731,7 +731,7 @@ local function flexPart(c)
     if not (R and eye) then return end
     local function seat(v) return vec3(v:dot(R.x), v:dot(R.y), v:dot(R.z)) end
     local p = seat(m:getPosition() - eye)
-    if finite(p) then self.p, self.y, self.z = p, seat(m:getColumn(1)), seat(m:getColumn(2)) end
+    if finite(p) then self.p, self.x, self.y, self.z = p, seat(m:getColumn(0)), seat(m:getColumn(1)), seat(m:getColumn(2)) end
   end
   function o:getTransform() return self.m end
   function o:setHidden(h) self.hidden = h end
@@ -759,6 +759,13 @@ local function flushFlex(vid, c)
   local ax = h.y:cross(h.z)   -- x = y cross z
   out[#out + 1] = h.p + ax * FLEX_HEAD.x + h.y * FLEX_HEAD.y + h.z * FLEX_HEAD.z
   out[#out + 1] = h.p + ax * FLEX_FACE.x + h.y * FLEX_FACE.y + h.z * FLEX_FACE.z
+  -- the two nodes round each wrist give the hand its roll: the knuckles (the fist's place, 1.5 times out) and the thumb side
+  for _, side in ipairs({'r', 'l'}) do
+    local o, f = c.parts[side .. '_hand'], c.rig.fist and c.rig.fist[side]
+    if not (o and o.p and o.x and o.y and o.z and f) then return end
+    out[#out + 1] = o.p + (o.x * f.x + o.y * f.y + o.z * f.z) * 1.5
+    out[#out + 1] = o.p + o.x * 0.10
+  end
   for _, p in ipairs(out) do if not finite(p) then return end end   -- a NaN would reach the car as text and break its pose()
   c.sendWait = (c.sendWait or 0) + (c.lastDt or 0)
   if c.sent and c.sendWait < (vid == be:getPlayerVehicleID(0) and FLEX_SEND or FLEX_SEND_OTHER) then return end   -- at most 30 a second: the car eases between them

@@ -351,19 +351,22 @@ def check_flex_driving():
     st = M.getState(7)
     R_WR, L_WR = 2, 3
     pts = lambda: [(st["sent"][i + 1].x, st["sent"][i + 1].y, st["sent"][i + 1].z) for i in range(9)]   # noqa: E731
-    wr, grips, yaw, face = [], [], [], []
+    wr, grips, yaw, face, thumb = [], [], [], [], []
     for f in range(int(8 / DT)):
         g.shim_step(DT, 6, 0, 270 * math.sin(f * DT * 1.2), 0, 2500, 2, 0.3, 0, 0)
         wr.append(pts()[R_WR])
         lg = st["lastGrips"]
         grips.append(lg.r.a if lg and lg.r else 0)
         yaw.append(st["headYaw"] or 0)
-        face.append(st["sent"][10].x - st["sent"][9].x)   # the face node ahead of the head: its sideways offset is what turns the head
+        face.append(st["sent"][10].x - st["sent"][9].x)
+        thumb.append(math.atan2(st["sent"][12].z - st["sent"][3].z, st["sent"][12].x - st["sent"][3].x))   # the right fist's thumb side round the wrist: the hand's roll   # the face node ahead of the head: its sideways offset is what turns the head
     rng = max(max(p[2] for p in wr) - min(p[2] for p in wr), max(p[0] for p in wr) - min(p[0] for p in wr))
     regrips = sum(1 for a, b in zip(grips, grips[1:]) if abs(a - b) > 1)
     assert rng > 0.12, ("the hand barely moves on a steering sweep", rng)
     assert regrips >= 2, ("no hand-over-hand re-grips on a +-270 degree sweep", regrips)
     assert max(yaw) - min(yaw) > 0.3, ("the head does not turn into the corners", min(yaw), max(yaw))
+    assert len(st["sent"]) == 14, ("a flex pose is 14 joints: the eight limbs, head, face and two nodes round each wrist", len(st["sent"]))
+    assert max(thumb) - min(thumb) > 0.3, ("the fist does not roll with the wheel (thumb node round the wrist)", min(thumb), max(thumb))
     assert max(face) - min(face) > 0.02, ("the face node does not swing sideways, so the rigged head cannot turn", min(face), max(face))
     st["manual"] = True
     for _ in range(60):
