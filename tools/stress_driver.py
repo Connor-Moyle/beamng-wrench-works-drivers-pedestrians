@@ -574,6 +574,38 @@ def check_regrip():
     print("regrip ok: identical in 3 runs, the most a hand moves in a frame is %.3f m" % worst)
 
 
+def check_reverse_arm():
+    """Reversing, the passenger-side arm lies along the top of the passenger seat's back: the wrist goes to that edge (found from the car's seat
+    nodes), blended in; with no seat nodes the old fixed place is used and nothing breaks."""
+    def reverse(no_seat):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        g = lua.globals()
+        g.SHIM_NO_SEAT = no_seat
+        lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+        lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+        g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+        M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+        g.M = M
+        lua.execute("shim_start(M) math.randomseed(3)")
+        for _ in range(60):
+            g.shim_step(DT, 0, 0, 0, 0, 1000, 1, 0, 0, 0)
+        st = M.getState(7)
+        for _ in range(240):
+            g.shim_step(DT, 2, 0, 0, 0, 1500, -1, 0.2, 0, 0)
+        pl = g.shim_parts_local()
+        hand = pl.r_hand if st["seatLeft"] else pl.l_hand
+        return st, (hand.x, hand.y, hand.z)
+    st, hand = reverse(False)
+    sb = st["seatBack"]
+    assert sb is not None and st["revK"] > 0.99, "no passenger seat back found, or not reversing"
+    assert 0.3 < sb.x < 0.9 and sb.z > -0.3 and sb.z < 0.1, (sb.x, sb.y, sb.z)
+    assert math.dist(hand, (sb.x, sb.y, sb.z)) < 0.12, ("the wrist is not on the seat back", math.dist(hand, (sb.x, sb.y, sb.z)))
+    st2, hand2 = reverse(True)
+    assert st2["seatBack"] is None and st2["revK"] > 0.99 and all(math.isfinite(v) for v in hand2), "no seat: the old pose"
+    assert math.dist(hand, hand2) > 0.01, "the seat back did not change the pose"
+    print("reverse arm ok: the wrist is %.3f m from the seat-back edge; without a seat it keeps the fixed pose" % math.dist(hand, (sb.x, sb.y, sb.z)))
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -915,6 +947,7 @@ if __name__ == "__main__":
     check_tune_effect()
     check_stalks()
     check_regrip()
+    check_reverse_arm()
     check_flex_driving()
     check_mount()
     check_far()

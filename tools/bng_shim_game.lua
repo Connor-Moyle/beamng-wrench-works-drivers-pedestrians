@@ -109,6 +109,11 @@ addNode(32, CAM.x - 0.5, -0.1, CAM.z - 0.1)
 addNode(33, CAM.x, -0.4, CAM.z + 0.25)              -- roof / windscreen top
 for k = 0, 3 do addNode(40 + k, CAM.x - 0.2 + k * 0.12, -0.75, CAM.z - 1.25) end   -- footwell floor
 addNode(50, CAM.x - 0.32, -0.30, CAM.z - 0.50)     -- H-pattern lever knob (car's right of the driver)
+-- the passenger seat (on the car's right: jbeam x smaller): its back, top edge highest, in a node group named for the seat part
+for k, p in ipairs(SHIM_NO_SEAT and {} or {{-0.10, 0.28, CAM.z - 0.15}, {-0.30, 0.28, CAM.z - 0.15}, {-0.50, 0.28, CAM.z - 0.16}, {-0.30, 0.30, CAM.z - 0.40}, {-0.30, 0.05, CAM.z - 0.65}}) do
+  addNode(70 + k, p[1] + CAM.x - 0.35 + 0.0, p[2], p[3])
+  nodes[70 + k].group = {'shim_seat_FR'}
+end
 -- footwell collision triangles: the floor 1.2 m below the eye and a firewall 1.05 m ahead of it
 addNode(60, CAM.x + 0.8, -0.1, CAM.z - 1.2) addNode(61, CAM.x - 0.8, -0.1, CAM.z - 1.2)
 addNode(62, CAM.x + 0.8, -1.05, CAM.z - 1.2) addNode(63, CAM.x - 0.8, -1.05, CAM.z - 1.2)

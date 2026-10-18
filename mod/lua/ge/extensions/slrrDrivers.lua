@@ -1032,6 +1032,31 @@ local function attach(vid)
   local centre = refs and nodes and nodes[refs.ref] and nodes[refs.ref].pos
   if cam0 and centre and math.abs(cam0.x - centre.x) > 0.05 then c.seatLeft = cam0.x > centre.x else c.seatLeft = not c.rhd end
   c.pedalZ = clamp(floorZ and (floorZ + PEDAL_ABOVE_FLOOR) or -0.97, -1.08, -0.85)   -- when nothing is measured
+  -- the top edge of the passenger seat's back, for the arm he lays along it when reversing: the highest of the nodes of a seat part (a node group
+  -- or part with 'seat' in its name, or a name like sf1l / sr2) on the passenger side of the car, behind and beside the eye. Nothing found: the old
+  -- fixed place (SEAT_BACK_REACH) is used.
+  if cam0 and nodes then
+    local pside = c.seatLeft and 1 or -1
+    local cand = {}
+    for _, n in pairs(nodes) do
+      if type(n) == 'table' and n.pos then
+        local text = (nodeGroups(n) .. ' ' .. tostring(n.partOrigin or '')):lower()
+        local nm = tostring(n.name or '')
+        if (text:find('seat', 1, true) and not text:find('belt', 1, true)) or nm:match('^s[fr]%d') then
+          local l = vec3(cam0.x - n.pos.x, cam0.y - n.pos.y, n.pos.z - cam0.z)
+          if l.x * pside > 0.3 and l.x * pside < 1.2 and l.y > -0.6 and l.y < 0.5 and l.z > -0.8 and l.z < 0.2 then cand[#cand + 1] = l end
+        end
+      end
+    end
+    if #cand >= 3 then
+      table.sort(cand, function(a, b) return a.z > b.z end)
+      local top = {}
+      for _, l in ipairs(cand) do if l.z > cand[1].z - 0.1 then top[#top + 1] = l end end   -- the top edge of the back
+      table.sort(top, function(a, b) return math.abs(a.x) < math.abs(b.x) end)   -- the inner part of it, nearest him
+      local n = math.min(2, #top)
+      c.seatBack = (n == 2 and (top[1] + top[2]) / 2 or top[1]) + vec3(0, 0, 0.045)   -- (the wrist rests a little above the edge)
+    end
+  end
   -- the footwell's surfaces: the car's collision triangles in front of the seat (floor, toe board,
   -- firewall), which the feet measure with rays (the lowest node is often chassis under the floor)
   c.well = {}
@@ -1187,7 +1212,8 @@ end
 -- the seat frame (position, then its x y z axes), plus what the car was doing.
 local function record(c, eye, R, dt, veh, wheel)
   local function loc(v) return {v:dot(R.x), v:dot(R.y), v:dot(R.z)} end
-  local fr = {dt = dt, speed = vec3(veh:getVelocity()):length(), steer = c.e.steer, throttle = c.e.throttle,
+  local vp = veh:getPosition()
+  local fr = {dt = dt, eyeW = {eye.x, eye.y, eye.z}, carW = {vp.x, vp.y, vp.z}, speed = vec3(veh:getVelocity()):length(), steer = c.e.steer, throttle = c.e.throttle,
               brake = c.e.brake, clutch = c.e.clutch, gear = c.e.gear, wheel = {wheel.x, wheel.y, wheel.z}, parts = {},
               reach = c.reach or 0, shiftSide = c.shiftSide, perfMs = perfMs,
               regrip = {r = c.hands and c.hands.r.t and 1 or 0, l = c.hands and c.hands.l.t and 1 or 0},
@@ -1549,7 +1575,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       -- looking back: the passenger-side hand goes to the passenger seat back, the other steers from the top
       local k = smootheststep(c.revK)
       local passenger = back > 0 and 'l' or 'r'
-      if side == passenger then target = lerp(target, vec3(-back * SEAT_BACK_REACH.x, SEAT_BACK_REACH.y, SEAT_BACK_REACH.z), k)
+      if side == passenger then target = lerp(target, c.seatBack and (c.seatBack - c.seat) or vec3(-back * SEAT_BACK_REACH.x, SEAT_BACK_REACH.y, SEAT_BACK_REACH.z), k)
       else target = lerp(target, rimPoint(wheel, math.pi / 2, 0) - wheelN * WRIST_BACK, k) end
     end
     if c.waveK > 0 and side ~= c.shiftSide then
