@@ -1971,6 +1971,7 @@ M.setDisplayMode = function(mode, vid)
   -- unchanged: nothing to do (callers may set it on every spawn; no reset, no settings write)
   if (vid and carMode[vid] == mode) or (not vid and displayMode == (mode or 'full')) then return end
   if vid then carMode[vid] = mode else displayMode = mode or 'full' saveSettings() end
+  log('I', 'slrrDrivers', 'display mode ' .. tostring(mode or 'full') .. (vid and (' for car ' .. tostring(vid)) or ' (all cars, saved)'))
   -- start the animation state fresh, so switching never leaves a half-finished move behind
   for id, c in pairs(cars) do
     if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch, c.posed = nil, nil, nil, nil, 0, nil, nil, nil end
