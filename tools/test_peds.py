@@ -305,7 +305,7 @@ def main():
         M.onUpdate(1 / 90, dt)
         for p in M.getState().peds.values():
             idle += p.state == "idle"
-            long_cross += p.cross is not None and bool(p.cross.road) and p.cross.t < 0.05
+            long_cross += p.cross is not None and bool(p.cross.road) and not p.cross.forced and p.cross.t < 0.05   # (a forced one: they stood on a road, crossing option or not)
     opts = M.getOptions()
     print("idling/crossing off: %d idle frames, %d road crossings started; options %s" % (
         idle, long_cross, dict(opts.items())))
