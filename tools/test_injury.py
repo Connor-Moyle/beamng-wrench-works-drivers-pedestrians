@@ -70,8 +70,8 @@ def crash(speed, stop=0.06):
 
 
 def sampler_check():
-    """The stub sampler: a crash (speed gone and stays gone) counts for two steps so feed sees it."""
-    def chests(vels):
+    """The stub sampler: a crash is the speed lost over 0.1 s, however the frames split it."""
+    def chests(vels, dts):
         lua, M = lua_env()
         lua.execute("""
         function fakeCar(vels)
@@ -81,9 +81,14 @@ def sampler_check():
                   getDirectionVector = function() return 0, 1, 0 end, getDirectionVectorUp = function() return 0, 0, 1 end}
         end""")
         v = lua.eval("fakeCar")(lua.table_from(vels))
-        return [(lambda o: o.chest if o else 0)(M.sampleFromCar(v, STEP)) for _ in vels]
-    crash_ = chests([30, 30, 30, 0, 0, 0])
-    assert crash_[3] > 20 and crash_[4] > 20 and crash_[5] < 20, ("a crash counts for two steps, no more", crash_)
+        return [(lambda o: o.chest if o else 0)(M.sampleFromCar(v, dt)) for dt in dts]
+    # 13.9 m/s (50 km/h) lost in one step, in two, and in one step of a long (hitch) frame: the same ~85 g, for the whole window
+    one = chests([13.9] * 3 + [0] * 8, [STEP] * 11)
+    two = chests([13.9] * 3 + [7, 0] + [0] * 6, [STEP] * 11)
+    hitch = chests([13.9] * 3 + [0] * 8, [STEP] * 3 + [0.4] + [STEP] * 7)
+    for name, c in (("one step", one), ("two steps", two), ("hitch frame", hitch)):
+        assert all(70 < x < 110 for x in c[4:6]), (name, c)
+    assert all(x < 1 for x in chests([13.9] * 10, [STEP] * 10)), "steady speed scores nothing"
 
 
 def main():

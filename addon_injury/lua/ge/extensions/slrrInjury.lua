@@ -26,7 +26,7 @@ local REGIONS = {'head', 'chest', 'pelvis', 'larm', 'rarm', 'lleg', 'rleg'}
 -- what the Mods menu can change (setTune): the lines above and below are the defaults
 local T = {toughness = 1,              -- times the forces in SCALE: below 1 he is more fragile, above 1 tougher
            bruiseAt = 0.15, brokenAt = 0.9,        -- a region's score where it counts as bruised / broken
-           outHead = 0.7, outChest = 0.8,          -- head or chest score where he is knocked out
+           outHead = 0.7, outChest = 0.85,          -- head or chest score where he is knocked out
            recoverBroken = 600, recoverOut = 300,  -- real seconds: per broken region, and after a knock-out
            grace = 3,                              -- seconds ignored after a spawn, reset, teleport or vehicle switch
            voiceGap = 2,                           -- seconds between voice clips per driver
@@ -245,30 +245,31 @@ end
 
 -- the stub input: the car's own acceleration, from its velocity each frame, shared out to the body
 local last = {}
+local WINDOW = 0.1   -- s: a crash is the speed lost over this long, however the frames split it (a hitch frame or two steps give the same)
 local function sampleFromCar(v, dt)
   local id = v:getId()
   local pos, vel = vec3(v:getPosition()), vec3(v:getVelocity())
   local l = last[id]
-  last[id] = {pos = pos, vel = vel, vel2 = l and l.vel}
+  local hist = l and l.hist or {}
+  hist[#hist + 1] = {t = 0, vel = vel}
+  for _, h in ipairs(hist) do h.t = h.t + math.min(dt, 1 / 30) end   -- (a hitch frame ages the window no more than a normal one)
+  while #hist > 2 and hist[2].t >= WINDOW do table.remove(hist, 1) end
+  last[id] = {pos = pos, vel = vel, hist = hist}
   if not l or dt <= 0 then return nil end
-  local dvLen = (vel - l.vel):length()
-  local a = (vel - l.vel) / dt
+  -- the velocity lost since the start of the window, as the force a one-frame (1/60 s) stop of that size would be: this is what the scale
+  -- below was set with (30 km/h = 50 g, 80 km/h = 130 g)
+  local dv = hist[1].vel - vel
+  local a = dv * (60 / G)
   local fwd = vec3(v:getDirectionVector()):normalized()
   local up = vec3(v:getDirectionVectorUp()):normalized()
   local right = fwd:cross(up)
-  local along, side = a:dot(fwd) / G, a:dot(right) / G
-  local g = a:length() / G
+  local along, side = a:dot(fwd), a:dot(right)   -- along: positive when the car lost speed forwards
+  local g = a:length()
   local jump = (pos - (l.pos + l.vel * dt)):length()
-  local out = {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
+  return {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
           larm = math.abs(side) + 0.3 * math.abs(along), rarm = math.abs(side) + 0.3 * math.abs(along),
-          lleg = math.max(0, -along) * 1.1, rleg = math.max(0, -along) * 1.1,
+          lleg = math.max(0, along) * 1.1, rleg = math.max(0, along) * 1.1,
           jump = jump, speed = l.vel:length()}
-  -- a crash stops the car in one step, but feed counts a force only when it lasts two steps: a hard step is repeated once while the speed
-  -- it took off stays off
-  local sv = last[id]
-  sv.dvLen, sv.out = dvLen, out
-  if l.out and l.dvLen and l.vel2 and l.out.chest > 8 and (vel - l.vel2):length() >= 0.5 * l.dvLen then return l.out end
-  return out
 end
 
 -- How injuries feel (the player's own driver): blurry screen edges and muffled hearing after a hit, fading over T.fxSeconds (a knock-out keeps
