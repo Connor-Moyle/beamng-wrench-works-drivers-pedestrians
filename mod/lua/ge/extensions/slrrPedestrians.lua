@@ -57,7 +57,9 @@ local count = 48            -- the base count ('medium'); setCount changes it
 local AMOUNT = {off = 0, low = 0.5, medium = 1, high = 1.5, veryhigh = 2}
 -- player options (Wrench Works' settings call setOptions); defaults are the mod's own behaviour
 local DEFAULTS = {amount = 'medium', maxCount = 60, autoReduce = true, targetFps = 55, idling = true, crossing = true,
-                  busyAreas = true}
+                  busyAreas = true, rainReact = true, rainShelter = true, rainThin = 40, limp = true, limpPace = 55}
+local RANGE = {maxCount = {0, 200}, targetFps = {30, 144}, rainThin = {0, 80}, limpPace = {30, 90}}
+local rainNow = 0           -- how hard it rains, 0..1 (read from the weather every 2 s, or set by setRain)
 local opts = {}
 for k, v in pairs(DEFAULTS) do opts[k] = v end
 local types = {}            -- {walks = {{shape, speed}}, idle = shape or nil}
@@ -98,7 +100,7 @@ local function applyOptions(t)
     if k == 'amount' then v = AMOUNT[v] and v or nil
     elseif type(d) == 'number' then
       v = tonumber(v)
-      if v then v = math.floor(clamp(v, k == 'maxCount' and 0 or 30, k == 'maxCount' and 200 or 144) + 0.5) end
+      if v then v = math.floor(clamp(v, RANGE[k][1], RANGE[k][2]) + 0.5) end
     elseif type(d) == 'boolean' then
       if type(v) ~= 'boolean' then v = nil end   -- not `and v or nil`: that drops false
     else v = nil end
@@ -119,7 +121,8 @@ end
 
 -- how many may walk before the frame-time cap and the area share
 local function wanted()
-  return math.min(opts.maxCount, math.floor(count * AMOUNT[opts.amount] + 0.5))
+  local thin = opts.rainReact and 1 - rainNow * opts.rainThin / 100 or 1       -- the open pavements empty in the rain
+  return math.min(opts.maxCount, math.floor(count * AMOUNT[opts.amount] * thin + 0.5))
 end
 
 local function levelName()
@@ -451,9 +454,85 @@ local function stand(p, time)
   setShape(p, p.type.idle or p.walk.shape)
 end
 
+local SHELTER_COOL = 90         -- seconds after leaving cover before the next shelter
 local function walkOn(p)
   p.state, p.face, p.waited = 'walk', nil, nil
+  if p.sheltered then p.sheltered, p.shelterCool = nil, SHELTER_COOL end
   setShape(p, p.walk.shape)
+end
+
+-- rain (rainReact): how hard it rains for them; walkers speed up and some run (a faster walk shape of their type, so the feet stay planted),
+-- and some head for cover on their sidewalk line: a spot with a roof within 6.5 m above (an awning, a bus stop, a doorway, a bridge), found by
+-- rays up along the line, a few a frame. They stand there 20-60 s or until the rain stops.
+local RAIN_MIN = 0.1
+local RUN_SHARE, PACE_SHARE, SHELTER_SHARE = 0.35, 0.5, 0.7     -- of the walkers at full rain: run, walk faster, look for cover (times the rain)
+local SHELTER_RANGE, SHELTER_MIN, SHELTER_MAX = 60, 20, 60
+local COVER_HEIGHT, COVER_STEP, COVER_RAYS = 6.5, 5, 12         -- roof within this above; a sample every COVER_STEP m; at most COVER_RAYS rays a frame
+local rainOverride, rainTimer = nil, 0
+local function rain() return opts.rainReact and rainNow or 0 end
+local function readRain()
+  if rainOverride then return rainOverride end
+  local v = rawget(_G, 'slrrValoWeather')
+  local st = v and v.getState and v.getState()
+  if st and (tonumber(st.rain) or 0) > 0 then return clamp(tonumber(st.rain), 0, 1) end
+  local w = rawget(_G, 'sl_weather')
+  if w and w.state and w.state() == 'rain' then return ({light = 0.4, medium = 0.7, heavy = 1})[w.level and w.level() or 'medium'] or 0.7 end
+  return 0
+end
+-- the type's walks, slowest first
+local function sortedWalks(t)
+  if not t.sorted then
+    t.sorted = {}
+    for _, w in ipairs(t.walks) do t.sorted[#t.sorted + 1] = w end
+    table.sort(t.sorted, function(a, b) return a.speed < b.speed end)
+  end
+  return t.sorted
+end
+-- the walk they use in the rain, nil = their own
+local function rainWalk(p)
+  local r = rain()
+  if r < RAIN_MIN then return nil end
+  p.rainRoll = p.rainRoll or math.random()
+  local list = sortedWalks(p.type)
+  if p.rainRoll < RUN_SHARE * r then return list[#list] end
+  if p.rainRoll < (RUN_SHARE + PACE_SHARE) * r then
+    for _, w in ipairs(list) do if w.speed > p.walk.speed then return w end end
+  end
+  return nil
+end
+-- the roofs along a sidewalk line: scanned a few rays a frame (line.cover = the s values with a roof above, line.scanned when done)
+local scanQueue = {}
+local function scanCover(budget)
+  while budget > 0 and #scanQueue > 0 do
+    local line = scanQueue[1]
+    line.cover, line.scanK = line.cover or {}, line.scanK or 0
+    local s = line.scanK * COVER_STEP
+    if s > line.total then
+      line.scanned = true
+      table.remove(scanQueue, 1)
+    else
+      local at = pointAt(line, s)
+      if castRayStatic(vec3(at.x, at.y, at.z + 0.5), vec3(0, 0, 1), COVER_HEIGHT) < COVER_HEIGHT then line.cover[#line.cover + 1] = s end
+      line.scanK = line.scanK + 1
+      budget = budget - 1
+    end
+  end
+end
+-- send a walker to the nearest roof within SHELTER_RANGE on their line (if the line is not scanned yet, queue it and try again later)
+local function seekCover(p)
+  local line = lines[p.line]
+  if not line.scanned then
+    if not line.queued then line.queued = true scanQueue[#scanQueue + 1] = line end
+    return
+  end
+  local best, bd
+  for _, s in ipairs(line.cover) do
+    local d = math.abs(s - p.s)
+    if d <= SHELTER_RANGE and (not bd or d < bd) then best, bd = s, d end
+  end
+  if not best then p.shelterNo = p.line return end
+  p.shelter = {line = p.line, s = best}
+  p.dir = best >= p.s and 1 or -1
 end
 
 -- the type's fastest walk, for getting out of a car's way mid-crossing (no faster SLRR animation exists)
@@ -609,7 +688,8 @@ local function updateStanding(p, dt)
     p.link, p.dir = nil, -p.dir
   end
   if p.state == 'idle' then
-    p.timer = opts.idling and p.timer - dt or 0
+    p.timer = (opts.idling or p.sheltered) and p.timer - dt or 0
+    if p.sheltered and rain() < RAIN_MIN then p.timer = 0 end      -- the rain stopped: on their way
     if p.timer > 0 then return end
   end
   if p.state == 'wait' then
@@ -648,6 +728,16 @@ local function updatePed(p, dt, vehicles, near)
     stand(p, IDLE_MIN + math.random() * (IDLE_MAX - IDLE_MIN))
   end
   local moving = p.state == 'walk'
+  if p.shelterCool then p.shelterCool = p.shelterCool - dt if p.shelterCool <= 0 then p.shelterCool = nil end end
+  if p.shelter and rain() < RAIN_MIN then p.shelter = nil end
+  if moving and opts.rainShelter and not (p.cross or p.link or p.shelter or p.shelterCool) and p.shelterNo ~= p.line and rain() > 0.3 then
+    p.shelterWait = (p.shelterWait or 0) - dt
+    if p.shelterWait <= 0 then
+      p.shelterWait = 1 + math.random() * 3
+      p.shelterRoll = p.shelterRoll or math.random()
+      if p.shelterRoll < SHELTER_SHARE * rain() then seekCover(p) end
+    end
+  end
   if p.cross and moving and p.cross.road then
     p.hurryCheck = (p.hurryCheck or 0) - dt
     if p.hurryCheck <= 0 then
@@ -665,7 +755,9 @@ local function updatePed(p, dt, vehicles, near)
       if not p.cross then p.hurry = nil setShape(p, p.walk.shape) end
     end
   end
-  local speed = p.hurry and p.hurry.speed or p.speed
+  local rw = moving and not p.hurry and rainWalk(p)
+  if moving and not p.hurry then setShape(p, (rw or p.walk).shape) end
+  local speed = p.hurry and p.hurry.speed or (rw and rw.speed) or p.speed
   local crossSpeed = (p.cross and p.cross.road and not p.hurry) and speed * CROSS_PACE or speed     -- a little faster over a carriageway
   if p.cross then
     if moving then p.cross.t = p.cross.t + dt * crossSpeed / p.cross.len end
@@ -683,6 +775,14 @@ local function updatePed(p, dt, vehicles, near)
   else
     local line = lines[p.line]
     if moving then p.s = p.s + p.dir * speed * dt end
+    if moving and p.shelter then      -- on the way to a roof: there, they stand
+      if p.shelter.line ~= p.line then p.shelter = nil
+      elseif (p.s - p.shelter.s) * p.dir >= 0 then
+        p.s, p.shelter, p.sheltered = p.shelter.s, nil, true
+        stand(p, SHELTER_MIN + math.random() * (SHELTER_MAX - SHELTER_MIN))
+        moving = false
+      end
+    end
     if p.s < 0 or p.s > line.total then
       p.s = clamp(p.s, 0, line.total)
       reachEnd(p)
@@ -900,7 +1000,38 @@ local player              -- {veh, walks, idle, obj, shape, switch}
 local PLAYER_STAND = 0.3  -- m/s: slower than this the walker stands (idle)
 local PLAYER_HEAD, PLAYER_HIDE_NEAR = 1.65, 1.1   -- the walker's head height; the camera this near it is first person: no body
 
+-- a limp (a broken leg): the walker's speed is cut to limpPace % of a walk and sprinting is off. The game's walker (the unicycle's playerController)
+-- reads its speeds from two locals; the command sets those upvalues (debug.setupvalue) and keeps the originals on the module to put them back.
+-- The signal: slrrInjury.getState(vehId).limits.slowWalk (checked twice a second), or M.setLimp(true / false; nil = the injury again).
+local function limpCommand(factor)
+  return (factor and string.format('local k = %.3f ', factor) or 'local k = nil ') .. [[
+local pc = controller.getController('playerController')
+if pc and debug and debug.getupvalue then
+  local f = pc.updateFixedStep
+  for i = 1, 80 do
+    local n, v = debug.getupvalue(f, i)
+    if not n then break end
+    if n == 'movementSpeedNormal' then pc.slrrOrigNormal = pc.slrrOrigNormal or v end
+    if n == 'movementSpeedSprint' then pc.slrrOrigSprint = pc.slrrOrigSprint or v end
+  end
+  for i = 1, 80 do
+    local n = debug.getupvalue(f, i)
+    if not n then break end
+    if n == 'movementSpeedNormal' and pc.slrrOrigNormal then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigNormal) end
+    if n == 'movementSpeedSprint' and pc.slrrOrigNormal then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigSprint or 5) end
+  end
+end]]
+end
+M.limpCommand = limpCommand
+local limpForced
+M.setLimp = function(on) limpForced = on end
+local function endLimp(pl)
+  local v = pl and pl.limping and be:getObjectByID(pl.veh)
+  if v and v.queueLuaCommand then v:queueLuaCommand(limpCommand(nil)) end
+end
+
 local function followPlayer(vehId, dir)
+  endLimp(player)
   if player and player.obj and simObjectExists(player.obj) then player.obj:delete() end
   player = nil
   if not vehId then return end
@@ -920,6 +1051,25 @@ local function updatePlayer(dt)
   -- left lying anywhere, on the car's roof, and a walker following it was seen there as a figure lying across the roof
   if be:getPlayerVehicleID(0) ~= player.veh then followPlayer(nil) return end
   local pos, fwd, sp = vec3(v:getPosition()), vec3(v:getDirectionVector()), vec3(v:getVelocity()):length()
+  -- the limp: asked twice a second; the command is sent when it changes and again every 5 s (a reset unicycle forgets it)
+  player.limpCheck = (player.limpCheck or 0) - dt
+  if player.limpCheck <= 0 then
+    player.limpCheck = 0.5
+    local want = false
+    if opts.limp then
+      if limpForced ~= nil then want = limpForced
+      else
+        local inj = rawget(_G, 'slrrInjury')
+        local st = inj and inj.getState and inj.getState(player.veh)
+        want = (st and st.limits and st.limits.slowWalk) == true
+      end
+    end
+    local pace = opts.limpPace
+    if v.queueLuaCommand and (want ~= (player.limping or false) or (want and (player.limpPace ~= pace or os.clock() - (player.limpAt or 0) > 5))) then
+      player.limping, player.limpPace, player.limpAt = want, pace, os.clock()
+      v:queueLuaCommand(limpCommand(want and pace / 100 or nil))
+    end
+  end
   -- the walk whose speed is nearest (feet planted), or idle; changed at most twice a second
   local want = player.idle
   if sp >= PLAYER_STAND then
@@ -1042,6 +1192,9 @@ local function record(dtReal)
 end
 
 local function onUpdate(dtReal, dtSim)
+  rainTimer = rainTimer - dtReal
+  if rainTimer <= 0 then rainTimer, rainNow = 2, readRain() end
+  if #scanQueue > 0 then scanCover(COVER_RAYS) end
   if player then updatePlayer(dtSim or dtReal) end
   for _, a in pairs(actors) do updateActor(a, dtReal) end
   if rec then record(dtReal) end
@@ -1152,6 +1305,7 @@ local function onUpdate(dtReal, dtSim)
     for i, p in ipairs(peds) do
       local d = p.pos and p.pos:distance(cam) or 0
       if p.pos and not inView(p.pos, cam, look) then d = d + 1000 end
+      if p.sheltered then d = d - 5000 end                 -- (the ones under cover go last)
       if d > fd then far, fd = i, d end
     end
     despawn(table.remove(peds, far))
@@ -1164,6 +1318,9 @@ M.setCount = function(n)
   saveSettings()
 end
 M.getCount = function() return count end
+-- the rain for the pedestrians: setRain(0..1) overrides the weather (nil: the weather again), getRain() is what they react to
+M.setRain = function(r) rainOverride = r ~= nil and clamp(tonumber(r) or 0, 0, 1) or nil rainTimer, rainNow = 2, readRain() end
+M.getRain = function() return rainNow end
 -- options: amount 'off'|'low'|'medium'|'high'|'veryhigh' (x0 .. x2 of the count), maxCount 0..200, autoReduce,
 -- targetFps 30..144, idling, crossing, busyAreas; only the keys given change; applied live and saved
 M.setOptions = function(t)
@@ -1201,6 +1358,19 @@ M.settingsSchema = function()
     {id = 'busyAreas', tab = 'pedestrians', group = 'Behaviour', type = 'bool', label = 'Busier downtown and on the beachfront', default = DEFAULTS.busyAreas, store = opt('busyAreas'),
      tooltip = 'More people where a city would have them. Off: the same crowd everywhere.'},
   }
+  local more = {
+    {id = 'rainReact', tab = 'pedestrians', group = 'Rain', type = 'bool', label = 'React to rain', default = DEFAULTS.rainReact, store = opt('rainReact'),
+     tooltip = 'In rain people walk faster, some run, and the streets empty. Off: the rain makes no difference to them.'},
+    {id = 'rainShelter', tab = 'pedestrians', group = 'Rain', type = 'bool', label = 'Shelter from the rain', default = DEFAULTS.rainShelter, store = opt('rainShelter'),
+     visibleIf = {field = 'rainReact', equals = true}, tooltip = 'Some people stop under a roof nearby (an awning, a bus stop, a doorway, a bridge) until it eases.'},
+    {id = 'rainThin', tab = 'pedestrians', group = 'Rain', type = 'slider', label = 'Emptier streets in heavy rain', min = 0, max = 80, step = 5, unit = '%', default = DEFAULTS.rainThin,
+     store = opt('rainThin'), visibleIf = {field = 'rainReact', equals = true}, tooltip = 'How much of the crowd goes indoors in the heaviest rain. 0 keeps everybody out.'},
+    {id = 'limp', tab = 'pedestrians', group = 'Injuries', type = 'bool', label = 'Limp with a broken leg', default = DEFAULTS.limp, store = opt('limp'),
+     tooltip = 'With the injury add-on, a broken leg slows you down on foot and stops you sprinting.'},
+    {id = 'limpPace', tab = 'pedestrians', group = 'Injuries', type = 'slider', label = 'Limping pace', min = 30, max = 90, step = 5, unit = '%', default = DEFAULTS.limpPace,
+     store = opt('limpPace'), visibleIf = {field = 'limp', equals = true}, advanced = true, tooltip = 'How fast you walk with a broken leg, as a share of a normal walk.'},
+  }
+  for _, f in ipairs(more) do fields[#fields + 1] = f end
   for _, f in ipairs(fields) do f.apply = 'live' end
   return tab, fields
 end
@@ -1227,7 +1397,7 @@ M.resetRoads = function() roadGrid, roadsTried = nil, nil end
 M.getTypes = function() return types end
 M.setDensity = function(d) density = d end      -- a density table in place of the level's file (tests, mod makers)
 M.onExtensionLoaded = function() loadSettings() loadWalks() end
-M.onExtensionUnloaded = function() clear() clearSpectators() followPlayer(nil) for id in pairs(actors) do M.stopActor(id) end end
+M.onExtensionUnloaded = function() endLimp(player) clear() clearSpectators() followPlayer(nil) for id in pairs(actors) do M.stopActor(id) end end
 -- a race finishing (Valo City's races): the crowd cheers
 M.onSlrrRaceFinished = function() cheerAll(6) end
 M.cheer = function(seconds) cheerAll(seconds or 6) end          -- the crowd cheers (a win at an event that is not one of the map's races)
@@ -1253,7 +1423,7 @@ M.clearSpectatorZones = function() extraZones = {} end
 M.record = function(seconds, path)
   rec = {t = 0, seconds = seconds or 20, path = path or '/temp/slrr_peds_rec.json', frames = {}}
 end
-M.onClientStartMission = function() broken = false group = nil peds = {} loadedMaterials = false loadWalks() end   -- (a level load drops the materials: load them again)
+M.onClientStartMission = function() scanQueue = {} broken = false group = nil peds = {} loadedMaterials = false loadWalks() end   -- (a level load drops the materials: load them again)
 M.onClientEndMission = function()
   group, peds, lines, junctions, player, spectators, specZone, specZones = nil, {}, nil, nil, nil, {}, nil, nil
 end
