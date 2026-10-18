@@ -81,7 +81,7 @@ local T = {
   lookHead = math.rad(80),
   lookSpeed = 3,
   reverseHead = math.rad(80),
-  reverseLookSpeed = 4,
+  reverseLookSpeed = 6,
   swayGain = 0.7,
   swayHz = 1.6,
   swayDamp = 0.45,
@@ -1553,8 +1553,8 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   -- no body physics for a driver drawn by the car (W9: the cheap driver); the player's full driver keeps it
   local L = animated and not c.drawnByCar and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist) or IDENT
   if t0 then prof.body = prof.body + os.clock() - t0 end
-  -- reversing at walking pace: he twists round to look out of the back (not in the player's own view)
-  local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < T.reverseLookSpeed
+  -- reversing at walking pace: he twists round to look out of the back, an arm on the passenger seat (in every camera; the head only shows from outside)
+  local reversing = animated and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < T.reverseLookSpeed * ((c.revK or 0) > 0 and 1.25 or 1)   -- (a little slack once he is round, so he does not flicker at the limit)
   c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
   local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
   if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
