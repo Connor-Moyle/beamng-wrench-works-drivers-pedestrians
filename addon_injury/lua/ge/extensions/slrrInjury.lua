@@ -209,6 +209,10 @@ local function feed(vehId, s)
   local lvl = levelOf(st)
   if RANK[lvl] > RANK[st.level] then
     st.level = lvl
+    if isPlayer(vehId) then
+      log('I', 'slrrInjury', string.format('level %s: head %.2f chest %.2f arms %.2f legs %.2f', lvl, st.parts.head, st.parts.chest,
+        math.max(st.parts.larm, st.parts.rarm), math.max(st.parts.lleg, st.parts.rleg)))
+    end
     if lvl == 'unconscious' or lvl == 'fatal' then
       if st.conscious then
         st.conscious = false
