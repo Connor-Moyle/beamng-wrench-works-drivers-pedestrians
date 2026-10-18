@@ -59,8 +59,9 @@ def main():
         rig["grip"] = {"r": {"center": c, "axis": d, "radius": round(float(r), 4)},
                        "l": {"center": [-c[0], c[1], c[2]], "axis": [-d[0], d[1], d[2]], "radius": round(float(r), 4)}}
         rig["fist"] = {"r": c, "l": [-c[0], c[1], c[2]]}
-        # the middle of the mesh: what the rigged driver's two nodes round each wrist are placed by (they fit the mesh, not the hole)
-        m = [round(float(v), 5) for v in pos.mean(0)]
+        # the middle of the rigged driver's hand mesh: what its two nodes round each wrist are placed by (they fit the mesh, not the hole)
+        flexhand = os.path.join(GAME, "hd_%s_r_handf.dae" % n)      # the rigged driver's plain fist, kept as it was (committed, not made here)
+        m = [round(float(v), 5) for v in load_dae(flexhand if os.path.exists(flexhand) else os.path.join(mdir, "r_hand.dae"))[0].mean(0)]
         rig["fistMean"] = {"r": m, "l": [-m[0], m[1], m[2]]}
         json.dump(rig, open(os.path.join(mdir, "rig.json"), "w"), indent=1)
         for part in ("r_hand", "l_hand", "r_forearm", "l_forearm"):

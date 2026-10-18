@@ -1681,6 +1681,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   for side, arm in pairs(rig.arms) do
     local grip = grips[side]
+    -- the rigged driver's hand meshes are the old plain fists (a flexbody's three nodes need a hand shape they were fitted to): no grip pose for him
+    local gripRig = (not c.flex) and rig.grip or nil
+    local fistRig = c.flex and rig.fistMean or rig.fist
     local target = rimPoint(wheel, grip.a, grip.lift) - wheelN * WRIST_BACK   -- the rim itself (+ the re-grip lift)
     if side == c.shiftSide and c.reach > 0 then target = lerp(target, leverTarget, c.reach) end
     if c.stalkK > 0 and c.stalk and side == c.stalk.side then target = lerp(target, target + vec3(0, 0, -0.06) + wheelN * 0.08, c.stalkK) end   -- the stalk: a little lower and toward the dash
@@ -1721,7 +1724,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local Df = delta(basis(wrist - elbow, n), arm.F0f)
       -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
       local handR = rotAbout(Df, (wrist - elbow):normalized(), roll)
-      local g = rig.grip and rig.grip[side]
+      local g = gripRig and gripRig[side]
       if g and gk > 0 then
         -- which way round the axis is decided once, from where the hand is when it first takes the rim (never again: a flip is a pop)
         c.gripSign = c.gripSign or {}
@@ -1748,10 +1751,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     -- (a re-grip is still a grip pose: it stays along the rim while it moves)
     local off = math.max(c.stalk and side == c.stalk.side and c.stalkK or 0, side == c.shiftSide and math.max(c.reach, c.dazeK) or 0,
                          side ~= c.shiftSide and c.waveK or 0, c.revK or 0)
-    local want = (rig.grip and rig.grip[side]) and 1 - clamp(off * 3, 0, 1) or 0
+    local want = (gripRig and gripRig[side]) and 1 - clamp(off * 3, 0, 1) or 0
     gk = animated and clamp(gk + clamp(want - gk, -dt * 30, dt * 6), 0, 1) or want   -- (a still driver is in his grip pose from the start)
     c.gripK[side] = gk
-    local gripped = (holding or gk > 0) and rig.fist and rig.fist[side]
+    local gripped = (holding or gk > 0) and fistRig and fistRig[side]
     if gripped then
       -- the fist's middle (the hole of its grip) sits beside the forearm's line, not on it: place the wrist so that point is on the rim's centre
       -- line; the hand's turn depends on where the forearm points, so twice
@@ -1761,7 +1764,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       if gk > 0 then at = follow(c, side .. 'Fist', at, dt, T.jointSpeed, holding and 1e6 or 45) end
       for _ = 1, gk > 0 and 2 or 1 do
         local _, _, _, _, handR = solve(target)
-        target = at - rotate(handR, rig.fist[side])
+        target = at - rotate(handR, fistRig[side])
       end
     end
     local byFist = gripped and gk > 0     -- the wrist is worked out from the (eased) fist: no second easing

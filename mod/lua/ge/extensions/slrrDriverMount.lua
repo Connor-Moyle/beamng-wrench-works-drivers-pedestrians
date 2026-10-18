@@ -410,6 +410,8 @@ local function addFlexbodies(objID, vehicle, cam, P, skin, k, helmet)
   for _, part in ipairs(parts) do
     local isHelmet = part == 'helmet'
     local mesh = isHelmet and helmet or skin .. '_' .. part
+    -- (the hands of a rigged HD driver: the plain-fist meshes (..._handf), which the three nodes round each wrist were fitted to; the props use the gripping ones)
+    if (part == 'r_hand' or part == 'l_hand') and FS:fileExists('/vehicles/common/slrr_drivers/' .. mesh .. 'f.dae') then mesh = mesh .. 'f' end
     local at = ORIGIN[part] == 'eye' and vec3(cam.x, cam.y, cam.z) or J(cam, P[ORIGIN[isHelmet and 'head' or part]])
     local groups = {}
     if flexBind == 'car' then groups = {carGroup}
