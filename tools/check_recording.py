@@ -140,6 +140,7 @@ def check(rec):
                 hit.append(side + "_fore/wheel")
         if hit:
             out["clips"] += 1
+            out.setdefault("clip_frames", []).append(i)
             for h in hit:
                 out["clip_kinds"][h] = out["clip_kinds"].get(h, 0) + 1
         # J1 pops

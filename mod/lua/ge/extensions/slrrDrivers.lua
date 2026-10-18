@@ -160,6 +160,8 @@ local function getRig(model)
       for k, p in pairs(r.parts) do r.parts[k] = v(p) end
       r.pelvis = r.pelvis and v(r.pelvis) or vec3(0, -0.1, -0.6)
       if r.fist then for k, f in pairs(r.fist) do r.fist[k] = v(f) end end
+      -- where the fingers curl round a rim (the fist point) and the line the rim runs along through them (the hole's axis)
+      for _, g in pairs(r.grip or {}) do g.center, g.axis = v(g.center), v(g.axis):normalized() end
       for _, leg in pairs(r.legs or {}) do
         for k, p in pairs(leg) do leg[k] = v(p) end
         leg.lt = (leg.knee - leg.hip):length()
@@ -194,6 +196,39 @@ local function compose(A, B) return {x = rotate(A, B.x), y = rotate(A, B.y), z =
 local function rotX(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(1, 0, 0), y = vec3(0, c, s), z = vec3(0, -s, c)} end
 local function rotY(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(c, 0, -s), y = vec3(0, 1, 0), z = vec3(s, 0, c)} end
 local function rotZ(a) local c, s = math.cos(a), math.sin(a) return {x = vec3(c, s, 0), y = vec3(-s, c, 0), z = vec3(0, 0, 1)} end
+
+-- A hand that grips: the hole its fingers curl into (rig.grip: a centre and an axis in the hand mesh's frame) lies along the rim's tangent t, and
+-- the hand turns about that line to sit along the forearm fa (the wrist stays straight). Of the two ways round the axis, the one nearer Rref.
+local GRIP_TURN = 8                  -- rad/s: how fast a gripping hand may turn
+local RIM_BEHIND = 0.006               -- and a little toward the driver: the hole is round the back of the tube (the forearm never crosses the rim's plane)
+local RIM_TUBE = 0.014                  -- the rim's tube radius: the hole sits on its centre line
+local function gripFrame(arm, g, fa, t, Rref, sign)
+  local fa0 = (arm.wrist - arm.elbow):normalized()
+  local dh = g.axis
+  local u1 = fa0 - dh * fa0:dot(dh)
+  if u1:length() < 1e-4 then return nil end
+  u1 = u1:normalized()
+  local u2 = dh:cross(u1)
+  local best, bestScore, bestSign
+  for _, sg in ipairs(sign and {sign} or {1, -1}) do
+    local tt = t * sg
+    local v1 = fa - tt * fa:dot(tt)
+    if v1:length() < 1e-4 then return nil end
+    v1 = v1:normalized()
+    local v2 = tt:cross(v1)
+    local function img(e) return tt * e:dot(dh) + v1 * e:dot(u1) + v2 * e:dot(u2) end
+    local R = {x = img(vec3(1, 0, 0)), y = img(vec3(0, 1, 0)), z = img(vec3(0, 0, 1))}
+    local score = R.x:dot(Rref.x) + R.y:dot(Rref.y) + R.z:dot(Rref.z)
+    if not bestScore or score > bestScore then best, bestScore, bestSign = R, score, sg end
+  end
+  return best, bestSign
+end
+local function nlerpR(A, B, k)
+  local x = (A.x * (1 - k) + B.x * k):normalized()
+  local y = A.y * (1 - k) + B.y * k
+  y = (y - x * y:dot(x)):normalized()
+  return {x = x, y = y, z = x:cross(y)}
+end
 
 local function ik(S, T, la, lb, pole)
   local d = T - S
@@ -514,7 +549,7 @@ end
 -- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
 local function scaledRig(rig, k)
   local function sc(v) return v * k end
-  local r = {model = rig.model, parts = {}, arms = {}, legs = {}, fist = {}, pelvis = sc(rig.pelvis)}
+  local r = {model = rig.model, parts = {}, arms = {}, legs = {}, fist = {}, grip = {}, pelvis = sc(rig.pelvis)}
   for n, p in pairs(rig.parts) do r.parts[n] = sc(p) end
   for side, arm in pairs(rig.arms) do
     r.arms[side] = {shoulder = sc(arm.shoulder), elbow = sc(arm.elbow), wrist = sc(arm.wrist), la = arm.la * k, lb = arm.lb * k}
@@ -524,6 +559,7 @@ local function scaledRig(rig, k)
                     lt = leg.lt * k, lc = leg.lc * k, foot0 = sc(leg.foot0)}
   end
   for side, f in pairs(rig.fist or {}) do r.fist[side] = sc(f) end
+  for side, g in pairs(rig.grip or {}) do r.grip[side] = {center = sc(g.center), axis = g.axis} end
   return r
 end
 
@@ -1664,6 +1700,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local over = d:length() - (arm.la + arm.lb) * T.reach
     if over > 0 then shoulder = shoulder + d:normalized() * math.min(over * 0.6, SHOULDER_REACH) end
     local fistAt = target                     -- where the middle of the fist belongs
+    local gk = c.gripK and c.gripK[side] or 0   -- how far this hand is in its grip pose (1: the hole along the rim, 0: the plain roll)
     if side ~= c.shiftSide or c.reach < 1 then
       local back = (shoulder - target):normalized() * HAND_LENGTH   -- first guess: the wrist behind it along the arm
       target = side == c.shiftSide and lerp(target + back, target, c.reach) or target + back
@@ -1679,21 +1716,54 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local n = (elbow - shoulder):cross(wrist - shoulder)
       local Df = delta(basis(wrist - elbow, n), arm.F0f)
       -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
-      return elbow, wrist, n, Df, rotAbout(Df, (wrist - elbow):normalized(), roll)
+      local handR = rotAbout(Df, (wrist - elbow):normalized(), roll)
+      local g = rig.grip and rig.grip[side]
+      if g and gk > 0 then
+        -- which way round the axis is decided once, from where the hand is when it first takes the rim (never again: a flip is a pop)
+        c.gripSign = c.gripSign or {}
+        local G, sg = gripFrame(arm, g, (wrist - elbow):normalized(), -math.sin(grip.a) * wheelX + math.cos(grip.a) * wheelUp, handR, c.gripSign[side])
+        if G then
+          c.gripSign[side] = c.gripSign[side] or sg
+          handR = gk >= 1 and G or nlerpR(handR, G, gk)
+          -- the hand turns at most GRIP_TURN: a quick re-grip swings the wrist round the fist faster than a hand can move
+          local prev = c.gripPrev and c.gripPrev[side]
+          if prev then
+            local ang = math.acos(clamp((handR.x:dot(prev.x) + handR.y:dot(prev.y) + handR.z:dot(prev.z) - 1) / 2, -1, 1))
+            if ang > GRIP_TURN * dt then handR = nlerpR(prev, handR, GRIP_TURN * dt / ang) end
+          end
+        end
+      end
+      return elbow, wrist, n, Df, handR
     end
     -- a hand holding the rim follows it exactly (the rim already moves smoothly; low-passing it put the
     -- hand centimetres behind in fast turns); re-grips and lever reaches are rounded off
-    local holding = grip.lift == 0 and not (c.stalkK > 0.01 and c.stalk and side == c.stalk.side) and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
-    if holding and rig.fist and rig.fist[side] then
-      -- the fist's middle sits beside the forearm's line, not on it: place the wrist so that point is on the rim
-      local _, _, _, _, handR = solve(target)
-      target = fistAt - rotate(handR, rig.fist[side])
+    local onRim = not (c.stalkK > 0.01 and c.stalk and side == c.stalk.side) and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
+    local holding = grip.lift == 0 and onRim
+    c.gripK = c.gripK or {}
+    local want = (onRim and rig.grip and rig.grip[side]) and 1 or 0   -- (a re-grip is still a grip pose: it stays along the rim while it moves)
+    gk = clamp(gk + clamp(want - gk, -dt * 16, dt * 6), 0, 1)   -- (off the rim quicker than on: the arm is already going elsewhere)
+    c.gripK[side] = gk
+    local gripped = (holding or (onRim and gk > 0)) and rig.fist and rig.fist[side]
+    if gripped then
+      -- the fist's middle (the hole of its grip) sits beside the forearm's line, not on it: place the wrist so that point is on the rim's centre
+      -- line; the hand's turn depends on where the forearm points, so twice
+      local radial = wheelX * math.cos(grip.a) + wheelUp * math.sin(grip.a)
+      -- (a re-grip is eased on the fist's own path, not on the wrist's: the hand's turn about its fist added a speed of its own)
+      local at = fistAt - radial * (RIM_TUBE * gk) + wheelN * (RIM_BEHIND * gk)
+      if gk > 0 then at = follow(c, side .. 'Fist', at, dt, T.jointSpeed, holding and 1e6 or 45) end
+      for _ = 1, gk > 0 and 2 or 1 do
+        local _, _, _, _, handR = solve(target)
+        target = at - rotate(handR, rig.fist[side])
+      end
     end
-    target = follow(c, side .. 'Hand', target, dt, T.jointSpeed, holding and 1e6 or 45, grip.lift == 0 and FOLLOW_ACCEL or nil)
+    local byFist = gripped and gk > 0     -- the wrist is worked out from the (eased) fist: no second easing
+    target = follow(c, side .. 'Hand', target, dt, (byFist and gk >= 1) and 1e3 or T.jointSpeed, (holding or byFist) and 1e6 or 45, grip.lift == 0 and FOLLOW_ACCEL or nil)
     local elbow, wrist, n, Df, handR = solve(target)
     place(c.parts[side .. '_upperarm'], world(shoulder), R, delta(basis(elbow - shoulder, n), arm.F0u))
     place(c.parts[side .. '_forearm'], world(elbow), R, Df)
     place(c.parts[side .. '_hand'], world(wrist), R, handR)
+    c.gripPrev = c.gripPrev or {}
+    c.gripPrev[side] = handR
   end
   place(c.parts.body, world(lean(vec3(0, 0, 0))), R, L)
   if rig.legs and rig.legs.r then updateLegs(c, wheel, world, R, dt) end
