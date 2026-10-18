@@ -32,7 +32,7 @@ local T = {toughness = 1,              -- times the forces in SCALE: below 1 he 
            voiceGap = 2,                           -- seconds between voice clips per driver
            -- how injuries feel (the player's own driver): 1 = on, 0 = off for the switches
            reduceMotion = 0,                       -- 1: none of the screen effects below (blur), for motion sickness
-           fxBlur = 1, fxBlurStrength = 0.7,       -- the screen edges go blurry after a hit, fading away
+           fxBlur = 1, fxBlurStrength = 1,       -- the screen edges go blurry after a hit, fading away
            fxMuffle = 1, fxMuffleStrength = 0.5,   -- his hearing is muffled for a while after a hit
            fxSeconds = 12,                         -- how long the effects take to fade (a knock-out keeps them until he wakes)
            limp = 1}                               -- on foot with a broken leg: no sprinting
@@ -275,7 +275,7 @@ end
 -- them until he wakes), no sprinting on foot with a broken leg. The game offers no camera shake we could use, and no screen darkening
 -- without shipping a shader, so these are the effects there are: ScreenBlurFX rects, core_sounds.setAudioBlur, playerController.setSpeedCoef.
 local fx = {peak = 0, left = 0, dur = 1, muffled = false}
-local FX_LEVEL = {bruised = 0.6, broken = 0.7, unconscious = 1, fatal = 1}
+local FX_LEVEL = {bruised = 0.75, broken = 0.7, unconscious = 1, fatal = 1}
 local walkState                -- the car state of the driver who got out onto the unicycle (his leg)
 local footTimer = 0
 local NO_SPRINT = "local c = controller and controller.getController('playerController') if c and c.setSpeedCoef then c.setSpeedCoef(0) end"
@@ -469,7 +469,7 @@ M.onPreRender = function(dtReal)
   if a > 0 and T.fxBlur ~= 0 and T.reduceMotion == 0 and ColorF and scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj then
     local alpha = math.min(1, a * T.fxBlurStrength)
     local o = scenetree.ScreenBlurFX.obj
-    for _, r in ipairs({{0, 0, 0.18, 1}, {0.82, 0, 1, 1}, {0.18, 0, 0.82, 0.15}, {0.18, 0.85, 0.82, 1}}) do
+    for _, r in ipairs({{0, 0, 0.26, 1}, {0.74, 0, 1, 1}, {0.26, 0, 0.74, 0.22}, {0.26, 0.78, 0.74, 1}}) do
       pcall(o.addFrameBlurRect, o, r[1], r[2], r[3], r[4], ColorF(1, 1, 1, alpha))
     end
   end
