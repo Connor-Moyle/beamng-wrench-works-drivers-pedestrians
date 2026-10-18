@@ -334,6 +334,14 @@ local function onUpdate(dtReal, dtSim)
       extensions.hook('onSlrrDriverInjured', id, injuries(id, st))
       if isPlayer(id) then fxStart(st.level) end
     end
+    -- every crash is felt, not only the one that raises the level (a career does not heal him between crashes: a second bruise is still a bruise)
+    if st.lastHit and st.lastHit ~= st.feltHit and now - st.lastHit >= SETTLE then
+      st.feltHit = st.lastHit
+      if isPlayer(id) then
+        log('I', 'slrrInjury', string.format('crash scored: level %s, head %.2f chest %.2f', st.level, st.parts.head, st.parts.chest))
+        fxStart(st.level)
+      end
+    end
     if st.dying and not st.dead and now - st.dying.at >= DIE_SETTLE then
       st.dead = true
       extensions.hook('onSlrrDriverDied', id, 'crash',

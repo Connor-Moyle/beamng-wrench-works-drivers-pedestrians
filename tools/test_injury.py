@@ -256,6 +256,17 @@ def main():
         run(l2, M2, [], settle=3.5)
         run(l2, M2, crash(60), settle=2.0)
         return l2, M2
+    # a second crash of the same level (a career does not heal him) is felt again
+    l4, M4 = lua_env()
+    M4.setMode("injuries")
+    M4.onVehicleSpawned(7)
+    run(l4, M4, [], settle=3.5)
+    run(l4, M4, crash(40), settle=2.0)
+    assert M4.getState(7).level == "bruised" and M4.getFeel().amount > 0, "the first bruise is not felt"
+    run(l4, M4, [], settle=20)
+    assert M4.getFeel().amount == 0
+    run(l4, M4, crash(40), settle=2.0)
+    assert M4.getFeel().amount > 0, "a second bruise is not felt"
     l2, M2 = hurt()
     assert M2.getState(7).level == "unconscious" and not M2.getState(7).conscious
     l2.execute("rects = {}")
