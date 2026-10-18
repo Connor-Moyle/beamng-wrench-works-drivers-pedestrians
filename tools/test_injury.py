@@ -64,6 +64,7 @@ def body(g, legs=None, arms=None):
 
 
 def crash(speed, stop=0.06):
+    # speed lost (m/s) over `stop` seconds: a soft stop; the game's walls stop a car in about one frame, which scores far higher per m/s
     g = speed / stop / 9.81
     return [body(1)] * 30 + [body(g)] * int(round(stop / STEP)) + [body(0)] * 10
 
@@ -256,7 +257,8 @@ def main():
         run(l2, M2, [], settle=3.5)
         run(l2, M2, crash(60), settle=2.0)
         return l2, M2
-    # damage adds up: two hits that bruise nothing alone (20 m/s) bruise together, ten seconds apart
+    # damage adds up: two soft hits that bruise nothing alone (20 m/s lost over a 60 ms stop = 34 g, not a 72 km/h wall, which is one hard step
+    # and ~120 g in the game) bruise together, ten seconds apart
     l5, M5 = lua_env()
     M5.setMode("injuries")
     M5.onVehicleSpawned(7)
