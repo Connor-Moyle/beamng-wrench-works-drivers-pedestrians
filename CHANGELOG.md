@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Pedestrians
+- **Rain.** In rain people walk a faster walk (some run), the streets empty (up to 40 % of the crowd at the heaviest rain), and some stop under a
+  roof on their pavement (an awning, a bus stop, a doorway, a bridge: found by rays upward along the pavement) for 20 to 60 s, or until the rain
+  stops. Options `rainReact`, `rainShelter`, `rainThin`; `setRain(0..1)` overrides the weather (`slrrValoWeather` or Street Legal's weather is read otherwise).
+- **A limp with a broken leg.** On foot, the injury add-on's `limits.slowWalk` (or `slrrPedestrians.setLimp(true)`) cuts the walker's speed to
+  `limpPace` % (55 by default) of a walk and takes sprinting away. Options `limp`, `limpPace`.
+- **The Mods menu page** (`slrrPedestrians.settingsSchema()`) lists every option above, with the crowd size and the other options.
+
 ### Built, not yet tested in game
 Built, with offline tests, but not yet seen working in the game. An item leaves this list only when the tester posts a pass.
 - **Many more settings.** The Drivers tab (and the Injury tab of the injury add-on) offer the numbers that were fixed in the code: hand and foot speed, hand-over-hand timing, arm stretch, lever timing, breathing, head turn and speed, mirror glances, reversing look, body sway and its limits, what counts as a crash and how he reacts, how far drivers are drawn and animated, the prop driver's weight; for injuries: toughness, recovery times, the bruise, break and knock-out thresholds, the voice gap. The expert ones are under Show advanced. `slrrDrivers.setTune(key, value)` / `getTune` / `resetTune`, and `slrrInjury.setTune` do the same from the console; changed values are saved in the settings files.

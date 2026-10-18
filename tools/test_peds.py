@@ -305,6 +305,19 @@ def main():
         idle, long_cross, dict(opts.items())))
     assert idle == 0 and long_cross == 0, (idle, long_cross)
     assert opts.amount == "high" and opts.bogus is None
+    # the Mods menu page: one tab, fields stored through getOptions/setOptions and getCount/setCount
+    tab, fields = M.settingsSchema()
+    by_id = {f.id: f for f in fields.values()}
+    assert tab.id == "pedestrians" and all(f.tab == "pedestrians" for f in by_id.values())
+    assert {"amount", "maxCount", "count", "autoReduce", "targetFps", "idling", "crossing", "busyAreas", "rainReact", "rainShelter", "rainThin", "limp", "limpPace"} == set(by_id), set(by_id)
+    assert all(f.label and f.tooltip and f.store.get and f.store.set for f in by_id.values())
+    assert by_id["amount"].store.get() == "high" and by_id["idling"].store.get() is False, "the schema reads the live options"
+    by_id["maxCount"].store.set(77)
+    by_id["count"].store.set(30)
+    assert M.getOptions().maxCount == 77 and M.getCount() == 30 and by_id["count"].store.get() == 30
+    by_id["maxCount"].store.set(60)
+    by_id["count"].store.set(48)
+    print("settings schema ok")
     for setting, most in (({"maxCount": 10}, 10), ({"amount": "off"}, 0)):
         M.setOptions(lua.table_from(setting))
         for frame in range(120):
@@ -313,6 +326,45 @@ def main():
         print(setting, "->", n, "pedestrians")
         assert n <= most, (setting, n)
     print("ok")
+
+    # rain: faster walks and runners, the crowd thins, some stand under a roof until it stops
+    M.setOptions(lua.table_from({"amount": "medium", "maxCount": 200, "idling": True, "crossing": True, "rainReact": True, "rainShelter": True, "rainThin": 40}))
+    M.setCount(40)
+
+    most_sheltered = [0]
+
+    def run(seconds, start):
+        for frame in range(int(seconds / dt)):
+            g.time = start + frame * dt
+            M.onUpdate(1 / 90, dt)
+            if frame % 15 == 0:
+                most_sheltered[0] = max(most_sheltered[0], sum(1 for p in M.getState().peds.values() if p.sheltered))
+        return list(M.getState().peds.values())
+    peds = run(40, 400)
+    n_dry = len(peds)
+    assert not any(p.sheltered for p in peds) and M.getRain() == 0, "dry: nobody under cover"
+    lua.execute("castRayStatic = function(from, dir, len) if dir.z > 0 then return len * 0.4 end return 2 end")      # a roof over every pavement
+    M.setRain(1.0)
+    peds = run(120, 500)
+    n_wet = len(peds)
+    switched = [p for p in peds if p.state == "walk" and p.shape != p.walk.shape]
+    sheltered = [p for p in peds if p.sheltered]
+    print("rain: %d pedestrians dry, %d wet; %d walking a faster shape, %d under a roof now, %d at most" % (n_dry, n_wet, len(switched), len(sheltered), most_sheltered[0]))
+    assert n_wet <= n_dry * 0.8 + 1, (n_dry, n_wet)
+    assert switched, "in the rain some walk a faster shape"
+    assert most_sheltered[0] >= 3 and all(p.state == "idle" for p in sheltered), "some stand under a roof"
+    M.setRain(0)
+    peds = run(15, 700)
+    assert not any(p.sheltered for p in peds), "the rain stopped: they are on their way"
+    assert not [p for p in peds if p.state == "walk" and p.shape != p.walk.shape and p.hurry is None], "the usual walks again"
+    M.setOptions(lua.table_from({"rainReact": False}))
+    M.setRain(1.0)
+    peds = run(30, 800)
+    assert not any(p.sheltered for p in peds) and not [p for p in peds if p.state == "walk" and p.shape != p.walk.shape and p.hurry is None], "react to rain off: no difference"
+    M.setOptions(lua.table_from({"rainReact": True}))
+    M.setRain(None)
+    lua.execute("castRayStatic = function(from, dir, len) return 2 end")
+    print("rain ok")
 
 
 def player():
@@ -342,6 +394,56 @@ def player():
         live = [o for o in g.objects.values() if not o.dead and o.cls == "TSStatic"]
         seen.append((speed, live[-1].shapeName.rsplit("/", 1)[-1], len(live)))
     print("player walker:", seen)
+    # the limp: slrrInjury's slowWalk (or setLimp) cuts the walker's speed once, and puts it back when it ends
+    lua.execute("""
+      cmds = {}
+      function uni:queueLuaCommand(c) table.insert(cmds, c) end
+      injured = false
+      slrrInjury = {getState = function(id) return {limits = {slowWalk = injured}} end}""")
+
+    def frames(n):
+        for _ in range(n):
+            M.onUpdate(1 / 30, 1 / 30)
+    frames(40)
+    assert len(list(g.cmds.values())) == 0, "no injury: no command"
+    g.injured = True
+    frames(40)
+    cmds = list(g.cmds.values())
+    assert len(cmds) == 1 and "local k = 0.550" in cmds[0], cmds
+    frames(60)
+    assert len(list(g.cmds.values())) == 1, "once, not every check"
+    g.injured = False
+    frames(40)
+    assert list(g.cmds.values())[-1].startswith("local k = nil"), "healed: the speeds go back"
+    M.setLimp(True)
+    frames(40)
+    assert "local k = 0.550" in list(g.cmds.values())[-1], "setLimp(true) limps without an injury"
+    M.setLimp(None)
+    frames(40)
+    assert list(g.cmds.values())[-1].startswith("local k = nil")
+    M.setOptions(lua.table_from({"limp": False}))
+    M.setLimp(True)
+    n = len(list(g.cmds.values()))
+    frames(40)
+    assert len(list(g.cmds.values())) == n, "the option off: no limp"
+    M.setOptions(lua.table_from({"limp": True}))
+    M.setLimp(None)
+    # the command itself, run against a stand-in for the game's playerController: the two speed locals are upvalues of updateFixedStep
+    lua.execute("""
+      do
+        local movementSpeedNormal, movementSpeedSprint = 1.8, 5
+        local pc = {updateFixedStep = function() return movementSpeedNormal, movementSpeedSprint end}
+        controller = {getController = function() return pc end}
+        readSpeeds = function() return pc.updateFixedStep() end
+      end""")
+    run_cmd = lua.eval("function(c) assert(loadstring(c))() return readSpeeds() end")
+    a, b = run_cmd(M.limpCommand(0.55))
+    assert abs(a - 0.99) < 1e-6 and abs(b - 0.99) < 1e-6, (a, b)
+    a, b = run_cmd(M.limpCommand(0.55))
+    assert abs(a - 0.99) < 1e-6, "twice does not compound"
+    a, b = run_cmd(M.limpCommand(None))
+    assert abs(a - 1.8) < 1e-6 and abs(b - 5) < 1e-6, (a, b)
+    print("limp ok")
     assert [x[1] for x in seen] == ["idle.dae", "walk.dae", "walk_fast.dae", "idle.dae"] and all(x[2] == 1 for x in seen), seen
     # T52: in a career the snowman (the unicycle's own mesh) goes while the walker is shown, and the walker has no body in first person
     lua.execute("alphaCalls = {}; function uni:setMeshAlpha(a, name, flag) table.insert(alphaCalls, a) end")
