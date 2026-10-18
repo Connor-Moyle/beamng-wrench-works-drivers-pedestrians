@@ -508,6 +508,13 @@ M.showFlex = function(vid)
   if flexMeshes[vid] and flexMeshes[vid].helmet and veh:setMeshAlpha(1, flexMeshes[vid].helmet, false) then shown = shown + 1 end
   return shown
 end
+-- cost probe: every flex mesh of a car (or only the ones whose name contains `only`) drawn at this alpha (0 hides them; timing the frame with and without says what the meshes cost)
+M.setFlexAlpha = function(vid, alpha, only)
+  local veh, n = be:getObjectByID(vid), 0
+  if not veh then return 0 end
+  for _, name in ipairs(flexMeshes[vid] or {}) do if (not only or name:find(only, 1, true)) and veh:setMeshAlpha(alpha, name, false) then n = n + 1 end end
+  return n
+end
 M.flexShown = function(vid) return flex[vid] ~= nil and alphaDue[vid] == nil end   -- (made visible once already)
 M.setPassengerShare = function(share) PASSENGER_SHARE = math.max(0, math.min(1, tonumber(share) or PASSENGER_SHARE)) end   -- (not saved: 1 gives every car a passenger, for testing)
 M.getFlexSkin = function(vid) return flexSkin[vid] end
