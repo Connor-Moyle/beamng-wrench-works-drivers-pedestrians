@@ -461,6 +461,11 @@ end
 -- every frame: the effects of the moment (none if the mode is off or the player is not hurt)
 M.onPreRender = function(dtReal)
   local a = (mode ~= 'off') and fxAmount() or 0
+  if a > 0 and not fx.logged then   -- once per effect: is there anything to blur with?
+    fx.logged = true
+    log('I', 'slrrInjury', string.format('feel %.2f: blur %s (screen blur object %s), muffle %s', a, T.fxBlur ~= 0 and T.reduceMotion == 0 and 'on' or 'off',
+      scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj and 'there' or 'MISSING', T.fxMuffle ~= 0 and 'on' or 'off'))
+  elseif a <= 0 then fx.logged = false end
   if a > 0 and T.fxBlur ~= 0 and T.reduceMotion == 0 and ColorF and scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj then
     local alpha = math.min(1, a * T.fxBlurStrength)
     local o = scenetree.ScreenBlurFX.obj
