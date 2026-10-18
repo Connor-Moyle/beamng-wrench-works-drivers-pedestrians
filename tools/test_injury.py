@@ -68,6 +68,24 @@ def crash(speed, stop=0.06):
     return [body(1)] * 30 + [body(g)] * int(round(stop / STEP)) + [body(0)] * 10
 
 
+
+def sampler_check():
+    """The stub sampler: a crash (speed gone and stays gone) counts for two steps so feed sees it."""
+    def chests(vels):
+        lua, M = lua_env()
+        lua.execute("""
+        function fakeCar(vels)
+          local i = 0
+          return {getId = function() return 7 end, getPosition = function() return 0, 0, 0 end,
+                  getVelocity = function() i = i + 1 return 0, vels[i], 0 end,
+                  getDirectionVector = function() return 0, 1, 0 end, getDirectionVectorUp = function() return 0, 0, 1 end}
+        end""")
+        v = lua.eval("fakeCar")(lua.table_from(vels))
+        return [(lambda o: o.chest if o else 0)(M.sampleFromCar(v, STEP)) for _ in vels]
+    crash_ = chests([30, 30, 30, 0, 0, 0])
+    assert crash_[3] > 20 and crash_[4] > 20 and crash_[5] < 20, ("a crash counts for two steps, no more", crash_)
+
+
 def main():
     lua, M = lua_env()
     M.onVehicleSpawned(7)
@@ -232,6 +250,7 @@ def main():
     assert not M3.getFeel().limping, "the leg followed him into a car"
     lua.execute("fields[1].store.set('nonsense')")
     assert M.getMode() == "full", "an unknown mode changed the setting"
+    sampler_check()
     print("ok")
 
 

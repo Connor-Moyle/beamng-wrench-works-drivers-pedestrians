@@ -249,8 +249,9 @@ local function sampleFromCar(v, dt)
   local id = v:getId()
   local pos, vel = vec3(v:getPosition()), vec3(v:getVelocity())
   local l = last[id]
-  last[id] = {pos = pos, vel = vel}
+  last[id] = {pos = pos, vel = vel, vel2 = l and l.vel}
   if not l or dt <= 0 then return nil end
+  local dvLen = (vel - l.vel):length()
   local a = (vel - l.vel) / dt
   local fwd = vec3(v:getDirectionVector()):normalized()
   local up = vec3(v:getDirectionVectorUp()):normalized()
@@ -258,10 +259,16 @@ local function sampleFromCar(v, dt)
   local along, side = a:dot(fwd) / G, a:dot(right) / G
   local g = a:length() / G
   local jump = (pos - (l.pos + l.vel * dt)):length()
-  return {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
+  local out = {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
           larm = math.abs(side) + 0.3 * math.abs(along), rarm = math.abs(side) + 0.3 * math.abs(along),
           lleg = math.max(0, -along) * 1.1, rleg = math.max(0, -along) * 1.1,
           jump = jump, speed = l.vel:length()}
+  -- a crash stops the car in one step, but feed counts a force only when it lasts two steps: a hard step is repeated once while the speed
+  -- it took off stays off
+  local sv = last[id]
+  sv.dvLen, sv.out = dvLen, out
+  if l.out and l.dvLen and l.vel2 and l.out.chest > 8 and (vel - l.vel2):length() >= 0.5 * l.dvLen then return l.out end
+  return out
 end
 
 -- How injuries feel (the player's own driver): blurry screen edges and muffled hearing after a hit, fading over T.fxSeconds (a knock-out keeps
