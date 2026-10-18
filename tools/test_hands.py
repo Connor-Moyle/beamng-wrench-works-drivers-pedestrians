@@ -49,7 +49,7 @@ for target in (470, -470, 470, -470, 200, 0):
                 regrips += 1
             state[side] = g.lift > 0
         both_off = max(globals().get("both_off", 0), both)
-print("both hands lifted at once at some point:", both_off == 2)
+assert both_off < 2, "both hands were off the rim at once"
 print("max held offset from home: %.0f deg (below home at most %.0f), regrips: %d" % (math.degrees(worst), math.degrees(worst_down), regrips))
 assert math.degrees(worst_down) < 95, "a hand was carried down toward the lap"
 assert math.degrees(worst) < 165, "a hand turned too far with the wheel"   # 160 happens for a moment on a 300 deg/s reversal while the other hand is off

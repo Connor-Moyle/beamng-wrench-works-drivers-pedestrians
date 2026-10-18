@@ -281,8 +281,9 @@ local function updateHands(c, turn, dt)
   end
   local speed = (turn - c.lastTurn) / math.max(dt, 1e-3)
   c.lastTurn = turn
-  -- one hand off the rim at a time; the next may go once the other is nearly back on
-  local busy = (h.r.t and h.r.t < 0.7) or (h.l.t and h.l.t < 0.7)
+  -- one hand off the rim at a time: the next goes only once the other has landed (a driver never lets go with both, even on a fast counter-steer:
+  -- the held hand slides, staying on the rim past its range, until then)
+  local busy = h.r.t or h.l.t
   -- the hand carried furthest past its limit goes first (a fixed order: `pairs` over the two hands gave a different one from run to run,
   -- so which hand let go first, and the whole motion after it, changed with the table's hash seed)
   local function pastLimit(side)
@@ -1727,7 +1728,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
           handR = gk >= 1 and G or nlerpR(handR, G, gk)
           -- the hand turns at most GRIP_TURN: a quick re-grip swings the wrist round the fist faster than a hand can move
           local prev = c.gripPrev and c.gripPrev[side]
-          if prev then
+          if prev and animated then
             local ang = math.acos(clamp((handR.x:dot(prev.x) + handR.y:dot(prev.y) + handR.z:dot(prev.z) - 1) / 2, -1, 1))
             if ang > GRIP_TURN * dt then handR = nlerpR(prev, handR, GRIP_TURN * dt / ang) end
           end
@@ -1745,7 +1746,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local off = math.max(c.stalk and side == c.stalk.side and c.stalkK or 0, side == c.shiftSide and math.max(c.reach, c.dazeK) or 0,
                          side ~= c.shiftSide and c.waveK or 0, c.revK or 0)
     local want = (rig.grip and rig.grip[side]) and 1 - clamp(off * 3, 0, 1) or 0
-    gk = clamp(gk + clamp(want - gk, -dt * 30, dt * 6), 0, 1)
+    gk = animated and clamp(gk + clamp(want - gk, -dt * 30, dt * 6), 0, 1) or want   -- (a still driver is in his grip pose from the start)
     c.gripK[side] = gk
     local gripped = (holding or gk > 0) and rig.fist and rig.fist[side]
     if gripped then
