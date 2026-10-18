@@ -265,7 +265,8 @@ local function sampleFromCar(v, dt)
   local right = fwd:cross(up)
   local along, side = a:dot(fwd), a:dot(right)   -- along: positive when the car lost speed forwards
   local g = a:length()
-  local jump = (pos - (l.pos + l.vel * dt)):length()
+  -- a body that moved further than its speed explains (a teleport, a reset); a car stopped short by a wall moved less, which is a crash
+  local jump = math.max(0, (pos - l.pos):length() - math.max(l.vel:length(), vel:length()) * dt)
   return {dt = dt, head = g * 1.2, chest = g, pelvis = g * 0.9,
           larm = math.abs(side) + 0.3 * math.abs(along), rarm = math.abs(side) + 0.3 * math.abs(along),
           lleg = math.max(0, along) * 1.1, rleg = math.max(0, along) * 1.1,

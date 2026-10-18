@@ -89,6 +89,21 @@ def sampler_check():
     for name, c in (("one step", one), ("two steps", two), ("hitch frame", hitch)):
         assert all(70 < x < 110 for x in c[4:6]), (name, c)
     assert all(x < 1 for x in chests([13.9] * 10, [STEP] * 10)), "steady speed scores nothing"
+    # a car that stops short of where its speed would take it is a crash (jump 0); one that appears far away is a teleport
+    lua, M = lua_env()
+    lua.execute("""
+    pp, vv, ci = {}, {}, 0
+    car = {getId = function() return 7 end, getPosition = function() ci = ci + 1 return 0, pp[ci], 0 end,
+      getVelocity = function() return 0, vv[ci], 0 end, getDirectionVector = function() return 0, 1, 0 end,
+      getDirectionVectorUp = function() return 0, 0, 1 end}""")
+    def jumps(pos, vel, dt):
+        g = lua.globals()
+        g.pp, g.vv, g.ci = lua.table_from(pos), lua.table_from(vel), 0
+        return [M.sampleFromCar(lua.globals().car, dt) for _ in pos]
+    stop = jumps([0, 0.2, 0.4, 0.45, 0.45], [13.9, 13.9, 13.9, 0, 0], 0.4)
+    assert all(j is None or j.jump < 0.5 for j in stop), "a hard stop in a long frame is not a teleport"
+    tele = jumps([0, 0.2, 50, 50.2, 50.4], [13.9] * 5, STEP)
+    assert max(j.jump for j in tele if j) > 2, "a teleport is one"
 
 
 def main():
