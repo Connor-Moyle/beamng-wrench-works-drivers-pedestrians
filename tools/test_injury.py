@@ -104,6 +104,33 @@ def sampler_check():
     assert all(j is None or j.jump < 0.5 for j in stop), "a hard stop in a long frame is not a teleport"
     tele = jumps([0, 0.2, 50, 50.2, 50.4], [13.9] * 5, STEP)
     assert max(j.jump for j in tele if j) > 8, "a teleport is one"
+    # quick travel / recovery while driving (50 m in one frame, speed gone): scores nothing, a real stop at the same speed does
+    def level_after(pos, vel):
+        lua, M = lua_env()
+        lua.execute("""
+        pp, vv, ci = {}, {}, 0
+        car = {getId = function() return 7 end, getPosition = function() ci = ci + 1 return 0, pp[ci], 0 end,
+          getVelocity = function() return 0, vv[ci], 0 end, getDirectionVector = function() return 0, 1, 0 end,
+          getDirectionVectorUp = function() return 0, 0, 1 end}""")
+        M.onVehicleSpawned(7)
+        for _ in range(300):
+            M.onUpdate(STEP, STEP)
+        g = lua.globals()
+        g.pp, g.vv, g.ci = lua.table_from(pos), lua.table_from(vel), 0
+        for _ in pos:
+            s = M.sampleFromCar(g.car, STEP)
+            if s:
+                M.feed(7, s)
+            M.onUpdate(STEP, STEP)
+        return M.getState(7).level
+    vel = [13.9] * 20 + [0] * 20
+    walk, x = [], 0
+    for v in vel:
+        x += v * STEP
+        walk.append(x)
+    teleport = [p if i < 20 else p + 50 for i, p in enumerate(walk)]
+    assert level_after(walk, vel) == "bruised", "a real 50 km/h stop is a bruise"
+    assert level_after(teleport, vel) == "none", "quick travel (50 m in a frame) never hurts"
 
 
 def main():
