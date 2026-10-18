@@ -160,6 +160,7 @@ local function getRig(model)
       for k, p in pairs(r.parts) do r.parts[k] = v(p) end
       r.pelvis = r.pelvis and v(r.pelvis) or vec3(0, -0.1, -0.6)
       if r.fist then for k, f in pairs(r.fist) do r.fist[k] = v(f) end end
+      if r.fistMean then for k, f in pairs(r.fistMean) do r.fistMean[k] = v(f) end end
       -- where the fingers curl round a rim (the fist point) and the line the rim runs along through them (the hole's axis)
       for _, g in pairs(r.grip or {}) do g.center, g.axis = v(g.center), v(g.axis):normalized() end
       for _, leg in pairs(r.legs or {}) do
@@ -550,7 +551,7 @@ end
 -- a body of another size: every joint and length scaled about the eyes (the seat frame's origin)
 local function scaledRig(rig, k)
   local function sc(v) return v * k end
-  local r = {model = rig.model, parts = {}, arms = {}, legs = {}, fist = {}, grip = {}, pelvis = sc(rig.pelvis)}
+  local r = {model = rig.model, parts = {}, arms = {}, legs = {}, fist = {}, fistMean = {}, grip = {}, pelvis = sc(rig.pelvis)}
   for n, p in pairs(rig.parts) do r.parts[n] = sc(p) end
   for side, arm in pairs(rig.arms) do
     r.arms[side] = {shoulder = sc(arm.shoulder), elbow = sc(arm.elbow), wrist = sc(arm.wrist), la = arm.la * k, lb = arm.lb * k}
@@ -560,6 +561,7 @@ local function scaledRig(rig, k)
                     lt = leg.lt * k, lc = leg.lc * k, foot0 = sc(leg.foot0)}
   end
   for side, f in pairs(rig.fist or {}) do r.fist[side] = sc(f) end
+  for side, f in pairs(rig.fistMean or {}) do r.fistMean[side] = sc(f) end
   for side, g in pairs(rig.grip or {}) do r.grip[side] = {center = sc(g.center), axis = g.axis} end
   return r
 end
@@ -802,7 +804,8 @@ local function flushFlex(vid, c)
   out[#out + 1] = h.p + ax * FLEX_FACE.x + h.y * FLEX_FACE.y + h.z * FLEX_FACE.z
   -- the two nodes round each wrist give the hand its roll: the knuckles (the fist's place, 1.5 times out) and the thumb side
   for _, side in ipairs({'r', 'l'}) do
-    local o, f = c.parts[side .. '_hand'], c.rig.fist and c.rig.fist[side]
+    local o = c.parts[side .. '_hand']
+    local f = c.rig.fistMean and c.rig.fistMean[side] or c.rig.fist and c.rig.fist[side]   -- (the mesh's middle, not the hole of the grip)
     if not (o and o.p and o.x and o.y and o.z and f) then return end
     out[#out + 1] = o.p + (o.x * f.x + o.y * f.y + o.z * f.z) * 1.5
     out[#out + 1] = o.p + o.x * (f.x > 0 and -0.10 or 0.10)

@@ -223,7 +223,8 @@ end
 
 M.driverMass = 69   -- kg: the sum of KG in addRagdoll, all of it in the seat (head to ankles), none added elsewhere
 local function HAND_NODE(rig, side, thumb)
-  local w, f = rig.arms[side].wrist, rig.fist and rig.fist[side] or {0, 0.06, 0}
+  local w = rig.arms[side].wrist
+  local f = rig.fistMean and rig.fistMean[side] or rig.fist and rig.fist[side] or {0, 0.06, 0}   -- (the mesh's middle, not the hole of the grip)
   -- (the thumb node on the other side of the wrist from the fist, so the three nodes make a wide triangle: a left hand's fist is on the +x side)
   if thumb then return {w[1] + (f[1] > 0 and -0.10 or 0.10), w[2], w[3]} end
   return {w[1] + f[1] * 1.5, w[2] + f[2] * 1.5, w[3] + f[3] * 1.5}
