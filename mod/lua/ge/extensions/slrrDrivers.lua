@@ -31,8 +31,8 @@ local WHEEL_RADIUS = 0.185
 local GRIP_ANGLE = math.rad(10)
 local WRIST_BACK = 0.07
 local HAND_LENGTH = 0.07                -- wrist to the middle of the fist
-local HAND_DOWN = math.rad(50)         -- how far below home a hand is carried before it grips again
-local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this far past its home spot
+local HAND_DOWN = math.rad(40)         -- how far below home a hand is carried before it grips again
+local REGRIP_AHEAD = math.rad(20)       -- a hand that lets go grabs again this far past its home spot
 local REGRIP_LIFT = 0.04                -- the hand comes off the rim toward the driver while it moves
 local HAND_ROLL = 1.0                   -- share of the rim rotation the fist rolls with
 local SHIFT_GAP = 1.0                  -- s: a shift this soon after another is left to the car (auto-shift chains)
@@ -72,7 +72,7 @@ local T = {
   jointSpeed = 2.1,
   rollSpeed = 4,
   regripTime = 0.22,
-  handRange = math.rad(45),
+  handRange = math.rad(30),
   reach = 0.85,
   shiftTime = 0.35,
   reachRpm = 0.82,
@@ -317,7 +317,7 @@ local function updateHands(c, turn, dt)
       elseif over then
         -- a re-grip aims at a place in front of the driver, not at a point on the turning rim (which can
         -- travel 100+ degrees during a fast turn and drag the hand out of its zone)
-        local land = off > 0 and -REGRIP_AHEAD * 0.6 or REGRIP_AHEAD   -- from the top: a little below home; from below: above it
+        local land = off > 0 and -REGRIP_AHEAD * 1.5 or REGRIP_AHEAD   -- from the top: a little below home; from below: above it
         s.a0, s.a1, s.t = s.g + turn, home + up * land, 0
         busy = true
       elseif not busy and math.abs(speed) < math.rad(20) and math.abs(wrapAngle(turn)) < math.rad(30) and math.abs(off) > math.rad(30) then
