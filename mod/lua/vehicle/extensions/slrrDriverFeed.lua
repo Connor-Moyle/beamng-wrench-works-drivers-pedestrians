@@ -89,7 +89,7 @@ end
 -- slrrDrivers works out where each joint should be (seat frame: x right, y forward, z up, from the camera node) and
 -- sends it with pose(); here every frame each target is eased toward and each holding beam is set to the distance
 -- between the torso node and the target, which moves the joint. Torso nodes are taken at their rest places.
-local JOINTS = {'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an', 'head'}
+local JOINTS = {'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an', 'head', 'face'}
 local rig                      -- nil until looked up; false when this car has no flex skeleton
 local target = {}              -- joint -> vec3, jbeam space
 local now = {}
@@ -138,7 +138,7 @@ local function findRig()
   return r
 end
 
-local function pose(t)    -- t: 27 numbers, three per joint in JOINTS order, seat frame
+local function pose(t)    -- t: 30 numbers, three per joint in JOINTS order, seat frame
   if rig == nil then rig = findRig() end
   if not rig or not camNode or type(t) ~= 'table' then return end
   for i = 1, #JOINTS * 3 do   -- a bad frame (NaN, inf, absent) is dropped whole
@@ -155,7 +155,7 @@ end
 -- each joint stays a bone's length from the joint before it (the bone beams are stiff: a target a little off would make the
 -- truss and the bones fight, with big forces on light nodes)
 local CHAINS = {{'r_el', 'r_sh'}, {'r_wr', 'r_el'}, {'l_el', 'l_sh'}, {'l_wr', 'l_el'},
-                {'r_kn', 'r_hip'}, {'r_an', 'r_kn'}, {'l_kn', 'l_hip'}, {'l_an', 'l_kn'}, {'head', 'neck'}}
+                {'r_kn', 'r_hip'}, {'r_an', 'r_kn'}, {'l_kn', 'l_hip'}, {'l_an', 'l_kn'}, {'head', 'neck'}, {'face', 'neck'}}
 local function fitBones()
   for _, ch in ipairs(CHAINS) do
     local j, p = ch[1], ch[2]

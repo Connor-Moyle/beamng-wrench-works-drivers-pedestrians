@@ -45,7 +45,7 @@ def main():
     M = lua.execute(open(os.path.join(MOD, "lua", "vehicle", "extensions", "slrrDriverFeed.lua")).read())
     lua.globals().M = M
     lua.execute("M.setDriverMass(0, 0)")   # records the camera node
-    good = ["0.2"] * 27
+    good = ["0.2"] * 30
     bad = {
         "NaN": ["0.2"] * 5 + ["(0/0)"] + ["0.2"] * 21,
         "inf": ["math.huge"] + ["0.2"] * 26,
@@ -56,7 +56,7 @@ def main():
         lua.execute("calls = {} now = {}")
         lua.execute("M.pose(" + pose(vals) + ") M.updateGFX(1/60)")
         assert lua.eval("#calls") == 0, name + ": a bad pose reached setBeamLength"
-    far = ["0.2"] * 27
+    far = ["0.2"] * 30
     far[6] = "4"   # r_wr 4 m to the side: inside the 5 m pose check, but its beams would be far past their rest length
     lua.execute("calls = {} now = {} M.pose(" + pose(far) + ") M.updateGFX(1)")
     assert lua.eval("#calls") == 0, "a far-off joint resized a beam"
@@ -94,7 +94,7 @@ def main():
     # a hold to a car node whose target is 1.2 m away (rest 0.5 m) is set; a plain torso hold that far is not
     lua.execute("""
       calls = {} now = {} M.onReset()
-      local t = {} for i = 1, 27 do t[i] = 0.2 end
+      local t = {} for i = 1, 30 do t[i] = 0.2 end
       t[7], t[8], t[9] = 0.2, 1.4, 0.2   -- r_wr 1.4 m ahead of the eye
       M.pose(t) M.updateGFX(1) M.updateGFX(1)
       carset, torsoset = false, false
