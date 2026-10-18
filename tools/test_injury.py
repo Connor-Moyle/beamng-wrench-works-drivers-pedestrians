@@ -28,8 +28,14 @@ function veh:queueLuaCommand(c) table.insert(commands, c) end
 function veh:getId() return 7 end
 slumps = {}
 slrrDrivers = {setSlump = function(_, on) table.insert(slumps, on) end}
-be = {getPlayerVehicleID = function() return 7 end, getObjectByID = function(_, id) return id == 7 and veh or nil end,
+PLAYER, JB = 7, 'covet'
+function veh:getJBeamFilename() return JB end
+be = {getPlayerVehicleID = function() return PLAYER end, getObjectByID = function(_, id) return (id == 7 or id == 9) and veh or nil end,
       getObjectCount = function() return 0 end}
+rects, audio = {}, 0
+function ColorF(r, g, b, a) return {a = a} end
+scenetree = {ScreenBlurFX = {obj = {addFrameBlurRect = function(self, x0, y0, x1, y1, c) rects[#rects + 1] = c.a end}}}
+core_sounds = {setAudioBlur = function(v) audio = v end}
 """
 
 
@@ -170,11 +176,58 @@ def main():
     M.resetTune()
     assert lua.eval("written.tune") is None and M.getTune("toughness") == 1
     for i in range(1, int(lua.eval("#fields")) + 1):
-        assert lua.eval("fields[%d].type == 'slider' or fields[%d].type == 'enum'" % (i, i)), i
+        assert lua.eval("fields[%d].type == 'slider' or fields[%d].type == 'enum' or fields[%d].type == 'bool'" % (i, i, i)), i
         if lua.eval("fields[%d].type" % i) == "slider":
             assert lua.eval("fields[%d].min <= fields[%d].default and fields[%d].default <= fields[%d].max" % (i, i, i, i)), lua.eval("fields[%d].id" % i)
             assert abs(lua.eval("fields[%d].store.get()" % i) - lua.eval("fields[%d].default" % i)) < 1e-9
-    assert lua.eval("#fields") == 10, lua.eval("#fields")
+    assert lua.eval("#fields") == 17, lua.eval("#fields")
+    # how injuries feel: blurry edges and muffled hearing after a hit that fade, a knock-out keeps them until he wakes, Reduce motion turns the
+    # blur off, no sprinting on foot with a broken leg
+    def hurt():
+        l2, M2 = lua_env()
+        M2.setMode("injuries")
+        M2.onVehicleSpawned(7)
+        run(l2, M2, [], settle=3.5)
+        run(l2, M2, crash(60), settle=2.0)
+        return l2, M2
+    l2, M2 = hurt()
+    assert M2.getState(7).level == "unconscious" and not M2.getState(7).conscious
+    l2.execute("rects = {}")
+    M2.onPreRender(1 / 60)
+    assert l2.eval("#rects") == 4 and l2.eval("audio") > 0.3 and M2.getFeel().amount == 1, (l2.eval("#rects"), l2.eval("audio"))
+    run(l2, M2, [], settle=400)           # he wakes up (300 s), the effects fade over 12 s
+    assert M2.getState(7).conscious
+    run(l2, M2, [], settle=14)
+    l2.execute("rects = {}")
+    M2.onPreRender(1 / 60)
+    assert l2.eval("#rects") == 0 and l2.eval("audio") == 0 and M2.getFeel().amount == 0, "the effects did not fade after waking"
+    l2, M2 = hurt()
+    M2.setTune("reduceMotion", 1)
+    l2.execute("rects = {}")
+    M2.onPreRender(1 / 60)
+    assert l2.eval("#rects") == 0 and l2.eval("audio") > 0, "Reduce motion: no blur, the sound still has its own switch"
+    M2.setTune("fxMuffle", 0)
+    M2.onPreRender(1 / 60)
+    assert l2.eval("audio") == 0, "muffling switched off"
+    # a broken leg, on foot: sprinting is switched off while it heals
+    l3, M3 = lua_env()
+    M3.setMode("injuries")
+    M3.onVehicleSpawned(7)
+    run(l3, M3, [], settle=3.5)
+    st = M3._state(7)
+    st["parts"]["lleg"] = 1.0
+    st["recovery"] = 300
+    l3.execute("PLAYER = 9 JB = 'unicycle' commands = {}")
+    M3.onVehicleSwitched(7, 9)
+    run(l3, M3, [], settle=1)
+    assert M3.getFeel().limping and any("setSpeedCoef" in c for c in l3.globals().commands.values()), "no limp on foot with a broken leg"
+    M3.setTune("limp", 0)
+    l3.execute("commands = {}")
+    run(l3, M3, [], settle=1)
+    assert not list(l3.globals().commands.values()), "limp switched off still held him back"
+    l3.execute("PLAYER = 7 JB = 'covet' commands = {}")
+    M3.onVehicleSwitched(9, 7)
+    assert not M3.getFeel().limping, "the leg followed him into a car"
     lua.execute("fields[1].store.set('nonsense')")
     assert M.getMode() == "full", "an unknown mode changed the setting"
     print("ok")

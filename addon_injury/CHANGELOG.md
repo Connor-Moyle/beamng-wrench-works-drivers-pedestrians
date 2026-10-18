@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **How injuries feel.** After a hard hit the edges of the screen go blurry and his hearing is muffled, both fading over a few seconds (a knock-out keeps them until he wakes), and on foot with a broken leg he cannot sprint until it has healed. Each has its own switch and strength in the Injury tab, modest by default, and one **Reduce motion** switch turns the screen effects off. (The game offers no camera shake we could use, so there is none.)
+- **Settings.** Toughness, recovery times, the bruise, break and knock-out thresholds and the voice gap are settings in the Injury tab; `setTune`/`getTune`/`resetTune` do the same from the console.
 - **Injury tab in the Mods menu** (ESC > Mods, with Wrench Works installed): the injury mode (off, injuries, injuries and death) is a setting there; `slrrInjury.settingsSchema()` offers it and slrrDrivers registers the page.
 
 ## 0.1.0

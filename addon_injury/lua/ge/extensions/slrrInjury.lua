@@ -29,9 +29,16 @@ local T = {toughness = 1,              -- times the forces in SCALE: below 1 he 
            outHead = 0.7, outChest = 0.8,          -- head or chest score where he is knocked out
            recoverBroken = 600, recoverOut = 300,  -- real seconds: per broken region, and after a knock-out
            grace = 3,                              -- seconds ignored after a spawn, reset, teleport or vehicle switch
-           voiceGap = 2}                           -- seconds between voice clips per driver
+           voiceGap = 2,                           -- seconds between voice clips per driver
+           -- how injuries feel (the player's own driver): 1 = on, 0 = off for the switches
+           reduceMotion = 0,                       -- 1: none of the screen effects below (blur), for motion sickness
+           fxBlur = 1, fxBlurStrength = 0.4,       -- the screen edges go blurry after a hit, fading away
+           fxMuffle = 1, fxMuffleStrength = 0.5,   -- his hearing is muffled for a while after a hit
+           fxSeconds = 12,                         -- how long the effects take to fade (a knock-out keeps them until he wakes)
+           limp = 1}                               -- on foot with a broken leg: no sprinting
 local TUNE_RANGE = {toughness = {0.5, 2}, bruiseAt = {0.05, 0.5}, brokenAt = {0.5, 1}, outHead = {0.4, 1}, outChest = {0.4, 1},
-                    recoverBroken = {0, 3600}, recoverOut = {0, 1800}, grace = {1, 10}, voiceGap = {0, 10}}
+                    recoverBroken = {0, 3600}, recoverOut = {0, 1800}, grace = {1, 10}, voiceGap = {0, 10},
+                    reduceMotion = {0, 1}, fxBlur = {0, 1}, fxBlurStrength = {0, 1}, fxMuffle = {0, 1}, fxMuffleStrength = {0, 1}, fxSeconds = {3, 60}, limp = {0, 1}}
 local T0 = {}
 for k, v in pairs(T) do T0[k] = v end
 local DEATH_HEAD, DEATH_CHEST, DEATH_TIME = 200, 150, 0.025   -- beyond what restrained drivers survive
@@ -245,8 +252,38 @@ local function sampleFromCar(v, dt)
           jump = jump, speed = l.vel:length()}
 end
 
+-- How injuries feel (the player's own driver): blurry screen edges and muffled hearing after a hit, fading over T.fxSeconds (a knock-out keeps
+-- them until he wakes), no sprinting on foot with a broken leg. The game offers no camera shake we could use, and no screen darkening
+-- without shipping a shader, so these are the effects there are: ScreenBlurFX rects, core_sounds.setAudioBlur, playerController.setSpeedCoef.
+local fx = {peak = 0, left = 0, dur = 1, muffled = false}
+local FX_LEVEL = {bruised = 0.35, broken = 0.7, unconscious = 1, fatal = 1}
+local walkState                -- the car state of the driver who got out onto the unicycle (his leg)
+local footTimer = 0
+local NO_SPRINT = "local c = controller and controller.getController('playerController') if c and c.setSpeedCoef then c.setSpeedCoef(0) end"
+local function fxAmount()
+  local pid = be and be:getPlayerVehicleID(0)
+  local st = pid and state[pid]
+  if st and (st.dead or not st.conscious) then return 1 end
+  return fx.peak * math.max(0, math.min(1, fx.left / fx.dur))
+end
+local function fxStart(level)
+  local p = FX_LEVEL[level]
+  if p and p >= fxAmount() then fx.peak, fx.left, fx.dur = p, T.fxSeconds, T.fxSeconds end
+end
+local function isUnicycle(v) return v and v.getJBeamFilename and v:getJBeamFilename() == 'unicycle' end
+local function limping()
+  return walkState and walkState.recovery > 0 and injuries(-1, walkState).limits.slowWalk
+end
+
 local function onUpdate(dtReal, dtSim)
   now = now + dtReal
+  fx.left = math.max(0, fx.left - dtReal)
+  footTimer = footTimer - dtReal
+  if footTimer <= 0 then   -- on foot with a broken leg: sprinting is switched off, a few times a second
+    footTimer = 0.25
+    local pv = be and be:getObjectByID(be:getPlayerVehicleID(0))
+    if T.limp ~= 0 and mode ~= 'off' and isUnicycle(pv) and limping() then pv:queueLuaCommand(NO_SPRINT) end
+  end
   if mode == 'off' then return end
   local dt = dtSim or dtReal
   local cam = core_camera and core_camera.getPosition()
@@ -270,6 +307,7 @@ local function onUpdate(dtReal, dtSim)
       local add = (st.level == 'unconscious' and T.recoverOut or 0) + T.recoverBroken * #broken(st)
       st.recovery = st.recovery + add
       extensions.hook('onSlrrDriverInjured', id, injuries(id, st))
+      if isPlayer(id) then fxStart(st.level) end
     end
     if st.dying and not st.dead and now - st.dying.at >= DIE_SETTLE then
       st.dead = true
@@ -341,6 +379,13 @@ local SPEC = {
   {key = 'recoverBroken', group = 'Recovery', label = 'Broken arm or leg heals in', tip = 'Real seconds a broken arm or leg takes to heal, for each one broken. 0 heals them at once.', step = 30, unit = 's'},
   {key = 'recoverOut', group = 'Recovery', label = 'Knocked out for', tip = 'Real seconds he stays down after being knocked out.', step = 15, unit = 's'},
   {key = 'voiceGap', group = 'Voice', label = 'Time between his shouts', tip = 'At least this many seconds between his cries of pain or anger. 0 lets him shout every time.', step = 0.5, unit = 's'},
+  {key = 'reduceMotion', group = 'How injuries feel', bool = true, label = 'Reduce motion', tip = 'Turns off the screen effects (blur) for people who get motion sick. Sound and walking effects keep their own switches.'},
+  {key = 'fxBlur', group = 'How injuries feel', bool = true, label = 'Blurry edges after a hit', tip = 'The edges of the screen go blurry after a hard hit and clear up again as he recovers.'},
+  {key = 'fxBlurStrength', group = 'How injuries feel', label = 'Blur strength', tip = 'How blurry the edges get (0 to 100 %). Modest is the default.', step = 0.05, unit = '%', scale = 100, showIf = 'fxBlur'},
+  {key = 'fxMuffle', group = 'How injuries feel', bool = true, label = 'Muffled hearing after a hit', tip = 'The sound is dulled for a while after a hard hit, as if his ears were ringing.'},
+  {key = 'fxMuffleStrength', group = 'How injuries feel', label = 'Muffling strength', tip = 'How dull the sound gets (0 to 100 %).', step = 0.05, unit = '%', scale = 100, showIf = 'fxMuffle'},
+  {key = 'fxSeconds', group = 'How injuries feel', label = 'Effects fade over', tip = 'Seconds the blur and the muffled hearing take to go away. A knock-out keeps them until he wakes up.', step = 1, unit = 's'},
+  {key = 'limp', group = 'How injuries feel', bool = true, label = 'Limp with a broken leg', tip = 'On foot with a broken leg he cannot sprint (he walks at the normal pace) until the leg has healed.'},
   {key = 'bruiseAt', group = 'Thresholds', advanced = true, label = 'Bruised from', tip = 'How hurt a body part is (0 to 100 %) before it counts as bruised.', step = 0.01, unit = '%', scale = 100},
   {key = 'brokenAt', group = 'Thresholds', advanced = true, label = 'Broken from', tip = 'How hurt an arm or leg is (0 to 100 %) before it counts as broken: a broken arm steers worse, a broken leg slows his walk and his pedals.', step = 0.01, unit = '%', scale = 100},
   {key = 'outHead', group = 'Thresholds', advanced = true, label = 'Knocked out by a head injury from', tip = 'How hurt his head is (0 to 100 %) before he is knocked out.', step = 0.01, unit = '%', scale = 100},
@@ -357,9 +402,16 @@ M.settingsSchema = function()
      store = {kind = 'custom', get = function() return mode end, set = function(v) M.setMode(v) end}}}
   for _, sp in ipairs(SPEC) do
     local r = TUNE_RANGE[sp.key]
-    fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
-      min = r[1], max = r[2], step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key], apply = 'live',
-      store = {kind = 'custom', get = function() return T[sp.key] end, set = function(v) M.setTune(sp.key, v) end}}
+    if sp.bool then
+      fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+        default = T0[sp.key] ~= 0, apply = 'live',
+        store = {kind = 'custom', get = function() return T[sp.key] ~= 0 end, set = function(v) M.setTune(sp.key, v and 1 or 0) end}}
+    else
+      fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+        min = r[1], max = r[2], step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key], apply = 'live',
+        visibleIf = sp.showIf and {field = sp.showIf, equals = true} or nil,
+        store = {kind = 'custom', get = function() return T[sp.key] end, set = function(v) M.setTune(sp.key, v) end}}
+    end
   end
   return {id = 'injury', title = 'Injury', description = 'What a crash does to the driver.'}, fields
 end
@@ -381,7 +433,26 @@ end
 M.onVehicleSwitched = function(old, new)
   if old and state[old] then state[old].grace = T.grace end
   if new then get(new).grace = T.grace end
+  local nv = new and new >= 0 and be and be:getObjectByID(new)
+  walkState = (isUnicycle(nv) and old and state[old]) or nil   -- (his leg goes with him out of the car; into a car it is a car's again)
 end
+-- every frame: the effects of the moment (none if the mode is off or the player is not hurt)
+M.onPreRender = function(dtReal)
+  local a = (mode ~= 'off') and fxAmount() or 0
+  if a > 0 and T.fxBlur ~= 0 and T.reduceMotion == 0 and ColorF and scenetree and scenetree.ScreenBlurFX and scenetree.ScreenBlurFX.obj then
+    local alpha = math.min(1, a * T.fxBlurStrength)
+    local o = scenetree.ScreenBlurFX.obj
+    for _, r in ipairs({{0, 0, 0.18, 1}, {0.82, 0, 1, 1}, {0.18, 0, 0.82, 0.15}, {0.18, 0.85, 0.82, 1}}) do
+      pcall(o.addFrameBlurRect, o, r[1], r[2], r[3], r[4], ColorF(1, 1, 1, alpha))
+    end
+  end
+  local sounds = rawget(_G, 'core_sounds')
+  if sounds and sounds.setAudioBlur then
+    if a > 0 and T.fxMuffle ~= 0 then sounds.setAudioBlur(math.min(1, a * T.fxMuffleStrength)) fx.muffled = true
+    elseif fx.muffled then sounds.setAudioBlur(0) fx.muffled = false end
+  end
+end
+M.getFeel = function() return {amount = fxAmount(), muffled = fx.muffled, limping = limping() and true or false} end   -- (for tests and the console)
 M.onVehicleDestroyed = function(id) state[id], last[id] = nil, nil end
 M.onClientEndMission = function() state, last = {}, {} end
 M._state = function(id) return state[id] end
