@@ -269,7 +269,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- beams (a rigid truss, so arms do not hang limp: in game the wrists fell 0.5 m below the wheel).
   -- Made before the soft beams so those do not take the pairs (one beam per pair): the head and knees stay driven
   if driverRig == 'flex' then
-    local STIFF = {beamSpring = 150000, beamDamp = 80, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
+    local STIFF = {beamSpring = 150000, beamDamp = 300, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
     local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
     for _, j in ipairs({'head', 'face', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
       local near = {}
@@ -334,7 +334,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- flex driver: three seat nodes each within 0.7 m (a big cab has no node within 0.4 m of the spot: the body hung from its belts
   -- and sank 0.4 m in a pickup), stiffer; the spring sag under 69 kg is then a few millimetres
   local SEATS, REACH = 1, 0.4
-  if driverRig == 'flex' then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 400, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
+  if driverRig == 'flex' then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 1500, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
   local seated = {}
   for _, a in ipairs({{'pelvis', off(P.pelvis, {0, -0.05, -0.15})}, {'chest', off(P.chest, {0, -0.2, 0})}}) do
     local skip = {}

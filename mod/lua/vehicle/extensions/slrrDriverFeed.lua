@@ -198,6 +198,22 @@ local function settleTorso()
   log('I', 'slrrDriverFeed', 'flex torso settled')
 end
 
+-- how much the torso rings: the chest's height over the eye against a slow average of itself; peak to peak (mm) and how many times a
+-- second it crosses the average (a 9 Hz ring is 18; a settled body is a few)
+local bounce = {avg = nil, side = 0, cross = 0, lo = 1e9, hi = -1e9, hy = -1e9, ly = 1e9}
+local function sampleBounce(dt)
+  local cn = rig.cid.chest
+  if not (cn and camNode) then return end
+  local d = obj:getNodePosition(cn) - obj:getNodePosition(camNode)
+  local up, fwd = obj:getDirectionVectorUp(), obj:getDirectionVector()
+  local z, y = d:dot(up), d:dot(fwd)
+  bounce.avg = bounce.avg and (bounce.avg + (z - bounce.avg) * math.min(1, dt * 3)) or z
+  local dz = z - bounce.avg
+  local side = dz > 0.0005 and 1 or dz < -0.0005 and -1 or bounce.side
+  if side ~= bounce.side and bounce.side ~= 0 then bounce.cross = bounce.cross + 1 end
+  bounce.side = side
+  bounce.lo, bounce.hi, bounce.ly, bounce.hy = math.min(bounce.lo, z), math.max(bounce.hi, z), math.min(bounce.ly, y), math.max(bounce.hy, y)
+end
 local stats = {calls = 0, skipped = 0, t = 0, carSkipped = 0, carExtra = 0}   -- (carExtra: the longest a car hold got past its rest length)
 local function movePose(dt)
   if not rig then return end
@@ -220,6 +236,7 @@ local function movePose(dt)
     end
   end
   stats.t = stats.t + dt
+  pcall(sampleBounce, dt)
   if stats.t > 5 and stats.calls + stats.skipped > 0 then
     -- health: how many of the driver's beams broke, and how far head / shoulder / wrist sit from the eye now against at rest (m)
     local okh, err = pcall(function()
@@ -234,6 +251,9 @@ local function movePose(dt)
       stats.calls, stats.skipped, stats.t, broken, #rig.all, dist('head'), dist('l_sh'), dist('r_wr'), stats.carSkipped, stats.carExtra))
     end)
     if not okh then log('W', 'slrrDriverFeed', 'health log failed: ' .. tostring(err)) end
+    log('I', 'slrrDriverFeed', string.format('flex torso: chest %.0f mm up/down, %.0f mm fore/aft peak to peak, %.1f crossings a second (a ring is 10 or more)',
+      math.max(0, bounce.hi - bounce.lo) * 1000, math.max(0, bounce.hy - bounce.ly) * 1000, bounce.cross / math.max(stats.t, 0.1)))
+    bounce.cross, bounce.lo, bounce.hi, bounce.ly, bounce.hy = 0, 1e9, -1e9, 1e9, -1e9
     stats.calls, stats.skipped, stats.t, stats.carSkipped, stats.carExtra = 0, 0, 0, 0, 0
   end
   for j, c in pairs(now) do
