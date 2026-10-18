@@ -2114,6 +2114,7 @@ M.settingsSchema = function()
     {id = 'trousers', tab = 'drivers', group = 'Look', type = 'color', label = 'Trousers colour', default = NEUTRAL, apply = 'live',
      tooltip = 'Recolours his trousers (the prop driver). Grey leaves them as they are.', store = colourStore('trousers')},
     {id = 'colourReset', tab = 'drivers', group = 'Look', type = 'button', label = 'Back to the default colours',
+     tooltip = 'Puts the shirt, trousers and helmet back to the colours the driver is drawn with.',
      action = function() M.setAppearance(nil, {shirt = false, trousers = false, helmetColor = false}) return 'Colours reset' end},
     {id = 'rigNote', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'note', label = 'Not saved: after a restart it is Props again.'},
     {id = 'rig', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'enum', label = 'Driver model', default = 'props', apply = 'spawn',
