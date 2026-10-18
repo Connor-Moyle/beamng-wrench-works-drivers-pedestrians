@@ -256,6 +256,15 @@ def main():
         run(l2, M2, [], settle=3.5)
         run(l2, M2, crash(60), settle=2.0)
         return l2, M2
+    # damage adds up: two hits that bruise nothing alone (20 m/s) bruise together, ten seconds apart
+    l5, M5 = lua_env()
+    M5.setMode("injuries")
+    M5.onVehicleSpawned(7)
+    run(l5, M5, [], settle=3.5)
+    run(l5, M5, crash(20), settle=10)
+    assert M5.getState(7).level == "none", M5.getState(7).level
+    run(l5, M5, crash(20), settle=3)
+    assert M5.getState(7).level == "bruised", ("two small crashes do not add up", M5.getState(7).level)
     # a second crash of the same level (a career does not heal him) is felt again
     l4, M4 = lua_env()
     M4.setMode("injuries")

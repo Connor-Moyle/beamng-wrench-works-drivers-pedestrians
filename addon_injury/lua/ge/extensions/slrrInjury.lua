@@ -44,6 +44,8 @@ for k, v in pairs(T) do T0[k] = v end
 local DEATH_HEAD, DEATH_CHEST, DEATH_TIME = 200, 150, 0.025   -- beyond what restrained drivers survive
 local JUMP = 8             -- metres: a body moving this much more than its speed explains in one step = a glitch (a car in a hard crash jitters by a few)
 local SETTLE, DIE_SETTLE = 1.5, 2
+local CRASH_GAP = 2        -- seconds without a hit before the next one is a new crash
+local HEAL_SECONDS = 600   -- real seconds for a bruise to fade from the score (a broken limb heals through its recovery time)
 local TRACK_DIST = 150     -- AI drivers farther than this from the camera aren't tracked
 local RANK = {none = 0, bruised = 1, broken = 2, unconscious = 3, fatal = 4}
 local VOICE_DIR = '/art/sounds/slrr_injury/'
@@ -185,6 +187,9 @@ local function feed(vehId, s)
     log('I', 'slrrInjury', string.format('jolt %.0f g head, %.0f g chest, %.0f g legs at %.0f km/h (hurts from %.0f g head, %.0f g chest)',
       s.head or 0, s.chest or 0, math.max(s.lleg or 0, s.rleg or 0), (s.speed or 0) * 3.6, SCALE.head[1] * T.toughness, SCALE.chest[1] * T.toughness))
   end
+  -- damage adds up across crashes: a hit scores on top of what he already carries from before this crash (1 - (1 - old)(1 - new)), within one
+  -- crash the worst step counts
+  if now - (st.lastHit or -math.huge) > CRASH_GAP or not st.base then st.base = {} for r, v in pairs(st.parts) do st.base[r] = v end end
   for _, r in ipairs(REGIONS) do
     -- a force counts only when it lasts two steps: a one-step spike (a glitch) never hurts anyone
     local lo, hi = math.min(s[r] or 0, st.prev[r] or 0), math.max(s[r] or 0, st.prev[r] or 0)
@@ -193,7 +198,7 @@ local function feed(vehId, s)
     st.prev[r] = s[r] or 0
     if g > sc[1] then
       hit = true
-      st.parts[r] = math.max(st.parts[r], clamp01((g - sc[1]) / (sc[2] - sc[1])))
+      st.parts[r] = math.max(st.parts[r], 1 - (1 - st.base[r]) * (1 - clamp01((g - sc[1]) / (sc[2] - sc[1]))))
     end
   end
   if hit then
@@ -325,6 +330,7 @@ local function onUpdate(dtReal, dtSim)
   checkContacts()
   for id, st in pairs(state) do
     if st.grace > 0 then st.grace = st.grace - dtReal end
+    for r, v in pairs(st.parts) do if v > 0 and v < T.brokenAt then st.parts[r] = math.max(0, v - dtReal / HEAL_SECONDS) end end
     if st.recovery > 0 then st.recovery = math.max(0, st.recovery - dtReal) end
     -- report once the car has settled
     if RANK[st.level] > st.reported and st.level ~= 'fatal' and st.lastHit and now - st.lastHit >= SETTLE then
