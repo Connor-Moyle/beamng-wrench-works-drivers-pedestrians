@@ -512,6 +512,7 @@ end
 M.setFlexAlpha = function(vid, alpha, only)
   local veh, n = be:getObjectByID(vid), 0
   if not veh then return 0 end
+  headHidden[vid] = nil   -- (the head's state is unknown after this: the next frame sets it again)
   for _, name in ipairs(flexMeshes[vid] or {}) do if (not only or name:find(only, 1, true)) and veh:setMeshAlpha(alpha, name, false) then n = n + 1 end end
   return n
 end
