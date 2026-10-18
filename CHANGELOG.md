@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Drivers
+- **Many more settings.** The Drivers tab (and the Injury tab of the injury add-on) offer the numbers that were fixed in the code: hand and foot speed, hand-over-hand timing, arm stretch, lever timing, breathing, head turn and speed, mirror glances, reversing look, body sway and its limits, what counts as a crash and how he reacts, how far drivers are drawn and animated, the prop driver's weight; for injuries: toughness, recovery times, the bruise, break and knock-out thresholds, the voice gap. The expert ones are under Show advanced. `slrrDrivers.setTune(key, value)` / `getTune` / `resetTune`, and `slrrInjury.setTune` do the same from the console; changed values are saved in the settings files.
 - **Settings in the Mods menu.** With Wrench Works installed, the driver's settings (show the driver, who drives, size, helmet and its colour, shirt and trousers colours, the experimental rigged driver and its clothing colours) are on the Drivers tab of ESC > Mods; without it nothing changes. `slrrDrivers.settingsSchema()` and `onSlrrSettingsReady()` register them.
 - **The rigged driver is a per-session choice.** `setDriverRig('flex')` is no longer saved (a saved setting from an earlier version is
   ignored), so the game never starts with it on by surprise. A flex driver is no longer rebuilt when the player switches car, its pose

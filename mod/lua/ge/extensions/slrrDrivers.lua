@@ -32,16 +32,11 @@ local GRIP_ANGLE = math.rad(10)
 local WRIST_BACK = 0.07
 local HAND_LENGTH = 0.07                -- wrist to the middle of the fist
 local HAND_DOWN = math.rad(50)         -- how far below home a hand is carried before it grips again
-local HAND_RANGE = math.rad(60)         -- how far a hand turns with the rim before it lets go (hand over hand)
 local REGRIP_AHEAD = math.rad(50)       -- a hand that lets go grabs again this far past its home spot
-local REGRIP_TIME = 0.22
 local REGRIP_LIFT = 0.07                -- the hand comes off the rim toward the driver while it moves
 local HAND_ROLL = 1.0                   -- share of the rim rotation the fist rolls with
-local SHIFT_TIME = 0.35                -- s the hand is on the lever for a shift
 local SHIFT_GAP = 1.0                  -- s: a shift this soon after another is left to the car (auto-shift chains)
 local KNOB_GRIP = vec3(0, -0.02, 0.05)  -- the wrist relative to an H-pattern knob node (palm on top)
-local REACH_RPM = 0.82                  -- fraction of max rpm where the hand goes to the lever
-local CULL_DIST = 150
 -- pedals, seat frame, relative to the steering column (x) and the cabin floor (z)
 local PEDAL_X = {throttle = 0.13, brake = -0.06, clutch = -0.24, rest = -0.33}
 local PEDAL_Y = 0.95                    -- forward of the eyes; pulled in when the legs can't reach
@@ -52,45 +47,57 @@ local PAD_FROM_WALL = 0.10              -- the pedal pads sit this far behind th
 local SOLE = 0.05                       -- the ankle and the ball of the foot stay this far above the floor
 local WELL_REFRESH = 1.0                -- s between re-measuring the footwell (it can be crushed; rays cost)
 local HUB_MOVE = 0.3                    -- m the steering hub may be pushed from where it started (crash damage)
-local CRASH_DV = 5                      -- m/s the car's horizontal velocity leaves its 0.15 s average by in a crash
 local CRASH_LAG = 0.15                  -- (kerb taps change it ~1 m/s, 11 m/s^2 braking 1.7 m/s: no crash)
-local DAZE_WAIT = 5                     -- s after a crash the car has to slow down for him to hold his head
 local DAZE_SPEED = 4                    -- m/s: only when stopped or slow, never at speed
-local DAZE_TIME, DAZE_IN, DAZE_OUT = 3.5, 0.5, 0.7
-local DAZE_SHAKE = 0.22                 -- rad: the slow, sore head shake
+local DAZE_IN, DAZE_OUT = 0.5, 0.7
 -- gestures (a table: updateCar is at LuaJIT's limit of 60 upvalues): the wave out of the window (s to raise and lower the hand, the hand beside the window
 -- a little ahead and above the head (x: toward the window), waves a second) and the slump over the wheel (rad of torso lean, rad of head pitch, s to get there)
 local GEST = {waveIn = 0.45, waveHand = vec3(0.32, 0.20, 0.16), waveHz = 2.3, slumpTorso = 0.5, slumpHead = -0.75, slumpTime = 0.9}
 local DAZE_HAND = vec3(0.08, 0.18, 0.0)  -- the wrist at the forehead, to the hand's own side (x: inward)
-local MAX_TINTS = 8                    -- clothing colours kept loaded at once (video memory)
-local DRIVER_MASS = 90                  -- kg added to the car at the seat (driver.json "mass" overrides)
-local SWAY_GAIN = 0.7                   -- the upper body is a damped spring on the hips, pushed by the car's acceleration
-local SWAY_HZ = 1.6
-local ROLL_SPEED = 4                    -- rad/s the wrist may turn
-local JOINT_SPEED = 2.1                 -- m/s a hand or foot target may move (QA gate: under 5 cm a frame at 60 fps)
-local REACH = 0.85                      -- hands on the wheel at this share of full arm length (elbows bent)
 local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a long reach
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
-local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(0.9)
-local REVERSE_LOOK_SPEED = 4            -- m/s: below this in reverse he looks out of the back
+local BREATH_HZ = 0.25
 local SEAT_BACK_REACH = vec3(0.5, -0.05, -0.12)   -- the hand on the passenger seat back (x toward the passenger)
 local REVERSE_TWIST = math.rad(17)      -- torso twist when looking back
-local REVERSE_HEAD = math.rad(80)       -- head turn on top of it (relative to the torso)
-local GLANCE_TIME = 1.1                 -- s for a glance at a mirror and back
 -- third person: the player's driver looks where the camera looks
-local LOOK_HEAD, LOOK_TORSO = math.rad(80), math.rad(15)   -- the turn, split between head and torso
+local LOOK_TORSO = math.rad(15)   -- the turn, split between head and torso
 local LOOK_GIVE_UP = math.rad(120)      -- a camera further round than this: he faces forward again
 local LOOK_PITCH_UP, LOOK_PITCH_DOWN = math.rad(20), math.rad(30)
 local LOOK_W = 13                       -- rad/s: critically damped spring, settles in about 0.3 s
-local LOOK_SPEED = 3                    -- rad/s at most (a fast camera swing doesn't snap him round)
 local LEVEL_HEAD = 0.7                  -- share of the torso lean the head undoes
-local SWAY_DAMP = 0.45
-local SEATBELT = 0.055                   -- hard limit: the head never travels more than this from where it sits
-local SWAY_ACC_MAX = 12                 -- m/s^2; harder hits (kerbs, gear-change spikes) don't throw him further
-local COLLIDE_DIST = 40                 -- only drivers this close to the camera collide (it costs node reads)
-local FAR_SKIP = 8                     -- frames between looks at a far driver drawn by the car
-local ANIM_DIST = 40                    -- drivers drawn by the car animate only this close to the camera
 local LEAD_FRAMES = 0                   -- render lead (frames of velocity); 0 until the driver is drawn by the car itself (overshot in play)
+
+-- what the Mods menu can change (setTune): the defaults; TUNE_RANGE and TUNE_SPEC below say how far and how it is offered
+local T = {
+  jointSpeed = 2.1,
+  rollSpeed = 4,
+  regripTime = 0.22,
+  handRange = math.rad(60),
+  reach = 0.85,
+  shiftTime = 0.35,
+  reachRpm = 0.82,
+  breathAngle = math.rad(0.9),
+  glanceTime = 1.1,
+  lookHead = math.rad(80),
+  lookSpeed = 3,
+  reverseHead = math.rad(80),
+  reverseLookSpeed = 4,
+  swayGain = 0.7,
+  swayHz = 1.6,
+  swayDamp = 0.45,
+  swayAccMax = 12,
+  seatbelt = 0.055,
+  cullDist = 150,
+  animDist = 40,
+  collideDist = 40,
+  farSkip = 8,
+  maxTints = 8,
+  driverMass = 90,
+  crashDv = 5,
+  dazeWait = 5,
+  dazeTime = 3.5,
+  dazeShake = 0.22,
+}
 
 local drivers = {}      -- id -> {id, name, model, skin, preview}
 local driverList = {}
@@ -128,7 +135,7 @@ local function loadDrivers()
     local d = jsonReadFile(f)
     if id and d and d.model and id ~= 'models' then
       local preview = ROOT .. id .. '/preview.png'
-      drivers[id] = {id = id, name = d.name or id, model = d.model, skin = d.skin or id, mass = tonumber(d.mass) or DRIVER_MASS,
+      drivers[id] = {id = id, name = d.name or id, model = d.model, skin = d.skin or id, mass = tonumber(d.mass),
                      preview = FS:fileExists(preview) and preview or nil}
       table.insert(driverList, drivers[id])
     end
@@ -138,6 +145,7 @@ local function loadDrivers()
   if s and s.default then defaultDriver = s.default end
   if s and MODES[s.displayMode] then displayMode = s.displayMode end
   if s and type(s.appearance) == 'table' then appearance = s.appearance end
+  if s and type(s.tune) == 'table' then M.loadTune(s.tune) end
 end
 
 local function getRig(model)
@@ -220,7 +228,7 @@ local function rimPoint(center, a, lift)
 end
 
 -- Hand over hand: each hand holds the rim at angle g (measured on the wheel) and turns with it. When it
--- has turned HAND_RANGE from home it lets go and grabs again past home, while the other hand holds on.
+-- has turned T.handRange from home it lets go and grabs again past home, while the other hand holds on.
 -- Once the wheel settles near the centre, a hand far from home moves back to it. Returns rim angle and lift per side.
 local function updateHands(c, turn, dt)
   local h = c.hands
@@ -235,7 +243,7 @@ local function updateHands(c, turn, dt)
   for side, s in pairs(h) do
     local home = HOME[side]
     if s.t then
-      s.t = s.t + dt / REGRIP_TIME
+      s.t = s.t + dt / T.regripTime
       if s.t >= 1 then s.g, s.t = wrapAngle(s.a1 - turn), nil end   -- lands on whatever part of the rim is there now
     elseif side == c.shiftSide and c.reach > 0.3 then
       s.g = wrapAngle(home - turn)   -- off at the lever: comes back to its home spot
@@ -245,11 +253,11 @@ local function updateHands(c, turn, dt)
       -- keep their hands in the upper part of the wheel; past either limit the hand grips again.
       local up = side == 'r' and 1 or -1
       local off = wrapAngle(s.g + turn - home) * up
-      local over = off > HAND_RANGE or off < -HAND_DOWN
+      local over = off > T.handRange or off < -HAND_DOWN
       if over and busy then
         -- the other hand is off the rim: this one holds its place and lets the rim slide through the palm
         -- (both letting go at once would swing both arms across the wheel)
-        s.g = wrapAngle(home + up * clamp(off, -HAND_DOWN, HAND_RANGE) - turn)
+        s.g = wrapAngle(home + up * clamp(off, -HAND_DOWN, T.handRange) - turn)
       elseif over then
         -- a re-grip aims at a place in front of the driver, not at a point on the turning rim (which can
         -- travel 100+ degrees during a fast turn and drag the hand out of its zone)
@@ -309,7 +317,7 @@ local function skinnedShape(model, part, material, base)
 end
 
 -- Appearance (setAppearance): clothing tints, size and a helmet, global or per car.
-local tints = {}               -- material name -> {users = n, order = k}: at most MAX_TINTS kept loaded
+local tints = {}               -- material name -> {users = n, order = k}: at most T.maxTints kept loaded
 local tintOrder = 0
 
 local function hex(c) return c and string.format('%02x%02x%02x', clamp(c[1] or c.r or 0, 0, 1) * 255, clamp(c[2] or c.g or 0, 0, 1) * 255, clamp(c[3] or c.b or 0, 0, 1) * 255) or nil end
@@ -324,7 +332,7 @@ end
 
 -- A material for a driver with tinted shirt / trousers: the skin's own maps, then per garment a layer of
 -- its grey shading times the colour, through the garment's mask. Written to /temp and loaded; identical
--- colours share one; at most MAX_TINTS are kept (an unused one is dropped for a new one).
+-- colours share one; at most T.maxTints are kept (an unused one is dropped for a new one).
 -- Tinted colour map baked in Lua (the fallback when material layers don't blend): the skin's packed
 -- <stem>_tint.bin (r, g, b, shade, shirt mask, trousers mask per pixel) mixed into one texture. Plain Lua
 -- (no ffi: the mod repository doesn't allow it), so it runs as a job spread over frames, BAKE_ROWS rows
@@ -401,7 +409,7 @@ local function tintMaterial(d, a)
     n = n + 1
     if t.users == 0 and (not oldest or t.order < tints[oldest].order) then oldest = k end
   end
-  if n >= MAX_TINTS then
+  if n >= T.maxTints then
     if not oldest then log('W', 'slrrDrivers', 'too many clothing colours in use; this driver keeps his own') return d.skin .. '_driver' end
     local m = scenetree.findObject(oldest)
     if m then m:delete() end
@@ -587,17 +595,17 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist)
     if acc:length() > 2000 then acc = vec3(0, 0, 0) end   -- teleport or reset, not a crash
     c.acc = c.acc and lerp(c.acc, acc, math.min(1, dtSim * 6)) or acc   -- physics accel is noisy frame to frame
     local a = vec3(c.acc:dot(Rnow.x), c.acc:dot(Rnow.y), 0)
-    if a:length() > SWAY_ACC_MAX then a = a:normalized() * SWAY_ACC_MAX end
-    local w = 2 * math.pi * SWAY_HZ
+    if a:length() > T.swayAccMax then a = a:normalized() * T.swayAccMax end
+    local w = 2 * math.pi * T.swayHz
     local steps = math.max(1, math.ceil(dtSim / 0.01))
     local h = dtSim / steps
     for _ = 1, steps do
-      b.v = b.v + (-a * SWAY_GAIN - b.d * (w * w) - b.v * (2 * SWAY_DAMP * w)) * h
+      b.v = b.v + (-a * T.swayGain - b.d * (w * w) - b.v * (2 * T.swayDamp * w)) * h
       b.d = b.d + b.v * h
       b.d.z = 0
-      if b.d:length() > SEATBELT then
+      if b.d:length() > T.seatbelt then
         local n = b.d:normalized()
-        b.d = n * SEATBELT
+        b.d = n * T.seatbelt
         local into = b.v:dot(n)
         if into > 0 then b.v = b.v - n * into end
       end
@@ -609,7 +617,7 @@ local function bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist)
   local function leanOf(d) return rotBetween(c.head0 - rig.pelvis, c.head0 + d - rig.pelvis) end
   local L = leanOf(b.d)
 
-  if c.colNodes and #c.colNodes > 0 and camDist < COLLIDE_DIST then
+  if c.colNodes and #c.colNodes > 0 and camDist < T.collideDist then
     local vpos = veh:getPosition()
     local pts = {}
     for i, cid in ipairs(c.colNodes) do
@@ -1032,7 +1040,7 @@ local function attach(vid)
   -- the hand nearest the middle of the car shifts
   c.shiftSide = c.rhd and 'l' or 'r'
   c.inward = c.rhd and -1 or 1
-  c.mass = d.mass
+  c.mass = d.mass or T.driverMass
   if not flex then setupCollision(c, vid) end
   if flex then
     local vd = core_vehicle_manager.getVehicleData(vid)
@@ -1062,7 +1070,7 @@ local function attach(vid)
   end
   cars[vid] = c
   veh:queueLuaCommand(string.format('extensions.load("slrrDriverFeed") slrrDriverFeed.setDriverMass(%d, %g)', camNode,
-    (slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid)) and 0 or d.mass))   -- (a flex driver's mass is its nodes')
+    (slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid)) and 0 or c.mass))   -- (a flex driver's mass is its nodes')
   return true
 end
 
@@ -1108,7 +1116,7 @@ local function updateLegs(c, wheel, world, R, dt)
   for _, k in ipairs({'throttle', 'brake', 'clutch'}) do
     local want = animated and (e[k] or 0) or 0
     -- a manual shift: the clutch goes down with it (unless the car's own clutch input says more)
-    if k == 'clutch' and animated and c.hasClutch and c.shiftT and c.shiftT < SHIFT_TIME * 0.8 then want = math.max(want, 1) end
+    if k == 'clutch' and animated and c.hasClutch and c.shiftT and c.shiftT < T.shiftTime * 0.8 then want = math.max(want, 1) end
     press[k] = press[k] + clamp(want - press[k], -dt * 8, dt * 8)
   end
   local right = c.feet.r
@@ -1140,7 +1148,7 @@ local function updateLegs(c, wheel, world, R, dt)
     end
     -- the ball of the foot goes on the pad; the foot pivots toes-down with the pedal
     local footRot = rotX(-angle)
-    target = follow(c, side .. 'Foot', target, dt, JOINT_SPEED)
+    target = follow(c, side .. 'Foot', target, dt, T.jointSpeed)
     local ankleTarget = target - rotate(footRot, leg.foot0)
     -- legs that cannot reach pull the pedals in toward the seat
     local reach = (leg.lt + leg.lc) * 0.92   -- the knee always stays a little bent
@@ -1280,24 +1288,24 @@ local function updateDaze(c, veh, R, dt, dtSim, fp)
   if c.lastVel and dtSim > 0 then
     local dv = vel - c.lastVel
     dv = dv - R.z * dv:dot(R.z)                 -- kerbs and landings jolt vertically: not a crash
-    if dv:length() > CRASH_DV then c.sinceCrash = 0 end
+    if dv:length() > T.crashDv then c.sinceCrash = 0 end
     c.lastVel = c.lastVel + (vel - c.lastVel) * math.min(1, dtSim / CRASH_LAG)
   else
     c.lastVel = vel
   end
   if c.sinceCrash then
     c.sinceCrash = c.sinceCrash + dt
-    if c.sinceCrash > DAZE_WAIT then c.sinceCrash = nil end
+    if c.sinceCrash > T.dazeWait then c.sinceCrash = nil end
   end
   local slow = vel:length() < DAZE_SPEED
   local reversing = (c.e.gear or 0) < 0
   if c.sinceCrash and slow and not c.daze and animated and not fp and not reversing then c.daze, c.sinceCrash = 0, nil end
   if c.daze then
     c.daze = c.daze + dt
-    if not slow or fp or not animated or reversing then c.daze = math.max(c.daze, DAZE_TIME - DAZE_OUT) end   -- back to the wheel now
-    if c.daze >= DAZE_TIME then c.daze = nil end
+    if not slow or fp or not animated or reversing then c.daze = math.max(c.daze, T.dazeTime - DAZE_OUT) end   -- back to the wheel now
+    if c.daze >= T.dazeTime then c.daze = nil end
   end
-  c.dazeK = c.daze and clamp(math.min(c.daze / DAZE_IN, (DAZE_TIME - c.daze) / DAZE_OUT), 0, 1) or 0
+  c.dazeK = c.daze and clamp(math.min(c.daze / DAZE_IN, (T.dazeTime - c.daze) / DAZE_OUT), 0, 1) or 0
   if c.wave then
     c.wave.t = c.wave.t + dt
     if c.wave.t >= c.wave.dur or not animated or fp then c.wave = nil end
@@ -1319,7 +1327,7 @@ local function updateLook(c, vid, R, dt, fp, speed)
     local look = q * vec3(0, 1, 0)
     local lx, ly, lz = look:dot(R.x), look:dot(R.y), look:dot(R.z)
     local yaw = math.atan2(-lx, ly)
-    local limit = LOOK_HEAD + LOOK_TORSO
+    local limit = T.lookHead + LOOK_TORSO
     if math.abs(yaw) > LOOK_GIVE_UP then yaw = 0 else yaw = clamp(yaw, -limit, limit) end
     local w = clamp(1 - (speed - 10) / 15 * 0.7, 0.3, 1)                  -- 30 % above 25 m/s
     w = w * (1 - clamp(math.abs(e.steer or 0) / 270, 0, 0.7)) * (1 - 0.6 * clamp(e.brake or 0, 0, 1))
@@ -1329,8 +1337,8 @@ local function updateLook(c, vid, R, dt, fp, speed)
   -- critically damped, speed limited
   c.lookYaw, c.lookPitch = c.lookYaw or 0, c.lookPitch or 0
   c.lookVy, c.lookVp = c.lookVy or 0, c.lookVp or 0
-  c.lookVy = clamp(c.lookVy + (LOOK_W * LOOK_W * (wantYaw - c.lookYaw) - 2 * LOOK_W * c.lookVy) * dt, -LOOK_SPEED, LOOK_SPEED)
-  c.lookVp = clamp(c.lookVp + (LOOK_W * LOOK_W * (wantPitch - c.lookPitch) - 2 * LOOK_W * c.lookVp) * dt, -LOOK_SPEED, LOOK_SPEED)
+  c.lookVy = clamp(c.lookVy + (LOOK_W * LOOK_W * (wantYaw - c.lookYaw) - 2 * LOOK_W * c.lookVy) * dt, -T.lookSpeed, T.lookSpeed)
+  c.lookVp = clamp(c.lookVp + (LOOK_W * LOOK_W * (wantPitch - c.lookPitch) - 2 * LOOK_W * c.lookVp) * dt, -T.lookSpeed, T.lookSpeed)
   c.lookYaw, c.lookPitch = c.lookYaw + c.lookVy * dt, c.lookPitch + c.lookVp * dt
 end
 
@@ -1365,7 +1373,7 @@ local function posePassenger(c, R, eye)
 end
 
 local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
-  -- a still, far driver is re-checked every FAR_SKIP frames (the vehicle queries below are most of his cost)
+  -- a still, far driver is re-checked every T.farSkip frames (the vehicle queries below are most of his cost)
   if c.farWait and c.farWait > 0 then c.farWait = c.farWait - 1 return end
   local veh = be:getObjectByID(vid)
   if not veh then removeCar(vid) return end
@@ -1378,16 +1386,16 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   -- the player's own car is always near: in the driver camera core_camera.getPosition() stays where the
   -- camera was last placed, which culled and froze him after 40-150 m of driving (B47)
   local camDist = (fpView or vid == be:getPlayerVehicleID(0)) and 0 or eye:distance(camPos)
-  local off = camDist > CULL_DIST or mode == 'hidden' or (mode == 'hideFirstPerson' and fpView)
+  local off = camDist > T.cullDist or mode == 'hidden' or (mode == 'hideFirstPerson' and fpView)
   if off ~= c.hidden then
     for _, o in pairs(c.parts) do o:setHidden(off) end
     c.hidden, c.headHidden = off, off
   end
   if off then return end
-  -- drawn by the car and still, or further than ANIM_DIST from the camera: his last pose rides with the car
+  -- drawn by the car and still, or further than T.animDist from the camera: his last pose rides with the car
   -- at no cost (the props keep their base transforms), which is what pays for 14 traffic drivers (J6)
-  if c.drawnByCar and c.posed and (not animated or camDist > ANIM_DIST) then
-    c.farWait = camDist > ANIM_DIST + 10 and FAR_SKIP or 0   -- (a car moves FAR_SKIP frames before it is looked at again)
+  if c.drawnByCar and c.posed and (not animated or camDist > T.animDist) then
+    c.farWait = camDist > T.animDist + 10 and T.farSkip or 0   -- (a car moves T.farSkip frames before it is looked at again)
     return
   end
   local fwd = vec3(veh:getDirectionVector()):normalized()
@@ -1414,19 +1422,19 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local L = animated and not c.drawnByCar and bodyPhysics(veh, c, dtSim, Rnow, eyeNow, camDist) or IDENT
   if t0 then prof.body = prof.body + os.clock() - t0 end
   -- reversing at walking pace: he twists round to look out of the back (not in the player's own view)
-  local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < REVERSE_LOOK_SPEED
+  local reversing = animated and vid ~= fpVid and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < T.reverseLookSpeed
   c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
   local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
   if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
   updateLook(c, vid, R, dt, vid == fpVid, vec3(veh:getVelocity()):length())
-  local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (LOOK_HEAD + LOOK_TORSO) * (1 - (c.revK or 0))
+  local lookTorso = c.lookW * c.lookYaw * LOOK_TORSO / (T.lookHead + LOOK_TORSO) * (1 - (c.revK or 0))
   if math.abs(lookTorso) > 1e-4 then L = compose(L, rotZ(lookTorso)) end
   if c.reachLean then L = compose(L, c.reachLean) end
   c.slumpK = clamp((c.slumpK or 0) + clamp((c.slumped and 1 or 0) - (c.slumpK or 0), -dt / GEST.slumpTime, dt / GEST.slumpTime), 0, 1)
   if c.slumpK > 0 and animated then L = compose(L, rotX(-GEST.slumpTorso * smootheststep(c.slumpK))) end
   -- idle: slow breathing in the chest (and so the shoulders), always on when animated
   c.clock = (c.clock or math.random() * 10) + dt
-  if animated then L = compose(L, rotX(BREATH_ANGLE * math.sin(2 * math.pi * BREATH_HZ * c.clock))) end
+  if animated then L = compose(L, rotX(T.breathAngle * math.sin(2 * math.pi * BREATH_HZ * c.clock))) end
   local function lean(p) return rig.pelvis + rotate(L, p - rig.pelvis) end
 
   -- shifting hand: reach for the lever at high revs, run the H pattern while a shift is on
@@ -1442,16 +1450,16 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   local knob = gearSlot(e.gear)
   if c.shiftT then
     c.shiftT = c.shiftT + dt
-    local t = c.shiftT / SHIFT_TIME
+    local t = c.shiftT / T.shiftTime
     local a, b = gearSlot(c.fromGear), gearSlot(e.gear)
     local na, nb = vec3(a.x, 0, 0), vec3(b.x, 0, 0)
     if t < 1 / 3 then knob = lerp(a, na, t * 3)
     elseif t < 2 / 3 then knob = lerp(na, nb, t * 3 - 1)
     else knob = lerp(nb, b, math.min(1, t * 3 - 2)) end
-    if c.shiftT > SHIFT_TIME + 0.15 then c.shiftT = nil end
+    if c.shiftT > T.shiftTime + 0.15 then c.shiftT = nil end
   end
   -- no reaching for the lever while the wheel is turned well over (both hands are busy steering)
-  local revsHigh = c.manual and e.maxrpm > 0 and e.rpm / e.maxrpm > REACH_RPM and e.gear > 0 and math.abs(e.steer) < 70
+  local revsHigh = c.manual and e.maxrpm > 0 and e.rpm / e.maxrpm > T.reachRpm and e.gear > 0 and math.abs(e.steer) < 70
   local want = (animated and (c.shiftT or revsHigh)) and 1 or 0
   c.reach = c.reach + clamp(want - c.reach, -dt * 3, dt * (c.shiftT and 12 or 4))
   local leverTarget = lever + knob + vec3(0, -0.03, 0.07)
@@ -1464,14 +1472,14 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
 
   local wheel = liveWheel(c, toSeat)
   c.wheelAt = wheel   -- (for slrrDriverMount.flexSnapshot)
-  -- Reach (worked out once per car): drivers sit with the elbows bent, at about REACH of full arm length.
+  -- Reach (worked out once per car): drivers sit with the elbows bent, at about T.reach of full arm length.
   -- A wheel further away moves the seat forward (up to SEAT_SLIDE), then the rest is a lean from the
   -- hips, instead of the arms locking straight. Everything the driver reaches for is then measured from
   -- his moved seat, so the slide changes where he sits, not where the wheel and pedals are.
   if not c.reachLean then
     local need = 0
     for side, arm in pairs(rig.arms) do
-      local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * REACH
+      local d = rimPoint(wheel, HOME[side], 0):distance(arm.shoulder) - (arm.la + arm.lb) * T.reach
       need = math.max(need, d)
     end
     local slide = c.flex and 0 or clamp(need, 0, SEAT_SLIDE)   -- (a flex driver's torso is fixed: no slide, no lean)
@@ -1507,7 +1515,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     local shoulder = lean(arm.shoulder)
     local d = target - shoulder
-    local over = d:length() - (arm.la + arm.lb) * REACH
+    local over = d:length() - (arm.la + arm.lb) * T.reach
     if over > 0 then shoulder = shoulder + d:normalized() * math.min(over * 0.6, SHOULDER_REACH) end
     local fistAt = target                     -- where the middle of the fist belongs
     if side ~= c.shiftSide or c.reach < 1 then
@@ -1515,10 +1523,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       target = side == c.shiftSide and lerp(target + back, target, c.reach) or target + back
     end
     local roll = wrapAngle(grip.a - HOME[side]) * HAND_ROLL * (1 - c.reach * (side == c.shiftSide and 1 or 0))
-    -- the wrist turns at most ROLL_SPEED (a fast re-grip or keyboard steering doesn't snap the fist round)
+    -- the wrist turns at most T.rollSpeed (a fast re-grip or keyboard steering doesn't snap the fist round)
     c.roll = c.roll or {}
     local was = c.roll[side] or roll
-    roll = was + clamp(wrapAngle(roll - was), -ROLL_SPEED * dt, ROLL_SPEED * dt)
+    roll = was + clamp(wrapAngle(roll - was), -T.rollSpeed * dt, T.rollSpeed * dt)
     c.roll[side] = roll
     local function solve(t)
       local elbow, wrist = ik(shoulder, t, arm.la, arm.lb, arm.pole)
@@ -1535,7 +1543,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       local _, _, _, _, handR = solve(target)
       target = fistAt - rotate(handR, rig.fist[side])
     end
-    target = follow(c, side .. 'Hand', target, dt, JOINT_SPEED, holding and 1e6 or 45)
+    target = follow(c, side .. 'Hand', target, dt, T.jointSpeed, holding and 1e6 or 45)
     local elbow, wrist, n, Df, handR = solve(target)
     place(c.parts[side .. '_upperarm'], world(shoulder), R, delta(basis(elbow - shoulder, n), arm.F0u))
     place(c.parts[side .. '_forearm'], world(elbow), R, Df)
@@ -1569,9 +1577,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     end
     if c.glance then
       c.glance.t = c.glance.t + dt
-      local k = math.sin(math.pi * math.min(1, c.glance.t / GLANCE_TIME))
+      local k = math.sin(math.pi * math.min(1, c.glance.t / T.glanceTime))
       yaw, pitch = yaw + c.glance.yaw * k, pitch + c.glance.pitch * k
-      if c.glance.t >= GLANCE_TIME then c.glance = nil end
+      if c.glance.t >= T.glanceTime then c.glance = nil end
     end
   end
   if c.waveK > 0 then
@@ -1579,19 +1587,19 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   end
   if c.dazeK > 0 then
     local k = smootheststep(c.dazeK)
-    yaw = yaw + k * DAZE_SHAKE * math.sin(2 * math.pi * 0.8 * c.daze)
+    yaw = yaw + k * T.dazeShake * math.sin(2 * math.pi * 0.8 * c.daze)
     pitch = pitch - k * 0.18
   end
   if c.lookW and c.lookW > 0 and not fp then
     -- the camera's look overrides the idle glances; the head turns its share on top of the torso
     local k = smootheststep(c.lookW)
     if k > 0.5 then c.glance = nil end
-    yaw = lerp(yaw, clamp(turn * 0.12, -0.4, 0.4) + c.lookYaw * LOOK_HEAD / (LOOK_HEAD + LOOK_TORSO), k)
+    yaw = lerp(yaw, clamp(turn * 0.12, -0.4, 0.4) + c.lookYaw * T.lookHead / (T.lookHead + LOOK_TORSO), k)
     pitch = lerp(pitch, c.lookPitch, k)
   end
   if c.revK and c.revK > 0 then
     local k = smootheststep(c.revK)
-    yaw, pitch = lerp(yaw, back * REVERSE_HEAD, k), lerp(pitch, 0.08, k)
+    yaw, pitch = lerp(yaw, back * T.reverseHead, k), lerp(pitch, 0.08, k)
   end
   -- the head stays level when the body leans (eyes on the road): undo most of the torso pitch
   pitch = pitch - LEVEL_HEAD * math.asin(clamp(L.y.z, -1, 1))
@@ -1676,7 +1684,8 @@ local function feed(vid, steer, rpm, maxrpm, gear, throttle, brake, clutch)
   e.brake, e.clutch = brake or 0, clutch or 0
 end
 
-local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver, displayMode = displayMode, appearance = appearance}, true) end
+local saveTune   -- (defined with the tunables below)
+local function saveSettings() jsonWriteFile(SETTINGS, {default = defaultDriver, displayMode = displayMode, appearance = appearance, tune = saveTune and saveTune() or nil}, true) end
 
 M.getDrivers = function()
   local out = {}
@@ -1802,6 +1811,92 @@ M.stopRecording = function(vid, path)
   if path then jsonWriteFile(path, rec, false) end
   return #rec.frames, rec
 end
+-- Tunables (the Mods menu): range in the code's units (T above), how each is offered. deg = the code holds radians, the menu shows degrees.
+local T0 = {}
+for k, v in pairs(T) do T0[k] = v end
+local TUNE_SPEC = {
+  -- Animation
+  {key = 'jointSpeed', group = 'Animation', label = 'Hand and foot speed', min = 0.5, max = 5, step = 0.1, unit = 'm/s',
+   tip = 'How fast his hands and feet move to a new place. Lower is smoother and lazier, higher is snappier.'},
+  {key = 'regripTime', group = 'Animation', label = 'Hand-over-hand speed', min = 0.1, max = 0.6, step = 0.01, unit = 's',
+   tip = 'How long a hand takes to let go of the wheel and grab it again further round when you turn it a lot. Lower is quicker.'},
+  {key = 'handRange', group = 'Animation', label = 'Wheel turn before a hand lets go', min = math.rad(30), max = math.rad(120), step = 1, unit = 'deg', deg = true,
+   tip = 'How far a hand rides round with the wheel before he lets go and grabs again. Higher means fewer re-grips.'},
+  {key = 'reach', group = 'Animation', label = 'Arm stretch', min = 0.7, max = 0.98, step = 0.01, unit = '%', scale = 100,
+   tip = 'How far his arms stretch to the wheel (100 % is straight). Lower bends his elbows more.'},
+  {key = 'shiftTime', group = 'Animation', label = 'Time on the gear lever', min = 0.15, max = 1, step = 0.05, unit = 's',
+   tip = 'How long his hand stays on the lever for a gear change in a manual car.'},
+  {key = 'reachRpm', group = 'Animation', label = 'Revs where he reaches for the lever', min = 0.5, max = 1, step = 0.01, unit = '%', scale = 100, advanced = true,
+   tip = 'The share of the engine\'s top revs at which his hand goes to the gear lever in a manual car.'},
+  {key = 'breathAngle', group = 'Animation', label = 'Breathing', min = 0, max = math.rad(3), step = 0.1, unit = 'deg', deg = true,
+   tip = 'How much his chest moves as he breathes while he sits still. 0 is perfectly still.'},
+  {key = 'rollSpeed', group = 'Animation', label = 'Wrist turning speed', min = 1, max = 12, step = 0.5, unit = 'rad/s', advanced = true,
+   tip = 'Fastest his wrists turn when he re-grips or moves a hand.'},
+  -- Looking
+  {key = 'lookHead', group = 'Looking', label = 'Head turn when you look around', min = math.rad(20), max = math.rad(120), step = 1, unit = 'deg', deg = true,
+   tip = 'How far he turns his head to follow the camera when you look around from outside the car.'},
+  {key = 'lookSpeed', group = 'Looking', label = 'Head turn speed', min = 1, max = 8, step = 0.5, unit = 'rad/s',
+   tip = 'Fastest he turns his head after the camera. Lower looks calmer.'},
+  {key = 'glanceTime', group = 'Looking', label = 'Mirror glance', min = 0.5, max = 3, step = 0.1, unit = 's',
+   tip = 'How long a glance at a mirror and back takes.'},
+  {key = 'reverseHead', group = 'Looking', label = 'Head turn when reversing', min = math.rad(20), max = math.rad(120), step = 1, unit = 'deg', deg = true,
+   tip = 'How far he turns his head to look out of the back window while reversing.'},
+  {key = 'reverseLookSpeed', group = 'Looking', label = 'Looks back when reversing slower than', min = 1, max = 10, step = 0.5, unit = 'm/s',
+   tip = 'Below this speed in reverse he looks over his shoulder; faster, he looks ahead again.'},
+  -- Body sway
+  {key = 'swayGain', group = 'Body sway', label = 'Body sway', min = 0, max = 1.5, step = 0.05, unit = 'x',
+   tip = 'How much braking, accelerating and cornering throw his body around. 0 sits him still like a statue.'},
+  {key = 'swayHz', group = 'Body sway', label = 'Sway springiness', min = 0.8, max = 3, step = 0.1, unit = 'Hz', advanced = true,
+   tip = 'How quickly his body swings back after being pushed. Higher is stiffer.'},
+  {key = 'swayDamp', group = 'Body sway', label = 'Sway damping', min = 0.2, max = 1, step = 0.05, unit = '', advanced = true,
+   tip = 'How fast the swinging dies down. Higher settles quicker.'},
+  {key = 'swayAccMax', group = 'Body sway', label = 'Strongest push that counts', min = 4, max = 30, step = 1, unit = 'm/s²', advanced = true,
+   tip = 'Harder pushes (kerbs, gear-change jolts) are capped to this, so they do not throw him further.'},
+  {key = 'seatbelt', group = 'Body sway', label = 'Belt give', min = 0.02, max = 0.15, step = 0.005, unit = 'cm', scale = 100, advanced = true,
+   tip = 'The furthest his head can travel from where it sits, as if held by the belt.'},
+  -- After a crash
+  {key = 'crashDv', group = 'After a crash', label = 'Counts as a crash from', min = 2, max = 15, step = 0.5, unit = 'm/s',
+   tip = 'A sudden change of speed this big counts as a crash; kerbs and hard braking do not.'},
+  {key = 'dazeWait', group = 'After a crash', label = 'Time to slow down', min = 1, max = 15, step = 0.5, unit = 's',
+   tip = 'After a crash the car has this long to slow down before he holds his head.'},
+  {key = 'dazeTime', group = 'After a crash', label = 'Holds his head for', min = 1, max = 10, step = 0.5, unit = 's',
+   tip = 'How long he holds his head after a crash, once the car has slowed down.'},
+  {key = 'dazeShake', group = 'After a crash', label = 'Head shake', min = 0, max = 0.5, step = 0.02, unit = '', advanced = true,
+   tip = 'How much he shakes his head, slowly, when he is dazed. 0 holds it still.'},
+  -- Performance
+  {key = 'cullDist', group = 'Performance', label = 'Drivers drawn up to', min = 40, max = 400, step = 10, unit = 'm',
+   tip = 'Drivers in cars farther from the camera than this are not drawn or updated. Lower saves frame time in traffic.'},
+  {key = 'animDist', group = 'Performance', label = 'Drivers animated up to', min = 10, max = 150, step = 5, unit = 'm',
+   tip = 'Drivers in AI cars animate only this close to the camera; farther away they sit still.'},
+  {key = 'collideDist', group = 'Performance', label = 'Bodies react to the car up to', min = 10, max = 150, step = 5, unit = 'm', advanced = true,
+   tip = 'Only drivers this close to the camera can bump against the car\'s parts (it costs work to read the car).'},
+  {key = 'farSkip', group = 'Performance', label = 'Far drivers updated every', min = 1, max = 30, step = 1, unit = 'frames', advanced = true,
+   tip = 'A far driver in an AI car is updated only once in this many frames. Higher is cheaper and jerkier.'},
+  {key = 'maxTints', group = 'Performance', label = 'Clothing colours kept loaded', min = 2, max = 16, step = 1, unit = '', advanced = true,
+   tip = 'How many different shirt and trouser colours stay in video memory at once.'},
+  {key = 'driverMass', group = 'Performance', label = 'Weight of the prop driver', min = 40, max = 140, step = 5, unit = 'kg', advanced = true,
+   tip = 'Weight added to the car at his seat for the prop driver (a character\'s own weight in its file wins). Affects the car\'s handling a little.'},
+}
+local TUNE_BY_KEY = {}
+for _, sp in ipairs(TUNE_SPEC) do TUNE_BY_KEY[sp.key] = sp end
+saveTune = function()
+  local tune = {}
+  for k, v in pairs(T) do if v ~= T0[k] then tune[k] = v end end
+  return next(tune) and tune or nil
+end
+-- M.setTune(key, value): in the code's own units (radians for the angles); clamped; false for an unknown key or a non-number
+M.setTune = function(key, value)
+  local sp = TUNE_BY_KEY[key]
+  value = tonumber(value)
+  if not (sp and value) or value ~= value then return false end
+  T[key] = clamp(value, sp.min, sp.max)
+  saveSettings()
+  return true
+end
+M.getTune = function(key) return T[key] end
+M.loadTune = function(t) for k, v in pairs(t) do local sp = TUNE_BY_KEY[k] if sp and tonumber(v) then T[k] = clamp(tonumber(v), sp.min, sp.max) end end end   -- (a settings file: unknown keys ignored, values clamped)
+M.resetTune = function() for k, v in pairs(T0) do T[k] = v end saveSettings() end
+
 -- The Mods menu (ESC > Mods, Wrench Works' slrr_settings registry): the Drivers tab. Registered only if the registry exists (without Wrench Works
 -- the driver runs on its defaults and its settings file). A colour field has no empty state: the neutral grey means "no colour of his own".
 local NEUTRAL = {r = 0.5, g = 0.5, b = 0.5}
@@ -1820,6 +1915,13 @@ M.settingsSchema = function()
   local people = {{id = 'none', label = 'Nobody'}}
   for _, d in ipairs(M.getDrivers()) do people[#people + 1] = {id = d.id, label = d.name or d.id} end
   local look = M.getAppearance
+  local tuneFields = {}
+  for _, sp in ipairs(TUNE_SPEC) do
+    local k = (sp.deg and 180 / math.pi or 1)
+    tuneFields[#tuneFields + 1] = {id = sp.key, tab = 'drivers', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+      min = sp.min * k, max = sp.max * k, step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key] * k, apply = 'live',
+      store = {kind = 'custom', get = function() return T[sp.key] * k end, set = function(v) M.setTune(sp.key, v / k) end}}
+  end
   local fields = {
     {id = 'mode', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Show the driver', default = 'full', apply = 'live', options = modes,
      tooltip = 'Full animates him; Still keeps him in the seat without moving; the other two hide him in first person or everywhere.',
@@ -1848,6 +1950,10 @@ M.settingsSchema = function()
      store = {kind = 'custom', get = function() return slrrDriverMount and slrrDriverMount.getDriverRig and slrrDriverMount.getDriverRig() or 'props' end,
               set = function(v) if slrrDriverMount and slrrDriverMount.setDriverRig then slrrDriverMount.setDriverRig(v) end end}},
   }
+  -- the tunables go before the rigged-driver group
+  local at = #fields
+  for i, f in ipairs(fields) do if f.id == 'rigNote' then at = i - 1 break end end
+  for i, f in ipairs(tuneFields) do table.insert(fields, at + i, f) end
   if M.getPresets then
     local opts = {{id = 'default', label = 'Default'}}
     local names = {}
@@ -1880,7 +1986,7 @@ M.onSlrrSettingsReady = function()
     local ok, t2, f2 = pcall(inj.settingsSchema)
     if ok and t2 then tabs[#tabs + 1] = t2 for _, x in ipairs(f2 or {}) do fields[#fields + 1] = x end end
   end
-  S.register({mod = 'slrr_drivers', title = 'Pedestrians & Drivers', icon = 'person', order = 30, tabs = tabs, fields = fields})
+  S.register({mod = 'slrr_drivers', title = 'Pedestrians & Drivers', icon = 'person', order = 35, tabs = tabs, fields = fields})
 end
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end
 

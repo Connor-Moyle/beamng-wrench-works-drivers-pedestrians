@@ -412,6 +412,29 @@ def check_settings():
       F.shirt.store.set({r = 0.2, g = 0.3, b = 0.4}) F.colourReset.action() colourBack = M.getAppearance(nil).shirt == nil""")
     assert lua.eval("shirtSet ~= nil and sr == 0.8 and sg == 0.1") and lua.eval("shirtGone") and lua.eval("scaleOn") == 1.05 and lua.eval("scaleOff")
     assert lua.eval("helmetOn") and lua.eval("helmetOff") and lua.eval("modeSet") == "still" and lua.eval("rigSet") == "flex" and lua.eval("colourBack")
+    # the tunables: each is a slider in the Drivers tab, its default within its range, the menu's units convert (degrees), a change is
+    # clamped, saved (only changes) and read back from the settings file, unknown keys ignored
+    n = int(lua.eval("#registered.fields"))
+    assert n >= 38, n
+    lua.execute("written = nil jsonWriteFile = function(p, t) written = t end")
+    for key, shown, back in (("jointSpeed", 3.0, 3.0), ("handRange", 90.0, math.radians(90)), ("reach", 0.9, 0.9), ("swayGain", 0.0, 0.0)):
+        assert lua.eval("F.%s ~= nil and F.%s.type == 'slider' and F.%s.tab == 'drivers'" % (key, key, key)), key
+        lua.execute("F.%s.store.set(%r)" % (key, shown))
+        assert abs(lua.eval("M.getTune('%s')" % key) - back) < 1e-9, key
+        assert abs(lua.eval("F.%s.store.get()" % key) - shown) < 1e-9, key
+    assert abs(lua.eval("written.tune.handRange") - math.radians(90)) < 1e-9 and lua.eval("written.tune.shiftTime") is None
+    lua.execute("M.setTune('reach', 5) M.setTune('jointSpeed', -3)")
+    assert lua.eval("M.getTune('reach')") == 0.98 and lua.eval("M.getTune('jointSpeed')") == 0.5, "values are clamped to their range"
+    assert not lua.eval("M.setTune('nonsense', 1)") and not lua.eval("M.setTune('reach', 'x')")
+    for i in range(1, n + 1):
+        if lua.eval("registered.fields[%d].type" % i) == "slider":
+            fid = lua.eval("registered.fields[%d].id" % i)
+            assert lua.eval("registered.fields[%d].min <= registered.fields[%d].default and registered.fields[%d].default <= registered.fields[%d].max" % (i, i, i, i)), fid
+    lua.execute("M.resetTune()")
+    assert lua.eval("written.tune") is None and lua.eval("M.getTune('reach')") == 0.85
+    lua.execute("M.loadTune({jointSpeed = 1.5, bogus = 3, reach = 99})")
+    assert lua.eval("M.getTune('jointSpeed')") == 1.5 and lua.eval("M.getTune('reach')") == 0.98 and lua.eval("M.getTune('bogus')") is None
+    lua.execute("M.resetTune()")
     # a pedestrian tab offered by slrrPedestrians joins the page, first
     lua.execute("""slrrPedestrians = {settingsSchema = function() return {id = 'pedestrians', title = 'Pedestrians'}, {{id = 'count', tab = 'pedestrians', type = 'int', label = 'n', min = 0, max = 9, default = 1, store = {kind = 'custom', get = function() return 1 end, set = function() end}}} end}
                   M.onSlrrSettingsReady()""")
@@ -431,6 +454,34 @@ def check_settings():
     assert lua.eval("registered ~= nil and registered.mod") == "slrr_drivers", "loading after the registry did not register"
     lua.execute("slrr_settings = nil")
     print("settings ok: the Drivers tab reads and writes the driver's settings; a pedestrian tab joins the page")
+
+
+def check_tune_effect():
+    """A tunable really changes the driver: with body sway 0 a hard launch and stop move him less than with the default."""
+    def worst(tune):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+        lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+        g = lua.globals()
+        g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+        M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+        g.M = M
+        lua.execute("shim_start(M)")
+        for k, v in tune.items():
+            assert M.setTune(k, v)
+        for _ in range(60):
+            g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+        top, sp = 0.0, 10.0
+        for f in range(240):
+            acc = 9 if f < 120 else -9
+            sp = max(0.0, sp + acc * DT)
+            g.shim_step(DT, sp, acc, 0, 0, 2000, 2, 1 if acc > 0 else 0, 0 if acc > 0 else 1, 0)
+            b = g.shim_parts_local().body
+            top = max(top, math.sqrt(b.x ** 2 + b.y ** 2 + b.z ** 2))
+        return top
+    base, still = worst({}), worst({"swayGain": 0})
+    assert still < base - 0.03, ("body sway 0 should move him less", base, still)
+    print("tunables ok: body sway 0 moves him %.3f m instead of %.3f m" % (still, base))
 
 
 def check_passenger():
@@ -771,6 +822,7 @@ if __name__ == "__main__":
     check_passenger()
     check_flex_gestures()
     check_settings()
+    check_tune_effect()
     check_flex_driving()
     check_mount()
     check_far()
