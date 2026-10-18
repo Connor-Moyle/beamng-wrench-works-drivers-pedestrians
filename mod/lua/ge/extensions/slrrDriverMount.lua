@@ -28,6 +28,7 @@ local ragdollNext = false          -- one-shot: the next vehicle with a driver c
 local alphaDue = {}              -- objID -> seconds until the flexbodies are made visible (they start invisible)
 local headHidden = {}          -- objID -> true while its head mesh is hidden (first person)
 local flexSkin = {}            -- objID -> the skin its flex driver was built with
+local checkedCar, checkAt
 local switchedAt = -10          -- os.clock() of the last vehicle switch
 local flexScale = {}           -- objID -> the size its flex driver was built at (setAppearance scale)
 local flexMeshes = {}          -- objID -> mesh names of its flexbodies
@@ -507,6 +508,16 @@ M.flexShown = function(vid) return flex[vid] ~= nil and alphaDue[vid] == nil end
 M.setPassengerShare = function(share) PASSENGER_SHARE = math.max(0, math.min(1, tonumber(share) or PASSENGER_SHARE)) end   -- (not saved: 1 gives every car a passenger, for testing)
 M.getFlexSkin = function(vid) return flexSkin[vid] end
 M.onPreRender = function(dt)
+  -- a player car that three seconds on has no driver mount: the jbeam hook did not run for it (seen once in a long session: say so in the log)
+  local pv = be and be.getPlayerVehicleID and be:getPlayerVehicleID(0)
+  if pv ~= checkedCar then checkedCar, checkAt = pv, os.clock() + 3 end
+  if checkAt and os.clock() >= checkAt then
+    checkAt = nil
+    local o = pv and be:getObjectByID(pv)
+    if o and not mounts[pv] and not noProps[pv] and not (o.getJBeamFilename and o:getJBeamFilename() == 'unicycle') then
+      log('W', 'slrrDriverMount', 'the player car ' .. tostring(pv) .. ' has no driver mount: the jbeam hook did not run for it (rig ' .. driverRig .. ')')
+    end
+  end
   -- injected flexbodies come up invisible (found in game: visible only after veh:setMeshAlpha(1, mesh) had been called, which
   -- flexReport and dumpFlex did): make them visible once the car exists in the engine
   for vid, t in pairs(alphaDue) do
