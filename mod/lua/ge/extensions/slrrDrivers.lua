@@ -1838,7 +1838,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     yaw = clamp(math.atan2(-lx, ly), -1.4, 1.4)
     pitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)), -0.6, 0.5)
   end
-  local hideHead = fp and core_camera.getPosition():distance(eyeNow) > 0.1   -- the camera sits on the unled eye
+  -- in the player's own driver camera the head is not drawn (the HD heads have eyes, teeth and lids inside that show from within: red balls and a
+  -- mouth in front of the wheel, seen in the game in 'full' mode); the mirrors lose it too
+  local hideHead = fp
   if hideHead ~= c.headHidden then
     c.parts.head:setHidden(hideHead)
     if c.parts.helmet then c.parts.helmet:setHidden(hideHead) end
