@@ -395,7 +395,8 @@ local SPEC = {
   {key = 'grace', group = 'Thresholds', advanced = true, label = 'Ignore knocks after a spawn for', tip = 'Seconds after a spawn, reset, teleport or car switch in which nothing hurts him (the jolt of the game placing the car).', step = 0.5, unit = 's'},
 }
 -- The Mods menu (ESC > Mods): the Injury tab, offered to slrrDrivers, which registers the 'Pedestrians & Drivers' page (a page is registered
--- by one extension: the registry replaces it on every register). Returns the tab and its fields.
+-- by one extension: the registry replaces it on every register). Returns the tab and its fields. Field ids must be unique inside the whole mod page
+-- (the registry drops a second one): the tunables are 'inj_<key>' so they cannot meet a pedestrian or driver field.
 M.settingsSchema = function()
   local fields = {
     {id = 'injuryMode', tab = 'injury', group = 'Crashes', type = 'enum', label = 'Injuries', default = 'injuries', apply = 'live',
@@ -405,13 +406,13 @@ M.settingsSchema = function()
   for _, sp in ipairs(SPEC) do
     local r = TUNE_RANGE[sp.key]
     if sp.bool then
-      fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+      fields[#fields + 1] = {id = 'inj_' .. sp.key, tab = 'injury', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
         default = T0[sp.key] ~= 0, apply = 'live',
         store = {kind = 'custom', get = function() return T[sp.key] ~= 0 end, set = function(v) M.setTune(sp.key, v and 1 or 0) end}}
     else
-      fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+      fields[#fields + 1] = {id = 'inj_' .. sp.key, tab = 'injury', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
         min = r[1], max = r[2], step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key], apply = 'live',
-        visibleIf = sp.showIf and {field = sp.showIf, equals = true} or nil,
+        visibleIf = sp.showIf and {field = 'inj_' .. sp.showIf, equals = true} or nil,
         store = {kind = 'custom', get = function() return T[sp.key] end, set = function(v) M.setTune(sp.key, v) end}}
     end
   end

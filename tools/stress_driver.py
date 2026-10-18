@@ -449,6 +449,20 @@ def check_settings():
     lua.execute("""slrrInjury = {settingsSchema = function() return {id = 'injury', title = 'Injury'}, {{id = 'injuryMode', tab = 'injury', type = 'enum', label = 'i', default = 'off', options = {{id = 'off', label = 'Off'}}, store = {kind = 'custom', get = function() return 'off' end, set = function() end}}} end}
                   M.onSlrrSettingsReady()""")
     assert lua.eval("#registered.tabs") == 3 and lua.eval("registered.tabs[3].id") == "injury" and lua.eval("registered.fields[#registered.fields].id") == "injuryMode"
+    # field ids are unique inside the whole page (the registry drops a second one: 'limp' was in both the pedestrian and the injury fields): the real
+    # pedestrian and injury ids against the Drivers ones
+    import re
+    def ids(path, marker="settingsSchema = function"):
+        text = open(os.path.join(MOD, path) if not path.startswith("..") else os.path.join(HERE, path), encoding="utf-8").read()
+        body = text[text.index(marker):]
+        return re.findall(r"\{id = '([A-Za-z0-9_]+)', tab = ", body)
+    ped = ids("lua/ge/extensions/slrrPedestrians.lua")
+    inj = ids("../addon_injury/lua/ge/extensions/slrrInjury.lua")
+    mine = [lua.eval("(select(2, M.settingsSchema()))[%d].id" % i) for i in range(1, int(lua.eval("#(select(2, M.settingsSchema()))")) + 1)]
+    inj_all = inj + ["inj_" + k for k in re.findall(r"\{key = '([A-Za-z0-9_]+)', (?:group|presets)", open(os.path.join(HERE, "../addon_injury/lua/ge/extensions/slrrInjury.lua"), encoding="utf-8").read())]
+    everything = mine + ped + inj_all
+    dupes = sorted({x for x in everything if everything.count(x) > 1})
+    assert len(ped) >= 8 and not dupes, ("field ids repeated in the page", dupes)
     lua.execute("slrrPedestrians = nil slrrInjury = nil slrr_settings = nil registered = nil")
     # load order: the driver loads before the registry (nothing to register, the registry's hook asks later) and after it
     M.onExtensionLoaded()
