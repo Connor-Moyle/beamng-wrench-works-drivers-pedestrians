@@ -229,6 +229,9 @@ def check_modes():
     M.setDisplayMode("static")
     assert M.getDisplayMode() == "still" and hidden("orbit") == (False, False)
     M.setDisplayMode("full")
+    # full: in the player's own driver camera only his head is not drawn (its eyes and teeth show from inside), the arms and hands are
+    assert hidden("driver") == (False, True) and M.getState(7).parts.head.hidden, "the head must be hidden in the driver camera in full mode"
+    assert hidden("orbit") == (False, False)
     M.setDisplayMode("hidden", 7)
     assert hidden() == (True, True) and M.getDisplayMode() == "full"
     M.setDisplayMode(None, 7)

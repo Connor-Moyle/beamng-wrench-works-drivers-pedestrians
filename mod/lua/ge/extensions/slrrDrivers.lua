@@ -1838,7 +1838,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     yaw = clamp(math.atan2(-lx, ly), -1.4, 1.4)
     pitch = clamp(math.atan2(lz, math.sqrt(lx * lx + ly * ly)), -0.6, 0.5)
   end
-  local hideHead = fp and core_camera.getPosition():distance(eyeNow) > 0.1   -- the camera sits on the unled eye
+  -- in the player's own driver camera the head is not drawn (the HD heads have eyes, teeth and lids inside that show from within: red balls and a
+  -- mouth in front of the wheel, seen in the game in 'full' mode); the mirrors lose it too
+  local hideHead = fp
   if hideHead ~= c.headHidden then
     c.parts.head:setHidden(hideHead)
     if c.parts.helmet then c.parts.helmet:setHidden(hideHead) end
@@ -1971,6 +1973,7 @@ M.setDisplayMode = function(mode, vid)
   -- unchanged: nothing to do (callers may set it on every spawn; no reset, no settings write)
   if (vid and carMode[vid] == mode) or (not vid and displayMode == (mode or 'full')) then return end
   if vid then carMode[vid] = mode else displayMode = mode or 'full' saveSettings() end
+  log('I', 'slrrDrivers', 'display mode ' .. tostring(mode or 'full') .. (vid and (' for car ' .. tostring(vid)) or ' (all cars, saved)'))
   -- start the animation state fresh, so switching never leaves a half-finished move behind
   for id, c in pairs(cars) do
     if not vid or id == vid then c.body, c.smooth, c.hands, c.shiftT, c.reach, c.headYaw, c.headPitch, c.posed = nil, nil, nil, nil, 0, nil, nil, nil end
