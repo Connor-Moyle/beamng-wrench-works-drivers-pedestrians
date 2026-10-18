@@ -239,7 +239,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
     for name, p in pairs(P) do Q[name] = {p[1] * k, p[2] * k, p[3] * k} end
     P = Q
   end
-  local KG = {head = 5.3, face = 0.2, neck = 1.5, chest = 14, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
+  local KG = {head = 4.5, face = 1.0, neck = 1.5, chest = 14, pelvis = 10, r_sh = 4, l_sh = 4, r_el = 2, l_el = 2, r_wr = 1, l_wr = 1,
               r_hip = 6, l_hip = 6, r_kn = 4, l_kn = 4, r_an = 2, l_an = 2}
   local ids, ours = {}, {}
   for name, p in pairs(P) do
