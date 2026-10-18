@@ -344,6 +344,8 @@ M.heal = heal
 M.getState = function(vehId)
   vehId = vehId or (be and be:getPlayerVehicleID(0))
   local st = state[vehId]
+  -- on foot (the unicycle) with the leg he broke in the car: the pedestrian side reads limits.slowWalk from here
+  if (not st or st.level == 'none') and walkState and walkState.recovery > 0 and isUnicycle(be and be.getObjectByID and be:getObjectByID(vehId)) then return injuries(vehId, walkState) end
   if not st then return {injured = false, severity = 0, recoverySeconds = 0, level = 'none',
                          limits = {noDriving = false, slowWalk = false}, parts = {head = 0, chest = 0, arms = 0, legs = 0}} end
   return injuries(vehId, st)

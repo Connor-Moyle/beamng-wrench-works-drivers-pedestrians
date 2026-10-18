@@ -221,6 +221,7 @@ def main():
     M3.onVehicleSwitched(7, 9)
     run(l3, M3, [], settle=1)
     assert M3.getFeel().limping and any("setSpeedCoef" in c for c in l3.globals().commands.values()), "no limp on foot with a broken leg"
+    assert M3.getState(9).limits.slowWalk, "the pedestrian side reads slowWalk for the unicycle: the broken leg is not reported there"
     M3.setTune("limp", 0)
     l3.execute("commands = {}")
     run(l3, M3, [], settle=1)

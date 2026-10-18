@@ -244,7 +244,18 @@ local function updateHands(c, turn, dt)
   c.lastTurn = turn
   -- one hand off the rim at a time; the next may go once the other is nearly back on
   local busy = (h.r.t and h.r.t < 0.7) or (h.l.t and h.l.t < 0.7)
-  for side, s in pairs(h) do
+  -- the hand carried furthest past its limit goes first (a fixed order: `pairs` over the two hands gave a different one from run to run,
+  -- so which hand let go first, and the whole motion after it, changed with the table's hash seed)
+  local function pastLimit(side)
+    local s = h[side]
+    if s.t then return -math.huge end
+    local up = side == 'r' and 1 or -1
+    local off = wrapAngle(s.g + turn - HOME[side]) * up
+    return math.max(off - T.handRange, -off - HAND_DOWN)
+  end
+  local order = pastLimit('l') > pastLimit('r') and {'l', 'r'} or {'r', 'l'}
+  for _, side in ipairs(order) do
+    local s = h[side]
     local home = HOME[side]
     if s.t then
       s.t = s.t + dt / T.regripTime
@@ -275,7 +286,8 @@ local function updateHands(c, turn, dt)
     end
   end
   local out = {}
-  for side, s in pairs(h) do
+  for _, side in ipairs({'r', 'l'}) do
+    local s = h[side]
     if s.t then
       local k = smootheststep(s.t)
       out[side] = {a = s.a0 + wrapAngle(s.a1 - s.a0) * k, lift = REGRIP_LIFT * math.sin(math.pi * s.t)}

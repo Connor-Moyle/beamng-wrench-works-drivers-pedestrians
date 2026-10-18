@@ -538,6 +538,42 @@ def check_stalks():
     print("stalks ok: the hand reaches %.2f m for the indicator, %.2f m for the wipers, not with the wheel over; rain lean %.3f m slow, %.3f m fast" % (diff(base, left), diff(base_r, wiper_hand), slow, fast))
 
 
+def check_regrip():
+    """Hand over hand is deterministic and smooth: the same wheel input gives the same hand positions in every run (the order the two hands are
+    handled in must not depend on the table's hash seed), and neither hand moves more than 5 cm in a frame, however fast the wheel is turned."""
+    def run_sweep(seed):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+        lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+        g = lua.globals()
+        g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+        M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+        g.M = M
+        lua.execute("shim_start(M) math.randomseed(%d)" % seed)
+        for _ in range(60):
+            g.shim_step(DT, 6, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+        track, prev, worst, steer = [], None, 0.0, 0.0
+        for f in range(int(24 / DT)):
+            t = f * DT
+            # a hold at 200 (where two hands want to let go at once), slow sweeps, a fast lock to lock (600 deg/s), a hold at 270, a quick flick back
+            target = 200 if t < 3 else 470 * math.sin(t * 0.9) if t < 8 else (470 if int(t) % 2 else -470) if t < 16 else 270
+            steer = target if t < 3 else steer + max(-600 * DT, min(600 * DT, target - steer))   # (the first segment: the wheel jumps to 200, as a keyboard or a pad can)
+            g.shim_step(DT, 6, 0, steer, 0, 2000, 2, 0.3, 0, 0)
+            pl = g.shim_parts_local()
+            now = (pl.l_hand.x, pl.l_hand.y, pl.l_hand.z, pl.r_hand.x, pl.r_hand.y, pl.r_hand.z)
+            track.append(now)
+            if prev and f > 0:
+                worst = max(worst, math.dist(now[:3], prev[:3]), math.dist(now[3:], prev[3:]))
+            prev = now
+        return track, worst
+    a, worst = run_sweep(1)
+    b, _ = run_sweep(2)
+    c, _ = run_sweep(3)
+    assert a == b == c, "hand over hand differs from run to run for the same wheel input"
+    assert worst < HAND_JUMP, ("a hand moved %.3f m in one frame during hand over hand" % worst)
+    print("regrip ok: identical in 3 runs, the most a hand moves in a frame is %.3f m" % worst)
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -878,6 +914,7 @@ if __name__ == "__main__":
     check_settings()
     check_tune_effect()
     check_stalks()
+    check_regrip()
     check_flex_driving()
     check_mount()
     check_far()
