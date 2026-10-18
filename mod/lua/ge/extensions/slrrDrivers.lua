@@ -1875,6 +1875,11 @@ M.onSlrrSettingsReady = function()
   local tab, f = M.settingsSchema()
   tabs[#tabs + 1] = tab
   for _, x in ipairs(f) do fields[#fields + 1] = x end
+  local inj = rawget(_G, 'slrrInjury')   -- the injury add-on, if installed: its tab last
+  if inj and inj.settingsSchema then
+    local ok, t2, f2 = pcall(inj.settingsSchema)
+    if ok and t2 then tabs[#tabs + 1] = t2 for _, x in ipairs(f2 or {}) do fields[#fields + 1] = x end end
+  end
   S.register({mod = 'slrr_drivers', title = 'Pedestrians & Drivers', icon = 'person', order = 30, tabs = tabs, fields = fields})
 end
 M.reload = function() loadDrivers() rigs = {} for vid in pairs(cars) do pending[vid] = 0 end end

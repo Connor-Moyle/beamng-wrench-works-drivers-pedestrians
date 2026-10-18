@@ -416,7 +416,20 @@ def check_settings():
     lua.execute("""slrrPedestrians = {settingsSchema = function() return {id = 'pedestrians', title = 'Pedestrians'}, {{id = 'count', tab = 'pedestrians', type = 'int', label = 'n', min = 0, max = 9, default = 1, store = {kind = 'custom', get = function() return 1 end, set = function() end}}} end}
                   M.onSlrrSettingsReady()""")
     assert lua.eval("#registered.tabs") == 2 and lua.eval("registered.tabs[1].id") == "pedestrians" and lua.eval("registered.fields[1].id") == "count"
-    lua.execute("slrrPedestrians = nil slrr_settings = nil")
+    # the injury add-on's tab comes last
+    lua.execute("""slrrInjury = {settingsSchema = function() return {id = 'injury', title = 'Injury'}, {{id = 'injuryMode', tab = 'injury', type = 'enum', label = 'i', default = 'off', options = {{id = 'off', label = 'Off'}}, store = {kind = 'custom', get = function() return 'off' end, set = function() end}}} end}
+                  M.onSlrrSettingsReady()""")
+    assert lua.eval("#registered.tabs") == 3 and lua.eval("registered.tabs[3].id") == "injury" and lua.eval("registered.fields[#registered.fields].id") == "injuryMode"
+    lua.execute("slrrPedestrians = nil slrrInjury = nil slrr_settings = nil registered = nil")
+    # load order: the driver loads before the registry (nothing to register, the registry's hook asks later) and after it
+    M.onExtensionLoaded()
+    assert lua.eval("registered") is None, "registered with no registry"
+    lua.execute("slrr_settings = {register = function(s) registered = s return true end} M.onSlrrSettingsReady()")   # (what the registry's onSlrrSettingsReady hook does)
+    assert lua.eval("registered ~= nil and registered.mod") == "slrr_drivers", "the registry's hook did not register the Drivers page"
+    lua.execute("registered = nil")
+    M.onExtensionLoaded()
+    assert lua.eval("registered ~= nil and registered.mod") == "slrr_drivers", "loading after the registry did not register"
+    lua.execute("slrr_settings = nil")
     print("settings ok: the Drivers tab reads and writes the driver's settings; a pedestrian tab joins the page")
 
 

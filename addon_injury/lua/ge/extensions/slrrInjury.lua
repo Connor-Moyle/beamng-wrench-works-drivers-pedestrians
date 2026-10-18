@@ -313,9 +313,21 @@ end
 M.getMode = function() return mode end
 M.setDeathOverride = function(on) deathOverride = on == true end          -- a Hardcore career (not saved)
 M.getDeathAllowed = function() return mode == 'full' or deathOverride end
+-- The Mods menu (ESC > Mods): the Injury tab, offered to slrrDrivers, which registers the 'Pedestrians & Drivers' page (a page is registered
+-- by one extension: the registry replaces it on every register). Returns the tab and its fields.
+M.settingsSchema = function()
+  return {id = 'injury', title = 'Injury', description = 'What a crash does to the driver.'}, {
+    {id = 'injuryMode', tab = 'injury', group = 'Crashes', type = 'enum', label = 'Injuries', default = 'injuries', apply = 'live',
+     options = {{id = 'off', label = 'Off'}, {id = 'injuries', label = 'Injuries'}, {id = 'full', label = 'Injuries and death'}},
+     tooltip = 'Off: crashes hurt nobody. Injuries: bruises, broken arms and legs, being knocked out. Injuries and death: a hard enough crash can also kill the driver.',
+     store = {kind = 'custom', get = function() return mode end, set = function(v) M.setMode(v) end}}}
+end
 M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if s and MODES[s.mode] then mode = s.mode end
+  -- (the page is registered by slrrDrivers: ask it to do it again with this tab in, whichever of the two loaded first)
+  local d = rawget(_G, 'slrrDrivers')
+  if d and d.onSlrrSettingsReady then pcall(d.onSlrrSettingsReady) end
 end
 -- a fresh car, a reset, a teleport or a switch: ignore the jolt; outside a career a reset also heals
 M.onVehicleSpawned = function(id) state[id] = newState() last[id] = nil end

@@ -1,5 +1,9 @@
 # Changelog: Wrench Works: Driver Injuries
 
+## Unreleased
+
+- **Injury tab in the Mods menu** (ESC > Mods, with Wrench Works installed): the injury mode (off, injuries, injuries and death) is a setting there; `slrrInjury.settingsSchema()` offers it and slrrDrivers registers the page.
+
 ## 0.1.0
 
 - Crashes hurt the driver: bruises, a broken arm (one-handed steering, less lock), a broken right leg (no more than 70 % throttle or brake) and unconsciousness (controls cut until he comes round).

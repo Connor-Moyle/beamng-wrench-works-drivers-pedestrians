@@ -145,6 +145,17 @@ def main():
     run(lua, M, [], settle=3.5)
     run(lua, M, crash(100))
     assert M.getState(7).level == "none" and not list(lua.globals().hooks.values())
+    # the Mods menu: the Injury tab is offered to slrrDrivers, which registers the page; loading asks it to do so
+    lua, M = lua_env()
+    lua.execute("asked = 0 slrrDrivers.onSlrrSettingsReady = function() asked = asked + 1 end")
+    M.onExtensionLoaded()
+    assert lua.eval("asked") == 1, "the injury add-on did not ask slrrDrivers to register its tab"
+    lua.execute("tab, fields = ...", *M.settingsSchema())
+    assert lua.eval("tab.id") == "injury" and lua.eval("fields[1].id") == "injuryMode" and lua.eval("fields[1].tab") == "injury"
+    lua.execute("fields[1].store.set('full')")
+    assert M.getMode() == "full" and lua.eval("fields[1].store.get()") == "full"
+    lua.execute("fields[1].store.set('nonsense')")
+    assert M.getMode() == "full", "an unknown mode changed the setting"
     print("ok")
 
 
