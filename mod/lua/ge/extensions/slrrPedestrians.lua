@@ -1177,6 +1177,33 @@ M.getOptions = function()
   for k, v in pairs(opts) do t[k] = v end
   return t
 end
+-- the Mods menu page of the pedestrians (slrrDrivers registers the one page of the mod and calls this): the tab and the fields, each stored through
+-- getOptions/setOptions or getCount/setCount (Wrench Works' settings screen keeps working with the same calls)
+M.settingsSchema = function()
+  local function opt(key) return {kind = 'custom', get = function() return M.getOptions()[key] end, set = function(v) M.setOptions({[key] = v}) end} end
+  local tab = {id = 'pedestrians', title = 'Pedestrians', description = 'The people who walk the pavements of Valo City: how many, and what they do.'}
+  local fields = {
+    {id = 'amount', tab = 'pedestrians', group = 'How many', type = 'enum', label = 'Pedestrians', default = DEFAULTS.amount, store = opt('amount'),
+     tooltip = 'How many people walk the pavements. Off removes them all; Low and High are half and one and a half times the usual crowd.',
+     options = {{id = 'off', label = 'Off'}, {id = 'low', label = 'Low'}, {id = 'medium', label = 'Medium'}, {id = 'high', label = 'High'}, {id = 'veryhigh', label = 'Very high'}}},
+    {id = 'maxCount', tab = 'pedestrians', group = 'How many', type = 'slider', label = 'Most pedestrians at once', min = 0, max = 200, step = 10, unit = '', default = DEFAULTS.maxCount,
+     store = opt('maxCount'), tooltip = 'A ceiling, whatever the amount above. Lower it if the game runs slowly in busy streets.'},
+    {id = 'count', tab = 'pedestrians', group = 'How many', type = 'int', label = 'Crowd at Medium', min = 0, max = 200, default = 48, advanced = true,
+     store = {kind = 'custom', get = M.getCount, set = M.setCount}, tooltip = 'The number of people at the Medium amount. The amount above scales it.'},
+    {id = 'autoReduce', tab = 'pedestrians', group = 'Frame rate', type = 'bool', label = 'Fewer when the frame rate drops', default = DEFAULTS.autoReduce, store = opt('autoReduce'),
+     tooltip = 'Thins the crowd out while the game runs slower than the target below, and brings it back when it speeds up.'},
+    {id = 'targetFps', tab = 'pedestrians', group = 'Frame rate', type = 'slider', label = 'Target frame rate', min = 30, max = 144, step = 1, unit = ' fps', default = DEFAULTS.targetFps,
+     store = opt('targetFps'), visibleIf = {field = 'autoReduce', equals = true}, tooltip = 'What "fewer when the frame rate drops" aims for.'},
+    {id = 'idling', tab = 'pedestrians', group = 'Behaviour', type = 'bool', label = 'People stop and stand about', default = DEFAULTS.idling, store = opt('idling'),
+     tooltip = 'Now and then somebody stops, looks around and waits. Off: everybody keeps walking.'},
+    {id = 'crossing', tab = 'pedestrians', group = 'Behaviour', type = 'bool', label = 'People cross at the lights', default = DEFAULTS.crossing, store = opt('crossing'),
+     tooltip = 'They cross the road at crossings when the lights let them. Off: they stay on their pavement.'},
+    {id = 'busyAreas', tab = 'pedestrians', group = 'Behaviour', type = 'bool', label = 'Busier downtown and on the beachfront', default = DEFAULTS.busyAreas, store = opt('busyAreas'),
+     tooltip = 'More people where a city would have them. Off: the same crowd everywhere.'},
+  }
+  for _, f in ipairs(fields) do f.apply = 'live' end
+  return tab, fields
+end
 M.weightAt = weightAt
 M.getState = function()   -- internal state, for debugging
   return {peds = peds, cap = cap, share = share, frameMs = frameAvg * 1000, junctions = junctions and #junctions,
