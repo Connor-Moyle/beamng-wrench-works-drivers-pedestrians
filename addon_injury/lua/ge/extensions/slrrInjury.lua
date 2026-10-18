@@ -183,7 +183,9 @@ local function feed(vehId, s)
   end
   for _, r in ipairs(REGIONS) do
     -- a force counts only when it lasts two steps: a one-step spike (a glitch) never hurts anyone
-    local g, sc = math.min(s[r] or 0, st.prev[r] or 0), {SCALE[r][1] * T.toughness, SCALE[r][2] * T.toughness}
+    local lo, hi = math.min(s[r] or 0, st.prev[r] or 0), math.max(s[r] or 0, st.prev[r] or 0)
+    local sc = {SCALE[r][1] * T.toughness, SCALE[r][2] * T.toughness}
+    local g = lo > sc[1] and (lo + hi) / 2 or 0   -- both steps over the hurt line: the crash counts at the mean of the two (the stop is one hard step and a softer one)
     st.prev[r] = s[r] or 0
     if g > sc[1] then
       hit = true
