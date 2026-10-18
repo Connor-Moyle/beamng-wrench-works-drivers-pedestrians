@@ -884,6 +884,7 @@ local function attach(vid)
     flexMat = flexLook(veh, vid, d, look)
     if not flexMat then return false end
   end
+  local oldRec = cars[vid] and cars[vid].rec   -- (a recording goes on across a rebuild: an AI mode change or a part change rebuilds the driver)
   removeCar(vid)
   if not props then hideMount(vid) end
 
@@ -1109,6 +1110,7 @@ local function attach(vid)
       c.parts['pass_' .. p] = o
     end
   end
+  c.rec = oldRec
   cars[vid] = c
   veh:queueLuaCommand(string.format('extensions.load("slrrDriverFeed") slrrDriverFeed.setDriverMass(%d, %g)', camNode,
     (slrrDriverMount and slrrDriverMount.hasFlexDriver and slrrDriverMount.hasFlexDriver(vid)) and 0 or c.mass))   -- (a flex driver's mass is its nodes')

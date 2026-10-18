@@ -620,6 +620,32 @@ def check_reverse_arm():
     print("reverse arm ok: the wrist is %.3f m from the seat-back edge; without a seat it keeps the fixed pose" % math.dist(hand, (sb.x, sb.y, sb.z)))
 
 
+def check_recording():
+    """A drive recording survives the driver being rebuilt (an AI mode change, a part change): it kept 0 frames when connor-80 recorded an AI drive."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute(open(os.path.join(HERE, "bng_shim_game.lua")).read())
+    g = lua.globals()
+    g.SHIM_RIG = json.dumps(json.load(open(os.path.join(MOD, "art/slrr_drivers/models/%s/rig.json" % os.environ.get("SLRR_RIG_MODEL", "vin")))))
+    M = lua.execute(open(os.path.join(MOD, "lua/ge/extensions/slrrDrivers.lua")).read())
+    g.M = M
+    lua.execute("shim_start(M)")
+    for _ in range(30):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    M.startRecording(7)
+    for _ in range(60):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    M.onAiModeChange(7, "random")            # the driver is rebuilt
+    for _ in range(60):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    M.setAppearance(None, lua.table_from({"helmet": True}))   # and again
+    for _ in range(60):
+        g.shim_step(DT, 10, 0, 0, 0, 2000, 2, 0.3, 0, 0)
+    n = M.stopRecording(7)[0]
+    assert n >= 170, ("the recording lost frames when the driver was rebuilt", n)
+    print("recording ok: %d frames kept across two rebuilds" % n)
+
+
 def check_passenger():
     """W9: a car given a passenger shows him beside the driver, posed once; he goes with the driver."""
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -961,6 +987,7 @@ if __name__ == "__main__":
     check_tune_effect()
     check_stalks()
     check_regrip()
+    check_recording()
     check_reverse_arm()
     check_flex_driving()
     check_mount()
