@@ -23,16 +23,22 @@ local G = 9.81
 local SCALE = {head = {25, 150}, chest = {30, 100}, pelvis = {35, 120},
                larm = {30, 110}, rarm = {30, 110}, lleg = {30, 110}, rleg = {30, 110}}
 local REGIONS = {'head', 'chest', 'pelvis', 'larm', 'rarm', 'lleg', 'rleg'}
-local BRUISED, BROKEN = 0.15, 0.9
-local OUT_HEAD, OUT_CHEST = 0.7, 0.8         -- unconscious
+-- what the Mods menu can change (setTune): the lines above and below are the defaults
+local T = {toughness = 1,              -- times the forces in SCALE: below 1 he is more fragile, above 1 tougher
+           bruiseAt = 0.15, brokenAt = 0.9,        -- a region's score where it counts as bruised / broken
+           outHead = 0.7, outChest = 0.8,          -- head or chest score where he is knocked out
+           recoverBroken = 600, recoverOut = 300,  -- real seconds: per broken region, and after a knock-out
+           grace = 3,                              -- seconds ignored after a spawn, reset, teleport or vehicle switch
+           voiceGap = 2}                           -- seconds between voice clips per driver
+local TUNE_RANGE = {toughness = {0.5, 2}, bruiseAt = {0.05, 0.5}, brokenAt = {0.5, 1}, outHead = {0.4, 1}, outChest = {0.4, 1},
+                    recoverBroken = {0, 3600}, recoverOut = {0, 1800}, grace = {1, 10}, voiceGap = {0, 10}}
+local T0 = {}
+for k, v in pairs(T) do T0[k] = v end
 local DEATH_HEAD, DEATH_CHEST, DEATH_TIME = 200, 150, 0.025   -- beyond what restrained drivers survive
-local GRACE = 3            -- seconds ignored after a spawn, reset, teleport or vehicle switch
 local JUMP = 2             -- metres: a body moving this much more than its speed explains in one step = a glitch
 local SETTLE, DIE_SETTLE = 1.5, 2
 local TRACK_DIST = 150     -- AI drivers farther than this from the camera aren't tracked
-local RECOVER = {bruised = 0, broken = 600, unconscious = 300}   -- real seconds (per broken region for broken)
 local RANK = {none = 0, bruised = 1, broken = 2, unconscious = 3, fatal = 4}
-local VOICE_GAP = 2        -- seconds between clips per driver
 local VOICE_DIR = '/art/sounds/slrr_injury/'
 local BLOCK = {'accelerate', 'brake', 'accelerate_brake', 'steer_left', 'steer_right', 'steering', 'clutch',
                'parkingbrake', 'parkingbrake_toggle'}
@@ -48,7 +54,7 @@ local function clamp01(x) return math.max(0, math.min(1, x)) end
 local function newState()
   local parts = {}
   for _, r in ipairs(REGIONS) do parts[r] = 0 end
-  return {parts = parts, level = 'none', reported = 0, conscious = true, grace = GRACE, hotHead = 0, hotChest = 0,
+  return {parts = parts, level = 'none', reported = 0, conscious = true, grace = T.grace, hotHead = 0, hotChest = 0,
           peakG = 0, speed = 0, recovery = 0, voiceAt = -math.huge}
 end
 
@@ -60,15 +66,15 @@ end
 local function levelOf(st)
   if st.dead or st.dying then return 'fatal' end
   local p = st.parts
-  if p.head >= OUT_HEAD or p.chest >= OUT_CHEST then return 'unconscious' end
-  for _, r in ipairs({'larm', 'rarm', 'lleg', 'rleg'}) do if p[r] >= BROKEN then return 'broken' end end
-  for _, r in ipairs(REGIONS) do if p[r] >= BRUISED then return 'bruised' end end
+  if p.head >= T.outHead or p.chest >= T.outChest then return 'unconscious' end
+  for _, r in ipairs({'larm', 'rarm', 'lleg', 'rleg'}) do if p[r] >= T.brokenAt then return 'broken' end end
+  for _, r in ipairs(REGIONS) do if p[r] >= T.bruiseAt then return 'bruised' end end
   return 'none'
 end
 
 local function broken(st)
   local out = {}
-  for _, r in ipairs({'larm', 'rarm', 'lleg', 'rleg'}) do if st.parts[r] >= BROKEN then table.insert(out, r) end end
+  for _, r in ipairs({'larm', 'rarm', 'lleg', 'rleg'}) do if st.parts[r] >= T.brokenAt then table.insert(out, r) end end
   return out
 end
 
@@ -82,7 +88,7 @@ local function injuries(vehId, st)
   local sev = 0
   for _, r in ipairs(REGIONS) do sev = math.max(sev, p[r]) end
   local br = broken(st)
-  local legBroken = p.lleg >= BROKEN or p.rleg >= BROKEN
+  local legBroken = p.lleg >= T.brokenAt or p.rleg >= T.brokenAt
   return {severity = sev, parts = {head = p.head, chest = p.chest, arms = math.max(p.larm, p.rarm),
           legs = math.max(p.lleg, p.rleg)}, recoverySeconds = st.recovery,
           limits = {noDriving = legBroken or not st.conscious, slowWalk = legBroken},
@@ -108,8 +114,8 @@ end
 local function setLimits(vehId, st)
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
   if not v then return end
-  local steer = (st.parts.larm >= BROKEN or st.parts.rarm >= BROKEN) and 0.6 or 1
-  local pedal = st.parts.rleg >= BROKEN and 0.7 or 1
+  local steer = (st.parts.larm >= T.brokenAt or st.parts.rarm >= T.brokenAt) and 0.6 or 1
+  local pedal = st.parts.rleg >= T.brokenAt and 0.7 or 1
   v:queueLuaCommand(string.format([[
     if not slrrInjuryEvent then
       slrrInjuryEvent = input.event
@@ -131,11 +137,11 @@ local function loadClips()
   end
 end
 
--- a voice clip at the driver's head, at most one per VOICE_GAP s per driver
+-- a voice clip at the driver's head, at most one per T.voiceGap s per driver
 local function say(vehId, st, kind)
   if not clips then loadClips() end
   local list = clips[kind]
-  if not list or #list == 0 or now - st.voiceAt < VOICE_GAP then return end
+  if not list or #list == 0 or now - st.voiceAt < T.voiceGap then return end
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
   if not v then return end
   st.voiceAt = now
@@ -148,7 +154,7 @@ local function overlays(vehId, st)
   local map = {head = {'head'}, chest = {'body'}, larm = {'l_upperarm', 'l_forearm'}, rarm = {'r_upperarm', 'r_forearm'},
                lleg = {'l_thigh', 'l_calf'}, rleg = {'r_thigh', 'r_calf'}}
   for r, parts in pairs(map) do
-    local lvl = st.parts[r] >= BROKEN and 2 or st.parts[r] >= 0.4 and 1 or 0
+    local lvl = st.parts[r] >= T.brokenAt and 2 or st.parts[r] >= 0.4 and 1 or 0
     for _, part in ipairs(parts) do slrrDrivers.setPartOverlay(vehId, part, lvl) end
   end
 end
@@ -159,12 +165,12 @@ local function feed(vehId, s)
   local st = get(vehId)
   if st.dead then return end
   if st.grace > 0 then return end
-  if (s.jump or 0) > JUMP then st.grace = GRACE return end   -- teleported or glitched: ignore, and a while after
+  if (s.jump or 0) > JUMP then st.grace = T.grace return end   -- teleported or glitched: ignore, and a while after
   local hit = false
   st.prev = st.prev or {}
   for _, r in ipairs(REGIONS) do
     -- a force counts only when it lasts two steps: a one-step spike (a glitch) never hurts anyone
-    local g, sc = math.min(s[r] or 0, st.prev[r] or 0), SCALE[r]
+    local g, sc = math.min(s[r] or 0, st.prev[r] or 0), {SCALE[r][1] * T.toughness, SCALE[r][2] * T.toughness}
     st.prev[r] = s[r] or 0
     if g > sc[1] then
       hit = true
@@ -261,7 +267,7 @@ local function onUpdate(dtReal, dtSim)
     -- report once the car has settled
     if RANK[st.level] > st.reported and st.level ~= 'fatal' and st.lastHit and now - st.lastHit >= SETTLE then
       st.reported = RANK[st.level]
-      local add = (st.level == 'broken' and 0 or RECOVER[st.level] or 0) + RECOVER.broken * #broken(st)
+      local add = (st.level == 'unconscious' and T.recoverOut or 0) + T.recoverBroken * #broken(st)
       st.recovery = st.recovery + add
       extensions.hook('onSlrrDriverInjured', id, injuries(id, st))
     end
@@ -307,24 +313,60 @@ end
 M.setMode = function(m)
   if not MODES[m] then return end
   mode = m
-  jsonWriteFile(SETTINGS, {mode = mode}, true)
+  M.saveSettings()
   if mode == 'off' then for id in pairs(state) do heal(id) end end
 end
 M.getMode = function() return mode end
 M.setDeathOverride = function(on) deathOverride = on == true end          -- a Hardcore career (not saved)
 M.getDeathAllowed = function() return mode == 'full' or deathOverride end
+-- settings file: the mode and the tunables that differ from the defaults
+M.saveSettings = function()
+  local tune = {}
+  for k, v in pairs(T) do if v ~= T0[k] then tune[k] = v end end
+  jsonWriteFile(SETTINGS, {mode = mode, tune = next(tune) and tune or nil}, true)
+end
+M.getTune = function(key) return T[key] end
+M.setTune = function(key, value)   -- clamped to its range; unknown keys and non-numbers are refused
+  local r = TUNE_RANGE[key]
+  value = tonumber(value)
+  if not (r and value) or value ~= value then return false end
+  T[key] = math.max(r[1], math.min(r[2], value))
+  M.saveSettings()
+  return true
+end
+M.resetTune = function() for k, v in pairs(T0) do T[k] = v end M.saveSettings() end
+-- label, plain tooltip, shown scale: what the Injury tab offers beyond the mode
+local SPEC = {
+  {key = 'toughness', group = 'Crashes', label = 'Toughness', tip = 'How hard a crash has to be before he is hurt. Below 1x he is more fragile, above 1x tougher.', step = 0.05, unit = 'x'},
+  {key = 'recoverBroken', group = 'Recovery', label = 'Broken arm or leg heals in', tip = 'Real seconds a broken arm or leg takes to heal, for each one broken. 0 heals them at once.', step = 30, unit = 's'},
+  {key = 'recoverOut', group = 'Recovery', label = 'Knocked out for', tip = 'Real seconds he stays down after being knocked out.', step = 15, unit = 's'},
+  {key = 'voiceGap', group = 'Voice', label = 'Time between his shouts', tip = 'At least this many seconds between his cries of pain or anger. 0 lets him shout every time.', step = 0.5, unit = 's'},
+  {key = 'bruiseAt', group = 'Thresholds', advanced = true, label = 'Bruised from', tip = 'How hurt a body part is (0 to 100 %) before it counts as bruised.', step = 0.01, unit = '%', scale = 100},
+  {key = 'brokenAt', group = 'Thresholds', advanced = true, label = 'Broken from', tip = 'How hurt an arm or leg is (0 to 100 %) before it counts as broken: a broken arm steers worse, a broken leg slows his walk and his pedals.', step = 0.01, unit = '%', scale = 100},
+  {key = 'outHead', group = 'Thresholds', advanced = true, label = 'Knocked out by a head injury from', tip = 'How hurt his head is (0 to 100 %) before he is knocked out.', step = 0.01, unit = '%', scale = 100},
+  {key = 'outChest', group = 'Thresholds', advanced = true, label = 'Knocked out by a chest injury from', tip = 'How hurt his chest is (0 to 100 %) before he is knocked out.', step = 0.01, unit = '%', scale = 100},
+  {key = 'grace', group = 'Thresholds', advanced = true, label = 'Ignore knocks after a spawn for', tip = 'Seconds after a spawn, reset, teleport or car switch in which nothing hurts him (the jolt of the game placing the car).', step = 0.5, unit = 's'},
+}
 -- The Mods menu (ESC > Mods): the Injury tab, offered to slrrDrivers, which registers the 'Pedestrians & Drivers' page (a page is registered
 -- by one extension: the registry replaces it on every register). Returns the tab and its fields.
 M.settingsSchema = function()
-  return {id = 'injury', title = 'Injury', description = 'What a crash does to the driver.'}, {
+  local fields = {
     {id = 'injuryMode', tab = 'injury', group = 'Crashes', type = 'enum', label = 'Injuries', default = 'injuries', apply = 'live',
      options = {{id = 'off', label = 'Off'}, {id = 'injuries', label = 'Injuries'}, {id = 'full', label = 'Injuries and death'}},
      tooltip = 'Off: crashes hurt nobody. Injuries: bruises, broken arms and legs, being knocked out. Injuries and death: a hard enough crash can also kill the driver.',
      store = {kind = 'custom', get = function() return mode end, set = function(v) M.setMode(v) end}}}
+  for _, sp in ipairs(SPEC) do
+    local r = TUNE_RANGE[sp.key]
+    fields[#fields + 1] = {id = sp.key, tab = 'injury', group = sp.group, type = 'slider', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+      min = r[1], max = r[2], step = sp.step, unit = sp.unit, scale = sp.scale, default = T0[sp.key], apply = 'live',
+      store = {kind = 'custom', get = function() return T[sp.key] end, set = function(v) M.setTune(sp.key, v) end}}
+  end
+  return {id = 'injury', title = 'Injury', description = 'What a crash does to the driver.'}, fields
 end
 M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if s and MODES[s.mode] then mode = s.mode end
+  if s and type(s.tune) == 'table' then for k, v in pairs(s.tune) do local r = TUNE_RANGE[k] if r and tonumber(v) then T[k] = math.max(r[1], math.min(r[2], tonumber(v))) end end end
   -- (the page is registered by slrrDrivers: ask it to do it again with this tab in, whichever of the two loaded first)
   local d = rawget(_G, 'slrrDrivers')
   if d and d.onSlrrSettingsReady then pcall(d.onSlrrSettingsReady) end
@@ -334,11 +376,11 @@ M.onVehicleSpawned = function(id) state[id] = newState() last[id] = nil end
 M.onVehicleResetted = function(id)
   last[id] = nil
   if not (sl_career and sl_career.isActive and sl_career.isActive()) then heal(id) end
-  get(id).grace = GRACE
+  get(id).grace = T.grace
 end
 M.onVehicleSwitched = function(old, new)
-  if old and state[old] then state[old].grace = GRACE end
-  if new then get(new).grace = GRACE end
+  if old and state[old] then state[old].grace = T.grace end
+  if new then get(new).grace = T.grace end
 end
 M.onVehicleDestroyed = function(id) state[id], last[id] = nil, nil end
 M.onClientEndMission = function() state, last = {}, {} end

@@ -154,6 +154,27 @@ def main():
     assert lua.eval("tab.id") == "injury" and lua.eval("fields[1].id") == "injuryMode" and lua.eval("fields[1].tab") == "injury"
     lua.execute("fields[1].store.set('full')")
     assert M.getMode() == "full" and lua.eval("fields[1].store.get()") == "full"
+    # the tunables: toughness changes what a crash does, values are clamped, unknown keys refused, only changes are saved, the schema's defaults match
+    def level_after(tough):
+        l2, M2 = lua_env()
+        M2.setTune("toughness", tough)
+        M2.onVehicleSpawned(7)
+        run(l2, M2, [], settle=3.5)
+        run(l2, M2, crash(40))
+        return M2.getState(7).level
+    assert level_after(2) == "none" and level_after(1) == "bruised" and level_after(0.5) in ("broken", "unconscious"), (level_after(2), level_after(1), level_after(0.5))
+    assert M.setTune("toughness", 99) and M.getTune("toughness") == 2 and not M.setTune("nonsense", 1) and not M.setTune("grace", "x")
+    lua.execute("written = nil jsonWriteFile = function(p, t) written = t end")
+    M.setTune("recoverOut", 100)
+    assert lua.eval("written.tune.recoverOut") == 100 and lua.eval("written.tune.grace") is None and lua.eval("written.mode") == "full"
+    M.resetTune()
+    assert lua.eval("written.tune") is None and M.getTune("toughness") == 1
+    for i in range(1, int(lua.eval("#fields")) + 1):
+        assert lua.eval("fields[%d].type == 'slider' or fields[%d].type == 'enum'" % (i, i)), i
+        if lua.eval("fields[%d].type" % i) == "slider":
+            assert lua.eval("fields[%d].min <= fields[%d].default and fields[%d].default <= fields[%d].max" % (i, i, i, i)), lua.eval("fields[%d].id" % i)
+            assert abs(lua.eval("fields[%d].store.get()" % i) - lua.eval("fields[%d].default" % i)) < 1e-9
+    assert lua.eval("#fields") == 10, lua.eval("#fields")
     lua.execute("fields[1].store.set('nonsense')")
     assert M.getMode() == "full", "an unknown mode changed the setting"
     print("ok")
