@@ -1740,10 +1740,14 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local onRim = not (c.stalkK > 0.01 and c.stalk and side == c.stalk.side) and not (side == c.shiftSide and (c.reach > 0.01 or c.dazeK > 0.01)) and not (side ~= c.shiftSide and c.waveK > 0.01) and c.revK < 0.01
     local holding = grip.lift == 0 and onRim
     c.gripK = c.gripK or {}
-    local want = (onRim and rig.grip and rig.grip[side]) and 1 or 0   -- (a re-grip is still a grip pose: it stays along the rim while it moves)
-    gk = clamp(gk + clamp(want - gk, -dt * 16, dt * 6), 0, 1)   -- (off the rim quicker than on: the arm is already going elsewhere)
+    -- the grip pose follows how far the hand is from the rim's business: the eased blends of the stalk, lever, wave and look-back reaches
+    -- (a re-grip is still a grip pose: it stays along the rim while it moves)
+    local off = math.max(c.stalk and side == c.stalk.side and c.stalkK or 0, side == c.shiftSide and math.max(c.reach, c.dazeK) or 0,
+                         side ~= c.shiftSide and c.waveK or 0, c.revK or 0)
+    local want = (rig.grip and rig.grip[side]) and 1 - clamp(off * 3, 0, 1) or 0
+    gk = clamp(gk + clamp(want - gk, -dt * 30, dt * 6), 0, 1)
     c.gripK[side] = gk
-    local gripped = (holding or (onRim and gk > 0)) and rig.fist and rig.fist[side]
+    local gripped = (holding or gk > 0) and rig.fist and rig.fist[side]
     if gripped then
       -- the fist's middle (the hole of its grip) sits beside the forearm's line, not on it: place the wrist so that point is on the rim's centre
       -- line; the hand's turn depends on where the forearm points, so twice
