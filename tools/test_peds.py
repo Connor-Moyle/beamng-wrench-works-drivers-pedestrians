@@ -525,13 +525,13 @@ def spectators():
     M.onExtensionLoaded()
     M.onClientStartMission()
     M.setCount(30)
-    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": True}))
-    dt = 1 / 30
+    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": False}))
+    dt = 1 / 30       # real and simulated frame time alike: the cheer timers count real seconds, so a frame that is 1/90 real and 1/30 simulated made 3 s of cheering last 1 s
 
     def run(seconds, t0):
         for f in range(int(seconds / dt)):
             g.time = t0 + f * dt
-            M.onUpdate(1 / 90, dt)
+            M.onUpdate(dt, dt)
         st = M.getState()
         sp = list(st.spectators.values())
         return st, sp, sum(1 for x in sp if x.shape == x.type.cheer)
@@ -587,17 +587,17 @@ def extra_spectators():
     M.addSpectatorZones(lua.table_from([lua.table_from(zone, recursive=True)], recursive=True))
     M.addSpectatorZones(lua.table_from([lua.table_from(dict(zone, r=31), recursive=True)], recursive=True))     # the same id replaces
     M.setCount(30)
-    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": True}))
+    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": False}))
     lua.execute("function car:getPosition() return vec3(120, 500, 50) end function car:getVelocity() return vec3(0, 0, 0) end")
     lua.execute("camPos = vec3(120, 20, 55)")           # arriving: the crowd is there before you (no spectator appears in view nearer than 90 m)
     dt = 1 / 30
     for f in range(int(30 / dt)):
         g.time = f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     lua.execute("camPos = vec3(120, 120, 55)")
     for f in range(int(10 / dt)):
         g.time = 30 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     st = M.getState()
     sp = list(st.spectators.values())
     print("mod zone %s: %d spectators of %d spots" % (st.specZone, len(sp), len(spots)))
@@ -605,14 +605,14 @@ def extra_spectators():
     M.onSlrrRaceFinished()
     for f in range(int(3 / dt)):
         g.time = 60 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     sp = list(M.getState().spectators.values())
     cheering = sum(1 for x in sp if x.shape == x.type.cheer)
     assert cheering >= len(sp) * 0.8, (cheering, len(sp))
     lua.execute("camPos = vec3(5000, 5000, 5)")
     for f in range(int(3 / dt)):
         g.time = 70 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     assert len(list(M.getState().spectators.values())) == 0
     M.clearSpectatorZones()
     print("extra spectators ok")
