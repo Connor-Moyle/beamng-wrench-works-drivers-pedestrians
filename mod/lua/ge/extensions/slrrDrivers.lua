@@ -1319,6 +1319,14 @@ local function record(c, eye, R, dt, veh, wheel)
   if #c.rec > 60 * 120 then table.remove(c.rec, 1) end   -- keep the last two minutes
 end
 
+local function applyWheel(c, pr)
+  c.hubToRim = pr.center - c.hub0
+  c.wX0, c.wN0, c.wUp0 = pr.x, pr.n, pr.up
+  wheelX, wheelN, wheelUp = pr.x, pr.n, pr.up
+  log('I', 'slrrDrivers', string.format('wheel of %s: tilt %.0f deg, hub offset %.3f %.3f %.3f, rim radius %.3f',
+    tostring(c.wheelMesh), math.deg(math.asin(pr.n.z)), c.hubToRim.x, c.hubToRim.y, c.hubToRim.z, c.wheelR or WHEEL_RADIUS))
+end
+
 -- The steering wheel, live (sets the rim frame for this car; see liveWheel's caller)
 local function liveWheel(c, toSeat, wheelProp)
   -- the wheel, live: the hub must look like a wheel on the first frame; after that it is followed, so a
@@ -1340,13 +1348,15 @@ local function liveWheel(c, toSeat, wheelProp)
       -- this car's own wheel: the prop's live transform gives the hub centre and the plane the rim lies in (a truck's wheel stands more upright
       -- than a saloon's, and its prop sits off its node)
       local pr = c.hub0 and wheelProp and wheelProp()
-      if pr then
-        c.hubToRim = pr.center - c.hub0
-        c.wX0, c.wN0, c.wUp0 = pr.x, pr.n, pr.up
-        wheelX, wheelN, wheelUp = pr.x, pr.n, pr.up
-        log('I', 'slrrDrivers', string.format('wheel of %s: tilt %.0f deg, hub offset %.3f %.3f %.3f, rim radius %.3f',
-          tostring(c.wheelMesh), math.deg(math.asin(pr.n.z)), c.hubToRim.x, c.hubToRim.y, c.hubToRim.z, c.wheelR or WHEEL_RADIUS))
-      end
+      if pr then applyWheel(c, pr) end
+    end
+    -- the prop's live transform is not always there on the first frame (a car spawned into the driver camera: the sweep measured the wheel on 9 of 38
+    -- cars at once and used the default wheel for the rest): asked again every frame for three seconds
+    if c.hub0 and not c.hubToRim and wheelProp and (c.wheelTries or 0) < 180 then
+      c.wheelTries = (c.wheelTries or 0) + 1
+      local pr = wheelProp()
+      if pr then applyWheel(c, pr)
+      elseif c.wheelTries == 180 then log('W', 'slrrDrivers', 'wheel of ' .. tostring(c.wheelMesh) .. ' not measured, the default wheel is used (' .. tostring(c.wheelWhy or 'no live transform') .. ')') end
     end
     if c.hub0 then
       local off = l - c.hub0
@@ -1624,6 +1634,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
         local q = veh:getProp(pid)
         if q and q:getMeshName() == c.wheelMesh then pr = q break end
       end
+      if not pr then c.wheelWhy = 'no prop named ' .. tostring(c.wheelMesh) return nil end
       local m = pr:getLiveTransformWorld()
       local function seatDir(d) return vec3(d:dot(Rnow.x), d:dot(Rnow.y), d:dot(Rnow.z)) end
       local center = seatDir(vec3(m:getColumn(3)) + vec3(vpos) - eyeNow)
@@ -1634,7 +1645,10 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
       end
       local n = best.y < 0 and best or best * -1   -- the normal turned toward the driver
       local x = (vec3(1, 0, 0) - n * n.x):normalized()
-      if n.z < 0.17 or n.z > 0.94 or center:distance(c.hub0 + WHEEL_HUB_TO_RIM) > 0.15 then return nil end   -- not a wheel we understand: the defaults
+      if n.z < 0.17 or n.z > 0.94 or center:distance(c.hub0 + WHEEL_HUB_TO_RIM) > 0.15 then   -- not a wheel we understand: the defaults
+        c.wheelWhy = string.format('rejected: normal z %.2f, centre %.2f m from the default hub', n.z, center:distance(c.hub0 + WHEEL_HUB_TO_RIM))
+        return nil
+      end
       return {center = center, n = n, x = x, up = n:cross(x):normalized()}
     end)
     return ok and r or nil
