@@ -1849,7 +1849,9 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     if c.parts.helmet then c.parts.helmet:setHidden(hideHead) end
     c.headHidden = hideHead
   end
-  if not hideHead then
+  -- (a hidden head is posed too: the rigged driver's head and face nodes are aimed from this part, and a part never posed sat at the origin, 200 m away
+  -- from a car spawned straight into the driver camera: the sweep's recordings showed it)
+  do
     c.headYaw = c.headYaw and (c.headYaw + clamp(yaw - c.headYaw, -dt * 6, dt * 6)) or yaw   -- no snapping
     c.headPitch = c.headPitch and (c.headPitch + clamp(pitch - c.headPitch, -dt * 4, dt * 4)) or pitch
     yaw, pitch = c.headYaw, c.headPitch
