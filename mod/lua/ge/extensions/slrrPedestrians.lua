@@ -1000,28 +1000,46 @@ local player              -- {veh, walks, idle, obj, shape, switch}
 local PLAYER_STAND = 0.3  -- m/s: slower than this the walker stands (idle)
 local PLAYER_HEAD, PLAYER_HIDE_NEAR = 1.65, 1.1   -- the walker's head height; the camera this near it is first person: no body
 
--- a limp (a broken leg): the walker's speed is cut to limpPace % of a walk and sprinting is off. The game's walker (the unicycle's playerController)
--- reads its speeds from two locals; the command sets those upvalues (debug.setupvalue) and keeps the originals on the module to put them back.
+-- a limp (a broken leg): the walker's pull is cut to limpPace % of a walk and sprinting is off. The game's walker (the unicycle's playerController)
+-- keeps its speeds in locals that the vehicle sandbox does not let anything reach (debug.setupvalue is blocked), so the command wraps the controller's
+-- own walk and speed inputs instead: the walk vector is scaled by k (kept consistent over a held key, and when k changes), and the sprint coefficient
+-- stays 0 while k is set. The wrappers stay in place and pass everything through at k = nil. The ball's speed is not exactly k times a walk;
+-- the tester measures it (tools/test_peds.py checks the wrapping, the game the pace).
 -- The signal: slrrInjury.getState(vehId).limits.slowWalk (checked twice a second), or M.setLimp(true / false; nil = the injury again).
 local function limpCommand(factor)
-  return (factor and string.format('local k = %.3f ', factor) or 'local k = nil ') .. [[
+  return (factor and string.format('local k = %.3f ', factor) or 'local k = nil ') .. [==[
 local pc = controller.getController('playerController')
-if pc and debug and debug.getupvalue then
-  local f = pc.updateFixedStep
-  for i = 1, 80 do
-    local n, v = debug.getupvalue(f, i)
-    if not n then break end
-    -- (the game's own values, 1.8 and 5; a current value below them is a limp left by a table the game rebuilt, never an original)
-    if n == 'movementSpeedNormal' then pc.slrrOrigNormal = pc.slrrOrigNormal or (v >= 1.8 and v or 1.8) end
-    if n == 'movementSpeedSprint' then pc.slrrOrigSprint = pc.slrrOrigSprint or (v >= 5 and v or 5) end
+if pc then
+  local o = pc.slrrWalk
+  if not o then
+    o = {k = 1, x = {acc = 0, sent = 0}, y = {acc = 0, sent = 0}}
+    pc.slrrWalk = o
+    local function hook(raw, add, a)
+      o[raw], o[add] = pc[raw], pc[add]
+      pc[raw] = function(v) a.acc = v a.sent = v * o.k return o[raw](a.sent) end
+      pc[add] = function(v)
+        a.acc = a.acc + v
+        local want = a.acc * o.k
+        local d = want - a.sent
+        a.sent = want
+        return o[add](d)
+      end
+    end
+    hook('walkLeftRightRaw', 'walkLeftRight', o.x)
+    hook('walkUpDownRaw', 'walkUpDown', o.y)
+    o.setSpeedCoef, o.toggleSpeedCoef = pc.setSpeedCoef, pc.toggleSpeedCoef
+    pc.setSpeedCoef = function(v) return o.setSpeedCoef(o.k < 1 and 0 or v) end
+    pc.toggleSpeedCoef = function() if o.k >= 1 then return o.toggleSpeedCoef() end end
   end
-  for i = 1, 80 do
-    local n = debug.getupvalue(f, i)
-    if not n then break end
-    if n == 'movementSpeedNormal' then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigNormal) end
-    if n == 'movementSpeedSprint' then debug.setupvalue(f, i, k and pc.slrrOrigNormal * k or pc.slrrOrigSprint) end
+  o.k = k or 1
+  for _, a in ipairs({{o.x, 'walkLeftRight'}, {o.y, 'walkUpDown'}}) do
+    local want = a[1].acc * o.k
+    local d = want - a[1].sent
+    a[1].sent = want
+    if d ~= 0 then o[a[2]](d) end
   end
-end]]
+  if k then o.setSpeedCoef(0) end
+end]==]
 end
 M.limpCommand = limpCommand
 local limpForced
@@ -1043,6 +1061,9 @@ local function followPlayer(vehId, dir)
   for shape, speed in pairs(info.walks) do table.insert(walks, {shape = dir .. shape, speed = speed}) end
   table.sort(walks, function(a, b) return a.speed < b.speed end)
   player = {veh = vehId, walks = walks, idle = info.idle and dir .. info.idle or walks[1].shape, switch = 0}
+  -- the walk wrappers go in now, with nothing limped, so they have seen every key press from the start (a key held while they are installed would leave its release unmatched)
+  local v = be:getObjectByID(vehId)
+  if v and v.queueLuaCommand then v:queueLuaCommand(limpCommand(nil)) end
 end
 
 local function updatePlayer(dt)

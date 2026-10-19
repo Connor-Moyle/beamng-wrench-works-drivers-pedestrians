@@ -435,34 +435,59 @@ def player():
     assert len(list(g.cmds.values())) == n, "the option off: no limp"
     M.setOptions(lua.table_from({"limp": True}))
     M.setLimp(None)
-    # the command itself, run against a stand-in for the game's playerController: the two speed locals are upvalues of updateFixedStep
+    # the command itself, run against a stand-in for the game's playerController, which the sandbox lets nothing reach into (no debug library):
+    # the walk vector comes out scaled, a held key stays consistent when the limp starts or ends, and sprinting is off while limping
     lua.execute("""
-      do
-        local movementSpeedNormal, movementSpeedSprint = 1.8, 5
-        local pc = {updateFixedStep = function() return movementSpeedNormal, movementSpeedSprint end}
+      debug = nil
+      function newController()
+        local vec, coef = {x = 0, y = 0}, 0
+        local pc = {}
+        pc.walkLeftRightRaw = function(v) vec.x = v end
+        pc.walkLeftRight = function(v) vec.x = vec.x + v end
+        pc.walkUpDownRaw = function(v) vec.y = v end
+        pc.walkUpDown = function(v) vec.y = vec.y + v end
+        pc.setSpeedCoef = function(v) coef = v end
+        pc.toggleSpeedCoef = function() coef = 1 - coef end
         controller = {getController = function() return pc end}
-        readSpeeds = function() return pc.updateFixedStep() end
-      end""")
-    run_cmd = lua.eval("function(c) assert(loadstring(c))() return readSpeeds() end")
-    a, b = run_cmd(M.limpCommand(0.55))
-    assert abs(a - 0.99) < 1e-6 and abs(b - 0.99) < 1e-6, (a, b)
-    a, b = run_cmd(M.limpCommand(0.55))
-    assert abs(a - 0.99) < 1e-6, "twice does not compound"
-    a, b = run_cmd(M.limpCommand(None))
-    assert abs(a - 1.8) < 1e-6 and abs(b - 5) < 1e-6, (a, b)
-    # the game rebuilt the controller table (the originals are gone) while the speeds were still cut: the next command must not take 0.99 as the original
-    run_cmd(M.limpCommand(0.55))
-    lua.execute("""
-      do
-        local movementSpeedNormal, movementSpeedSprint = 0.99, 0.99
-        local pc = {updateFixedStep = function() return movementSpeedNormal, movementSpeedSprint end}
-        controller = {getController = function() return pc end}
-        readSpeeds = function() return pc.updateFixedStep() end
-      end""")
-    a, b = run_cmd(M.limpCommand(0.55))
-    assert abs(a - 0.99) < 1e-6, (a, b)
-    a, b = run_cmd(M.limpCommand(None))
-    assert abs(a - 1.8) < 1e-6 and abs(b - 5) < 1e-6, ("rebuilt controller: back to the defaults", a, b)
+        readWalk = function() return vec.x, vec.y, coef end
+        return pc
+      end
+      pc = newController()""")
+    run_cmd = lua.eval("function(c) assert(loadstring(c))() return readWalk() end")
+    assert "debug" not in M.limpCommand(0.55), "the vehicle sandbox blocks the debug library"
+    run_cmd(M.limpCommand(None))   # (the wrappers are installed when the walker is built: with nothing limped)
+    lua.execute("pc.walkUpDown(1)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(y - 0.55) < 1e-6, ("a key held when the limp starts is scaled", y)
+    lua.execute("pc.walkUpDown(-1)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(y) < 1e-6, ("released while limping: nothing left over", y)
+    lua.execute("pc.walkLeftRight(1) pc.walkUpDown(1)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(x - 0.55) < 1e-6 and abs(y - 0.55) < 1e-6, (x, y)
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(x - 0.55) < 1e-6, "twice does not compound"
+    lua.execute("pc.walkLeftRightRaw(0.8)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(x - 0.44) < 1e-6, ("an analog stick", x)
+    lua.execute("pc.setSpeedCoef(1)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert c == 0, "no sprint while limping"
+    x, y, c = run_cmd(M.limpCommand(None))
+    assert abs(x - 0.8) < 1e-6 and abs(y - 1) < 1e-6, ("healed with the keys still held: full again", x, y)
+    lua.execute("pc.setSpeedCoef(1)")
+    x, y, c = run_cmd(M.limpCommand(None))
+    assert c == 1, "sprint works again after healing"
+    lua.execute("pc.walkLeftRight(-0.8) pc.walkUpDown(-1)")
+    x, y, c = run_cmd(M.limpCommand(None))
+    assert abs(x) < 1e-6 and abs(y) < 1e-6, ("released: stopped", x, y)
+    # the game rebuilt the controller table: a fresh one is wrapped again, nothing carried over
+    lua.execute("pc = newController()")
+    run_cmd(M.limpCommand(None))
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    lua.execute("pc.walkUpDown(1)")
+    x, y, c = run_cmd(M.limpCommand(0.55))
+    assert abs(y - 0.55) < 1e-6, ("rebuilt controller", y)
     print("limp ok")
     assert [x[1] for x in seen] == ["idle.dae", "walk.dae", "walk_fast.dae", "idle.dae"] and all(x[2] == 1 for x in seen), seen
     # T52: in a career the snowman (the unicycle's own mesh) goes while the walker is shown, and the walker has no body in first person
