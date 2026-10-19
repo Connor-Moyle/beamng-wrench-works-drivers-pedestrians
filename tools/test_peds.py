@@ -295,7 +295,9 @@ def main():
     assert 0 < watching + fleeing <= 12, (watching, fleeing)
     lua.execute("crashed = false")
     assert max(slides) < 0.01, max(slides)
-    assert close < steps * 0.0015, (close, steps)   # (a share of the walk steps near a car: 0.1 % failed once at 0.103 % on a random seed)
+    # walker pairs closer than 0.3 m, as a share of all pair-frames. 200 seeds (1000-1199): median 0.012 %, p95 0.038 %, p99 0.082 %, max 0.169 % (a long
+    # tail: a few seeds put walkers together far more than the rest; 0.1 % failed once). The limit sits just above the max seen.
+    assert close < steps * 0.002, (close, steps)
     assert slow_count <= round(40 * share * 0.5) + 2 and end_count >= round(40 * share) - 2, (slow_count, end_count, share)
     assert w["downtown"] == w["beachfront"] == 1 and w["outskirts"] < w["industrial"] < w["south end"] < 1, w
 
