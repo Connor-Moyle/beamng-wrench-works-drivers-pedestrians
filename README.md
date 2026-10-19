@@ -83,17 +83,17 @@ slrrDrivers.setDriver(be:getPlayerVehicleID(0), 'slrr_opponent1')  -- just this 
 slrrDrivers.setDriver(be:getPlayerVehicleID(0), nil)      -- no driver in this car
 ```
 
-### The rigged driver (option)
+### The rigged driver (default for your own car)
 
-**EXPERIMENTAL: it can crash the game when switching cars. Leave it off until this is fixed.**
+Your own car gets the rigged driver; every other car has the prop driver. If you see problems (a crash when switching cars was seen in an earlier test), pick Props in ESC > Mods > Driver model.
 
-The default driver is drawn as vehicle props. A second kind, off by default, is built into the car: sixteen joint nodes in the seat
+The prop driver is drawn as vehicle props. The rigged kind is built into the car: sixteen joint nodes in the seat
 carry his weight (69 kg), and the character is drawn by the car as flexbodies bound to them, so he rides exactly in the seat and
-shows in the mirrors. Turn it on (for this session only, for cars spawned afterwards) and off in the Lua console:
+shows in the mirrors. Switch it in Mods > Driver model, or in the Lua console (for cars spawned afterwards):
 
 ```lua
-slrrDriverMount.setDriverRig('flex')    -- the rigged driver
-slrrDriverMount.setDriverRig('props')   -- the prop driver (default)
+slrrDriverMount.setDriverRig('flex')    -- the rigged driver (default for your own car)
+slrrDriverMount.setDriverRig('props')   -- the prop driver
 slrrDriverMount.setOptOut('pickup', true)   -- a car model that always keeps the prop driver
 ```
 
