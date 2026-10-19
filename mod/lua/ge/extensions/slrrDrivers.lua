@@ -2223,7 +2223,7 @@ M.settingsSchema = function()
     {id = 'scale', tab = 'drivers', group = 'Look', type = 'slider', label = 'Size', min = 0.9, max = 1.1, step = 0.01, unit = 'x', default = 1, apply = 'live',
      tooltip = 'How tall he sits, 0.9 to 1.1 times. The rigged driver takes it for cars spawned afterwards.',
      store = {kind = 'custom', get = function() return tonumber(look(nil).scale) or 1 end, set = function(v) if math.abs(v - 1) < 0.005 then v = false end M.setAppearance(nil, {scale = v}) end}},
-    {id = 'helmet', tab = 'drivers', group = 'Look', type = 'bool', label = 'Helmet', default = false, apply = 'live', presets = {performance = false},
+    {id = 'helmet', feature = true, tab = 'drivers', group = 'Look', type = 'bool', label = 'Helmet', default = false, apply = 'live', presets = {performance = false},
      tooltip = 'A helmet on his head (the rigged driver: only the police officer and the racer have one).',
      store = {kind = 'custom', get = function() return look(nil).helmet == true end, set = function(v) M.setAppearance(nil, {helmet = v and true or false}) end}},
     {id = 'helmetColor', tab = 'drivers', group = 'Look', type = 'color', label = 'Helmet colour', default = NEUTRAL, apply = 'live', visibleIf = {field = 'helmet', equals = true},
