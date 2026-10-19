@@ -1,6 +1,6 @@
 # Changelog: Wrench Works: Driver Injuries
 
-## Unreleased
+## 0.2.0 (release candidate)
 
 - **Damage adds up.** A hit scores on top of what he already carries from earlier crashes (two small knocks can bruise, a bruise plus a hard hit can knock him out), and a bruise fades from the score over ten minutes. Every scored crash restarts the blur, not only one that raises the level.
 - **Real crashes now hurt.** A crash is scored as the speed lost over 0.1 s, so how the frames happen to split the stop no longer decides whether it counts, and a car stopped short by a wall is no longer mistaken for a teleport. In the Street Legal career: a 30 km/h tap bruises, 50 km/h bruises harder, about 55 km/h and up knocks him out and sends him to the hospital.

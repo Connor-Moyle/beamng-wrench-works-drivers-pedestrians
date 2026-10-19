@@ -1,6 +1,6 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
-## Unreleased
+## 1.7.0 (release candidate)
 
 ### Pedestrians
 - **Rain.** In rain people walk a faster walk (some run), the streets empty (up to 40 % of the crowd at the heaviest rain), and some stop under a
@@ -14,6 +14,7 @@
 Built, with offline tests, but not yet seen working in the game. An item leaves this list only when the tester posts a pass.
 - **Many more settings.** The Drivers tab (and the Injury tab of the injury add-on) offer the numbers that were fixed in the code: hand and foot speed, hand-over-hand timing, arm stretch, lever timing, breathing, head turn and speed, mirror glances, reversing look, body sway and its limits, what counts as a crash and how he reacts, how far drivers are drawn and animated, the prop driver's weight; for injuries: toughness, recovery times, the bruise, break and knock-out thresholds, the voice gap. The expert ones are under Show advanced. `slrrDrivers.setTune(key, value)` / `getTune` / `resetTune`, and `slrrInjury.setTune` do the same from the console; changed values are saved in the settings files.
 - **The driver and the car's controls.** When the wipers, the lights or the indicators change, the hand on that stalk reaches for it and goes back to the wheel (never while the wheel is turned well over), and at low speed with the wipers on he leans forward a little to see through the wet windscreen. Switches and timings in the Drivers tab (Controls); the car reports the changes (slrrDriverFeed polls its electrics).
+- **The limp's speed cut** (Pedestrians): rewritten to wrap the walker's own walk inputs, because the vehicle sandbox blocks the old way (`debug.setupvalue`), so the cut never applied before. Wrapping is tested offline; the real walking pace (55 % of a walk, no sprint, normal again after healing) is waiting for the tester.
 - **Quick setup presets.** Display mode, how far drivers are drawn and animated, collision distance, the far-driver update interval and the helmet declare Performance / Balanced / Quality / Max values for the Mods menu's quick setup (never the rigged driver).
 
 ### Drivers
