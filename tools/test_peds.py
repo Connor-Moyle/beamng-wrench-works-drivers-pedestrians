@@ -420,7 +420,7 @@ def player():
     g.injured = True
     frames(40)
     cmds = list(g.cmds.values())
-    assert len(cmds) == 1 and "local k = 0.550" in cmds[0], cmds
+    assert len(cmds) == 1 and "local k = 0.255" in cmds[0], cmds
     frames(60)
     assert len(list(g.cmds.values())) == 1, "once, not every check"
     g.injured = False
@@ -428,7 +428,7 @@ def player():
     assert list(g.cmds.values())[-1].startswith("local k = nil"), "healed: the speeds go back"
     M.setLimp(True)
     frames(40)
-    assert "local k = 0.550" in list(g.cmds.values())[-1], "setLimp(true) limps without an injury"
+    assert "local k = 0.255" in list(g.cmds.values())[-1], "setLimp(true) limps without an injury"
     M.setLimp(None)
     frames(40)
     assert list(g.cmds.values())[-1].startswith("local k = nil")
@@ -458,6 +458,7 @@ def player():
       end
       pc = newController()""")
     run_cmd = lua.eval("function(c) assert(loadstring(c))() return readWalk() end")
+    assert abs(M.paceToPull(55) - 0.255) < 1e-9 and abs(M.paceToPull(30) - 0.125) < 1e-9 and M.paceToPull(90) < 0.5 and M.paceToPull(35) == 0.15, "the measured pace curve"
     assert "debug" not in M.limpCommand(0.55), "the vehicle sandbox blocks the debug library"
     run_cmd(M.limpCommand(None))   # (the wrappers are installed when the walker is built: with nothing limped)
     lua.execute("pc.walkUpDown(1)")

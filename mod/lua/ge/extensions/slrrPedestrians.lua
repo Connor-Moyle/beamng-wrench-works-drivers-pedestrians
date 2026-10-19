@@ -1042,6 +1042,18 @@ if pc then
 end]==]
 end
 M.limpCommand = limpCommand
+-- the walk pull that gives a limp pace (percent of a walk): measured in the game (tester, 2026-10-19): the walker's speed saturates above a pull of about 0.5
+-- and is near linear below 0.35. pull -> share of a walk: 1.0 100, 0.5 92, 0.35 74, 0.25 54, 0.15 35, 0.10 24; read back as pace -> pull
+local PACE_PULL = {{24, 0.10}, {35, 0.15}, {54, 0.25}, {74, 0.35}, {92, 0.5}, {100, 1.0}}
+local function paceToPull(pace)
+  if pace <= PACE_PULL[1][1] then return PACE_PULL[1][2] * pace / PACE_PULL[1][1] end
+  for i = 2, #PACE_PULL do
+    local a, b = PACE_PULL[i - 1], PACE_PULL[i]
+    if pace <= b[1] then return a[2] + (b[2] - a[2]) * (pace - a[1]) / (b[1] - a[1]) end
+  end
+  return 1
+end
+M.paceToPull = paceToPull
 local limpForced
 M.setLimp = function(on) limpForced = on end
 local function endLimp(pl)
@@ -1089,7 +1101,7 @@ local function updatePlayer(dt)
     local pace = opts.limpPace
     if v.queueLuaCommand and (want ~= (player.limping or false) or (want and (player.limpPace ~= pace or os.clock() - (player.limpAt or 0) > 5))) then
       player.limping, player.limpPace, player.limpAt = want, pace, os.clock()
-      v:queueLuaCommand(limpCommand(want and pace / 100 or nil))
+      v:queueLuaCommand(limpCommand(want and paceToPull(pace) or nil))
     end
   end
   -- the walk whose speed is nearest (feet planted), or idle; changed at most twice a second
