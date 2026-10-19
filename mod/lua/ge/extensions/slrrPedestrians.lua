@@ -1377,7 +1377,7 @@ end
 -- getOptions/setOptions or getCount/setCount (Wrench Works' settings screen keeps working with the same calls)
 M.settingsSchema = function()
   local function opt(key) return {kind = 'custom', get = function() return M.getOptions()[key] end, set = function(v) M.setOptions({[key] = v}) end} end
-  local tab = {id = 'pedestrians', title = 'Pedestrians', description = 'The people who walk the pavements of Valo City: how many, and what they do.'}
+  local tab = {id = 'pedestrians', title = 'Pedestrians', description = 'The people who walk the pavements of the city: how many, and what they do.'}
   local fields = {
     {id = 'amount', tab = 'pedestrians', group = 'How many', type = 'enum', label = 'Pedestrians', default = DEFAULTS.amount, store = opt('amount'),
      tooltip = 'How many people walk the pavements. Off removes them all; Low and High are half and one and a half times the usual crowd.',
