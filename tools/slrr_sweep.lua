@@ -67,20 +67,30 @@ local function oneCar(job, entry, opts)
   while waited < 12 and not (slrrDriverMount and slrrDriverMount.hasFlexDriver(vid) and slrrDriverMount.flexShown(vid)) do wait(job, 0.25) waited = waited + 0.25 end
   rec.mountS = os.clock() - t0
   rec.flex = slrrDriverMount and slrrDriverMount.hasFlexDriver(vid) or false
+  -- the wheel prop's live pose is read in the driver's own camera only: put the camera there before measuring
+  if core_camera and core_camera.setByName then pcall(core_camera.setByName, 0, 'driver', false) end
   wait(job, 4)   -- the pose settles (the torso is fixed after 3 s)
   local c = slrrDrivers.getState(vid)
   if not c then rec.error = 'no driver state' return rec end
   slrrDrivers.setDisplayMode('full', vid)
-  rec.wheelR, rec.wheelTilt = c.wheelR, c.wN0 and math.deg(math.atan2(c.wN0.z, math.sqrt(c.wN0.x ^ 2 + c.wN0.y ^ 2))) or nil
+  rec.wheelMeasured = c.hubToRim ~= nil   -- false: the hands were placed on the default wheel, not this car's
+  rec.wheelMesh = c.wheelMesh and tostring(c.wheelMesh) or nil
+  rec.wheelR, rec.wheelTilt = c.wheelR or 0.185, c.wN0 and math.deg(math.atan2(c.wN0.z, math.sqrt(c.wN0.x ^ 2 + c.wN0.y ^ 2))) or nil
   rec.seatLeft, rec.hasSeatBack = c.seatLeft, c.seatBack ~= nil
   local fit = carFit(c, nodesOf(vid))
   rec.roomAboveEye = fit.roomAboveEye
   -- steering 0, -0.5, 0, +0.5, 0 held 2 s each while the pose is recorded
   slrrDrivers.startRecording(vid)
   local veh = be:getObjectByID(vid)
+  local at = 0
   for _, s in ipairs({0, -0.5, 0, 0.5, 0}) do
-    if veh then veh:queueLuaCommand('input.event("steering", ' .. s .. ', 1)') end
-    wait(job, 2)
+    -- a ramp over a second, like a hand on a wheel (a step is a jump no driver's hands follow: it counted as pops)
+    for i = 1, 10 do
+      if veh then veh:queueLuaCommand('input.event("steering", ' .. (at + (s - at) * i / 10) .. ', 1)') end
+      wait(job, 0.1)
+    end
+    at = s
+    wait(job, 1)
     if s == 0.5 and opts.shot then pcall(opts.shot, OUT .. entry.model .. '.jpg') end
   end
   local n, r = slrrDrivers.stopRecording(vid)

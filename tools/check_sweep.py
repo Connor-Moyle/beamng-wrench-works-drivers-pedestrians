@@ -32,6 +32,8 @@ def main(folder):
             flags.append("%d non-finite or runaway pose values" % s["bad"])
         if s.get("roomAboveEye") is not None and s["roomAboveEye"] < HEAD_ROOM:
             flags.append("head room %.2f m" % s["roomAboveEye"])
+        if s.get("wheelMeasured") is False:
+            flags.append("wheel not measured (hands on the default wheel)")
         if not s.get("hasSeatBack"):
             flags.append("no passenger seat back found (fixed place)")
         res = None
