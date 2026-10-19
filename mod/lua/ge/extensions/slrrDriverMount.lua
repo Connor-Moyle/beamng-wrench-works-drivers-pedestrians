@@ -19,7 +19,8 @@ local flags = {ragdoll = false, selfCollision = false, noCamera = true, passenge
 -- driverRig: 'props' (default: rigid prop parts posed by slrrDrivers) or 'flex' (stage A of the rework: ragdoll nodes with
 -- the driver's mesh as flexbodies bound to them; docs/DRIVER_REWORK.md). Only cars with a driver camera get the flex
 -- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
-local driverRig = 'props'
+local driverRig = 'flex'      -- the player's car gets the rigged driver, every other car the props (see playerBound)
+local rigChoice               -- what Mods > Driver model was set to, if ever (saved as `rig`)
 local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind): 'near' (default) = the 3-5 joint nodes around each part, 'all' = all 16 joint nodes for every
 -- part (fine at rest, but a mesh's frame then follows moving limb nodes: the animated driver vanished), 'car' = the six car nodes nearest the seat
@@ -601,7 +602,7 @@ M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if type(s) == 'table' then
     for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end
-    -- (a saved driverRig is ignored: the rigged driver stays a per-session choice until it is stable)
+    if s.rig == 'props' or s.rig == 'flex' then driverRig, rigChoice = s.rig, s.rig end
   end
 end
 -- {ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
@@ -609,13 +610,17 @@ M.setFlags = function(t)
   for k in pairs(flags) do if t[k] ~= nil then flags[k] = t[k] and true or false end end
   local t = {}
   for k, v in pairs(flags) do t[k] = v end
+  t.rig = rigChoice
   jsonWriteFile(SETTINGS, t, true)
 end
 M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
-M.setDriverRig = function(mode)   -- this session only (not saved); applies to cars spawned afterwards
-  if mode == 'props' or mode == 'flex' then driverRig = mode end
+M.setDriverRig = function(mode, save)   -- applies to cars spawned afterwards; only the Mods menu passes save (a test's choice must not stick)
+  if mode == 'props' or mode == 'flex' then
+    driverRig = mode
+    if save then rigChoice = mode M.setFlags({}) end
+  end
 end
 M.getDriverRig = function() return driverRig end
 -- writes at once (no log buffering): where the ragdoll nodes are now (seat frame), what slrrDrivers asked of them, the wheel

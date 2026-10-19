@@ -2200,12 +2200,12 @@ M.settingsSchema = function()
     {id = 'colourReset', tab = 'drivers', group = 'Look', type = 'button', label = 'Back to the default colours',
      tooltip = 'Puts the shirt, trousers and helmet back to the colours the driver is drawn with.',
      action = function() M.setAppearance(nil, {shirt = false, trousers = false, helmetColor = false}) return 'Colours reset' end},
-    {id = 'rigNote', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'note', label = 'Not saved: after a restart it is Props again.'},
-    {id = 'rig', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'enum', label = 'Driver model', default = 'props', apply = 'spawn',
-     options = {{id = 'props', label = 'Props (default)'}, {id = 'flex', label = 'Rigged (experimental)'}},
-     tooltip = 'Experimental. The rigged driver is part of the car (skeleton, his weight in the seat); crashes at car switches were seen in tests. Applies to cars you spawn afterwards.',
-     store = {kind = 'custom', get = function() return slrrDriverMount and slrrDriverMount.getDriverRig and slrrDriverMount.getDriverRig() or 'props' end,
-              set = function(v) if slrrDriverMount and slrrDriverMount.setDriverRig then slrrDriverMount.setDriverRig(v) end end}},
+    {id = 'rigNote', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'note', label = 'Your own car gets the rigged driver; every other car always has the props. Saved.'},
+    {id = 'rig', tab = 'drivers', group = 'Rigged driver (experimental)', type = 'enum', label = 'Driver model', default = 'flex', apply = 'spawn',
+     options = {{id = 'flex', label = 'Rigged (your car, default)'}, {id = 'props', label = 'Props'}},
+     tooltip = 'The rigged driver is part of your car (skeleton, his weight in the seat). Other cars always get the prop driver. Applies to cars you spawn afterwards.',
+     store = {kind = 'custom', get = function() return slrrDriverMount and slrrDriverMount.getDriverRig and slrrDriverMount.getDriverRig() or 'flex' end,
+              set = function(v) if slrrDriverMount and slrrDriverMount.setDriverRig then slrrDriverMount.setDriverRig(v, true) end end}},
   }
   -- the tunables go before the rigged-driver group
   local at = #fields
