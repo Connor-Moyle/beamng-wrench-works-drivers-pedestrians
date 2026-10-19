@@ -1,7 +1,7 @@
 -- SLRR Drivers: load the extensions and keep them alive across level loads.
-extensions.load('slrrDrivers')
 setExtensionUnloadMode('slrrDrivers', 'manual')
-extensions.load('slrrPedestrians')
+extensions.load('slrrDrivers')
 setExtensionUnloadMode('slrrPedestrians', 'manual')
-extensions.load('slrrDriverMount')   -- before any vehicle spawns: its jbeam hook adds the driver to cars (flags, off by default)
+extensions.load('slrrPedestrians')
 setExtensionUnloadMode('slrrDriverMount', 'manual')
+extensions.load('slrrDriverMount')   -- before any vehicle spawns: its jbeam hook adds the driver to cars (flags, off by default)
