@@ -72,6 +72,8 @@ local function oneCar(job, entry, opts)
   wait(job, 4)   -- the pose settles (the torso is fixed after 3 s)
   local c = slrrDrivers.getState(vid)
   if not c then rec.error = 'no driver state' return rec end
+  wait(job, 4)   -- (the driver may be rebuilt after a spawn: the state is read again once it has settled, the wheel is measured by then)
+  c = slrrDrivers.getState(vid) or c
   slrrDrivers.setDisplayMode('full', vid)
   rec.wheelMeasured = c.hubToRim ~= nil   -- false: the hands were placed on the default wheel, not this car's
   rec.wheelMesh = c.wheelMesh and tostring(c.wheelMesh) or nil
