@@ -23,7 +23,8 @@ local driverRig = 'auto'      -- 'auto': the player's car gets the rigged driver
 local buildingFlex            -- (while addRagdoll builds a flex skeleton, rather than the older ragdoll option)
 -- the models whose rigged driver passed the coverage sweep (tools/slrr_sweep.lua, tools/check_sweep.py): the wheel measured, the rim within 3 cm,
 -- 14 cm of head room, no pops, a passenger seat back found. Every other model gets props in 'auto' (one log line); 'flex' forces it anyway.
-local VERIFIED = {covet = true}
+local VERIFIED = {covet = true, bastion = true, bx = true, etki = true, hopper = true, legran = true, miramar = true, pessima = true,
+                  roamer = true, sbr = true, van = true, vivace = true}   -- (sweep of 2026-10-19: wheel measured, rim within 3 cm, 14 cm of head room, a passenger seat back found, no big joint jumps)
 local rigChoice               -- what Mods > Driver model was set to, if ever (saved as `rig`)
 local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind): 'near' (default) = the 3-5 joint nodes around each part, 'all' = all 16 joint nodes for every
