@@ -853,6 +853,11 @@ local function updatePed(p, dt, vehicles, near)
   end
   p.dodgeSide = clamp(p.dodgeSide * math.max(0, 1 - dt * 0.3), lo - base_lane - p.side, hi - base_lane - p.side)
   pos = pos + side * (base_lane + p.side + p.dodgeSide)
+  -- (the choice to stand was made from last frame's spot: a dodge or a sidestep this frame may have put them on the carriageway)
+  if p.state ~= 'walk' and not p.cross and onRoad(pos) then
+    if p.link then startLink(p, true) end
+    walkOn(p)
+  end
   p.zTimer = p.zTimer - dt
   if not p.z or p.zTimer <= 0 then p.z, p.zTimer = groundZ(pos), 0.3 end
   place(p.obj, vec3(pos.x, pos.y, p.z), fwd)

@@ -555,13 +555,13 @@ def spectators():
     M.onExtensionLoaded()
     M.onClientStartMission()
     M.setCount(30)
-    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": True}))
-    dt = 1 / 30
+    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": False}))
+    dt = 1 / 30       # real and simulated frame time alike: the cheer timers count real seconds, so a frame that is 1/90 real and 1/30 simulated made 3 s of cheering last 1 s
 
     def run(seconds, t0):
         for f in range(int(seconds / dt)):
             g.time = t0 + f * dt
-            M.onUpdate(1 / 90, dt)
+            M.onUpdate(dt, dt)
         st = M.getState()
         sp = list(st.spectators.values())
         return st, sp, sum(1 for x in sp if x.shape == x.type.cheer)
@@ -617,17 +617,17 @@ def extra_spectators():
     M.addSpectatorZones(lua.table_from([lua.table_from(zone, recursive=True)], recursive=True))
     M.addSpectatorZones(lua.table_from([lua.table_from(dict(zone, r=31), recursive=True)], recursive=True))     # the same id replaces
     M.setCount(30)
-    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": True}))
+    M.setOptions(lua.table_from({"maxCount": 60, "amount": "medium", "idling": True, "crossing": True, "autoReduce": False}))
     lua.execute("function car:getPosition() return vec3(120, 500, 50) end function car:getVelocity() return vec3(0, 0, 0) end")
     lua.execute("camPos = vec3(120, 20, 55)")           # arriving: the crowd is there before you (no spectator appears in view nearer than 90 m)
     dt = 1 / 30
     for f in range(int(30 / dt)):
         g.time = f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     lua.execute("camPos = vec3(120, 120, 55)")
     for f in range(int(10 / dt)):
         g.time = 30 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     st = M.getState()
     sp = list(st.spectators.values())
     print("mod zone %s: %d spectators of %d spots" % (st.specZone, len(sp), len(spots)))
@@ -635,14 +635,14 @@ def extra_spectators():
     M.onSlrrRaceFinished()
     for f in range(int(3 / dt)):
         g.time = 60 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     sp = list(M.getState().spectators.values())
     cheering = sum(1 for x in sp if x.shape == x.type.cheer)
     assert cheering >= len(sp) * 0.8, (cheering, len(sp))
     lua.execute("camPos = vec3(5000, 5000, 5)")
     for f in range(int(3 / dt)):
         g.time = 70 + f * dt
-        M.onUpdate(1 / 90, dt)
+        M.onUpdate(dt, dt)
     assert len(list(M.getState().spectators.values())) == 0
     M.clearSpectatorZones()
     print("extra spectators ok")
@@ -704,6 +704,50 @@ def actor():
     print("actor ok")
 
 
+def road_stand():
+    """A walker that has rolled a stop is on the carriageway after a dodge in the same frame: it walks on, it is not left idle there."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute("math.randomseed(7)")
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute("os.clock = function() return time or 0 end")
+    g = lua.globals()
+    g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/")))))         if os.path.exists(os.path.join(MOD, p.lstrip("/"))) else None
+    root_abs = os.path.join(MOD, "art", "slrr_pedestrians")
+    g.py_find = lambda root, pat: lua.table(*[
+        "/art/slrr_pedestrians/" + os.path.relpath(os.path.join(dp, f), root_abs).replace("\\", "/")
+        for dp, _, fs in os.walk(root_abs) for f in fs if f.endswith(pat.lstrip("*"))])
+    g.py_signals = lambda: to_lua(lua, SIGNALS)
+    road = {}
+    g.py_roads = lambda: to_lua(lua, road)
+    lua.execute(FAKE)
+    M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
+    M.onExtensionLoaded()
+    M.onClientStartMission()
+    M.setCount(10)
+    M.setOptions(lua.table_from({"maxCount": 30, "idling": True, "crossing": False}))
+    dt = 1 / 30
+    t = [0]
+
+    def step():
+        g.time = t[0] * dt
+        t[0] += 1
+        M.onUpdate(dt, dt)
+    for _ in range(300):
+        step()
+    p = next(q for q in M.getState().peds.values() if q.state == "walk" and q.cross is None and q.pos is not None)
+    # a road 0.3 m to the walker's right, narrow enough that neither the spot nor the step ahead is on it
+    side = (p.fwd.y, -p.fwd.x)
+    cx, cy = p.pos.x + side[0] * 0.3, p.pos.y + side[1] * 0.3
+    road.update({"a": {"pos": {"x": cx - p.fwd.x * 10, "y": cy - p.fwd.y * 10, "z": p.pos.z}, "radius": 0.45, "links": {"b": {"drivability": 1}}},
+                 "b": {"pos": {"x": cx + p.fwd.x * 10, "y": cy + p.fwd.y * 10, "z": p.pos.z}, "radius": 0.45, "links": {"a": {"drivability": 1}}}})
+    M.resetRoads()
+    lua.execute("function stopNow(p) p.state, p.timer, p.dodgeSide = 'idle', 10, 0.3 end")
+    g.stopNow(p)            # idle, and a dodge that has just put them 0.3 m to the right
+    step()
+    assert p.state == "walk", "an idle walker moved onto the road in the same frame is left standing there: " + p.state
+    print("road stand ok")
+
+
 if __name__ == "__main__":
     try:
         main()
@@ -711,6 +755,7 @@ if __name__ == "__main__":
         actor()
         spectators()
         extra_spectators()
+        road_stand()
         footpaths()
     except BaseException:
         print("FAILED: replay with PEDS_SEED=%s" % globals().get("SEED"), flush=True)
