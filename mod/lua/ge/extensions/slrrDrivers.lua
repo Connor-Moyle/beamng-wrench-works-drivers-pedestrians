@@ -1044,13 +1044,20 @@ local function attach(vid)
   end
   -- steering wheel hub: the anchor node of the steering prop
   if vdata and vdata.vdata and vdata.vdata.props then
+    -- several props turn with the wheel (the rim, a column or shaft, paddles, trim, buttons): the rim is the one that is not a part of those
+    local best, bestScore
     for _, p in pairs(vdata.vdata.props) do
       if type(p) == 'table' and p.func == 'steering' and tonumber(p.idRef) then
-        c.wheelNode, c.wheelNodeX, c.wheelNodeY = tonumber(p.idRef), tonumber(p.idX), tonumber(p.idY)
-        c.wheelMesh = p.mesh
-        c.wheelR = WHEEL_RADII[p.mesh]
-        break
+        local name = tostring(p.mesh or ''):lower()
+        local score = (name:find('column') or name:find('shaft') or name:find('paddle') or name:find('trim') or name:find('button') or name:find('lower') or name:find('upper')) and 0 or 1
+        if WHEEL_RADII[p.mesh] then score = score + 1 end
+        if not best or score > bestScore then best, bestScore = p, score end
       end
+    end
+    if best then
+      c.wheelNode, c.wheelNodeX, c.wheelNodeY = tonumber(best.idRef), tonumber(best.idX), tonumber(best.idY)
+      c.wheelMesh = best.mesh
+      c.wheelR = WHEEL_RADII[best.mesh]
     end
   end
   -- pedals: which ones the car animates (props driven by throttle / brake / clutch) and how far they swing;
