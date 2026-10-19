@@ -113,9 +113,31 @@ def traffic_gets_props():
     assert not errors, errors
 
 
+def auto_mode():
+    """'auto' (the default): the player's car gets the rig only when its model is in VERIFIED; 'flex' forces it; 'props' never."""
+    lua, M, errors = build({})
+    lua.execute("""
+      MODEL = 'covet'
+      be = {getPlayerVehicleID = function() return 7 end,
+            getObjectByID = function(_, id) return {getJBeamFilename = function() return MODEL end, getDynDataFieldbyName = function() return '' end} end}
+      function newcar() return {nodes = {{cid = 4, name = 'cam', pos = {x = 0.35, y = 0.1, z = 1.15}}}, props = {}, flexbodies = {},
+                                cameras = {onboard = {{name = 'driver', camNodeID = 4}}}} end""")
+    def flexbodies(mode, model):
+        M.setDriverRig(mode)
+        lua.execute("MODEL = '%s' v = newcar()" % model)
+        M.onJbeamLoadingPhase1(0.5, 7, lua.globals().v)
+        return lua.eval("#v.flexbodies")
+    assert flexbodies("auto", "covet") == 14, "a verified model gets the rig in auto"
+    assert flexbodies("auto", "pigeon") == 0, "an unverified model must get props in auto"
+    assert flexbodies("flex", "pigeon") == 14, "flex forces the rig on any car"
+    assert flexbodies("props", "covet") == 0, "props means props"
+    assert not errors, errors
+
+
 def main():
     passenger()
     traffic_gets_props()
+    auto_mode()
     lua, M, errors = build({})
     n1 = lua.eval("#v.flexbodies")
     assert n1 == 14 and lua.eval("v.flexbodies[1].scale.x") == 1 and M.getFlexScale(7) == 1, ("plain", n1)

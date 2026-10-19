@@ -112,7 +112,8 @@ function M.start(opts)
   opts = opts or {}
   if running then log('W', 'slrrSweep', 'already running') return end
   running, summary = true, {}
-  wasMode = nil
+  wasMode = slrrDriverMount.getDriverRig()
+  slrrDriverMount.setDriverRig('flex')   -- (any model: that is what is being checked; the old value comes back at the end)
   local list = {}
   for _, m in ipairs(opts.models or defaultModels()) do list[#list + 1] = type(m) == 'string' and {model = m} or m end
   opts.pos = opts.pos or vec3(0, 0, 0.3)
@@ -137,6 +138,7 @@ function M.start(opts)
     end
     if last and be:getObjectByID(last) then be:getObjectByID(last):delete() end
     running = false
+    slrrDriverMount.setDriverRig(wasMode)
     log('I', 'slrrSweep', 'sweep done: ' .. #summary .. ' models')
   end)
 end

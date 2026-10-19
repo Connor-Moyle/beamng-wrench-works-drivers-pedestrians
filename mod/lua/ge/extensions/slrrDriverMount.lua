@@ -19,7 +19,11 @@ local flags = {ragdoll = false, selfCollision = false, noCamera = true, passenge
 -- driverRig: 'props' (default: rigid prop parts posed by slrrDrivers) or 'flex' (stage A of the rework: ragdoll nodes with
 -- the driver's mesh as flexbodies bound to them; docs/DRIVER_REWORK.md). Only cars with a driver camera get the flex
 -- driver; any other car keeps the props. optOut: model names (or objIDs) that never get it.
-local driverRig = 'flex'      -- the player's car gets the rigged driver, every other car the props (see playerBound)
+local driverRig = 'auto'      -- 'auto': the player's car gets the rigged driver when its model is in VERIFIED, else props; 'flex': on any car; 'props': never (other cars always props, see playerBound)
+local buildingFlex            -- (while addRagdoll builds a flex skeleton, rather than the older ragdoll option)
+-- the models whose rigged driver passed the coverage sweep (tools/slrr_sweep.lua, tools/check_sweep.py): the wheel measured, the rim within 3 cm,
+-- 14 cm of head room, no pops, a passenger seat back found. Every other model gets props in 'auto' (one log line); 'flex' forces it anyway.
+local VERIFIED = {covet = true}
 local rigChoice               -- what Mods > Driver model was set to, if ever (saved as `rig`)
 local optOut = {}
 -- which nodes the flexbodies bind to (setFlexBind): 'near' (default) = the 3-5 joint nodes around each part, 'all' = all 16 joint nodes for every
@@ -279,7 +283,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- flex driver: hold the seated pose. Every limb joint and the head is tied to its four nearest torso nodes by stiff
   -- beams (a rigid truss, so arms do not hang limp: in game the wrists fell 0.5 m below the wheel).
   -- Made before the soft beams so those do not take the pairs (one beam per pair): the head and knees stay driven
-  if driverRig == 'flex' then
+  if buildingFlex then
     local STIFF = {beamSpring = 150000, beamDamp = 300, beamDeform = math.huge, beamStrength = math.huge, partOrigin = 'slrr_ragdoll'}
     local TORSO = {'neck', 'chest', 'pelvis', 'r_sh', 'l_sh', 'r_hip', 'l_hip'}
     for _, j in ipairs({'head', 'face', 'r_hk', 'r_ht', 'l_hk', 'l_ht', 'r_el', 'l_el', 'r_wr', 'l_wr', 'r_kn', 'l_kn', 'r_an', 'l_an'}) do
@@ -345,7 +349,7 @@ local function addRagdoll(objID, vehicle, camCid, k)
   -- flex driver: three seat nodes each within 0.7 m (a big cab has no node within 0.4 m of the spot: the body hung from its belts
   -- and sank 0.4 m in a pickup), stiffer; the spring sag under 69 kg is then a few millimetres
   local SEATS, REACH = 1, 0.4
-  if driverRig == 'flex' then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 1500, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
+  if buildingFlex then SEATS, REACH, SEAT = 3, 0.7, {beamSpring = 60000, beamDamp = 1500, beamDeform = math.huge, beamStrength = 60000, breakGroup = 'slrr_belt', partOrigin = 'slrr_ragdoll'} end
   local seated = {}
   for _, a in ipairs({{'pelvis', off(P.pelvis, {0, -0.05, -0.15})}, {'chest', off(P.chest, {0, -0.2, 0})}}) do
     local skip = {}
@@ -462,15 +466,18 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
     local camCid = driverCamera(vehicle)
     if camCid and not byCid(vehicle)[camCid] then camCid = nil end
     local model
-    if driverRig == 'flex' then   -- (the model name is only needed to opt a car out)
+    if driverRig ~= 'props' then   -- (the model name: to opt a car out, and for the verified list)
       local obj = be:getObjectByID(objID)
       model = obj and obj:getJBeamFilename() or tostring(vehicle.vehicleDirectory or vehicle.model or ''):match('([%w_]+)/?$')
     end
-    local mine = driverRig == 'flex' and playerBound(objID)
-    local wantFlex = mine and camCid and not optOut[objID] and not (model and optOut[model])
-    if driverRig == 'flex' and not mine then
+    local mine = driverRig ~= 'props' and playerBound(objID)
+    local verified = driverRig == 'flex' or (model and VERIFIED[model]) or false
+    local wantFlex = mine and verified and camCid and not optOut[objID] and not (model and optOut[model])
+    if driverRig ~= 'props' and not mine then
       log('I', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): props (the rigged driver is for the player car only)')
-    elseif driverRig == 'flex' and not wantFlex then
+    elseif mine and not verified then
+      log('I', 'slrrDriverMount', 'props: ' .. tostring(model) .. ' not yet verified for the rigged driver')
+    elseif driverRig ~= 'props' and not wantFlex then
       log('W', 'slrrDriverMount', tostring(objID) .. ' (' .. tostring(model) .. '): no flex driver (' .. (camCid and 'opted out' or 'no seat found') .. '), props')
     end
     -- (no camera: a seat guessed from the wheel)
@@ -482,7 +489,9 @@ local function onJbeamLoadingPhase1(progress, objID, vehicle)
       local k = math.max(0.9, math.min(1.1, tonumber(look.scale) or 1))
       if wantFlex then flexScale[objID] = k end
       local t0 = os.clock()
+      buildingFlex = wantFlex
       local belts, P = addRagdoll(objID, vehicle, camCid, k)
+      buildingFlex = nil
       log('I', 'slrrDriverMount', 'ragdoll for ' .. tostring(objID) .. ', belts: ' .. tostring(belts))
       if wantFlex and P then
         local dmodel, skin = driverInfo(objID)
@@ -602,7 +611,7 @@ M.onExtensionLoaded = function()
   local s = jsonReadFile(SETTINGS)
   if type(s) == 'table' then
     for k in pairs(flags) do if s[k] ~= nil then flags[k] = s[k] and true or false end end
-    if s.rig == 'props' or s.rig == 'flex' then driverRig, rigChoice = s.rig, s.rig end
+    if s.rig == 'props' or s.rig == 'flex' or s.rig == 'auto' then driverRig, rigChoice = s.rig, s.rig end
   end
 end
 -- {ragdoll = bool, selfCollision = bool} (saved). Applies to vehicles spawned afterwards.
@@ -617,7 +626,7 @@ M.getFlags = function() return flags end
 M.getMount = function(objID) return mounts[objID] end   -- {driver = skin, passenger = skin, passengerAt} for slrrDrivers
 M.ragdollNextSpawn = function() ragdollNext = true end
 M.setDriverRig = function(mode, save)   -- applies to cars spawned afterwards; only the Mods menu passes save (a test's choice must not stick)
-  if mode == 'props' or mode == 'flex' then
+  if mode == 'props' or mode == 'flex' or mode == 'auto' then
     driverRig = mode
     if save then rigChoice = mode M.setFlags({}) end
   end
