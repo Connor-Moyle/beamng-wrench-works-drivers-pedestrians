@@ -785,6 +785,7 @@ end
 
 local FLEX_JOINT = {{'r_forearm', 'r_el'}, {'l_forearm', 'l_el'}, {'r_hand', 'r_wr'}, {'l_hand', 'l_wr'},
                     {'r_calf', 'r_kn'}, {'l_calf', 'l_kn'}, {'r_foot', 'r_an'}, {'l_foot', 'l_an'}}
+local FLEX_REACH = 2.2           -- m: the furthest a joint target may be from the seat's origin
 local FLEX_SEND = 1 / 30           -- the player's driver; other cars' every 1/20 s
 local FLEX_SEND_OTHER = 1 / 20
 local FLEX_FACE = vec3(0, 0.14, 0.12)   -- the face node, same frame
@@ -811,6 +812,13 @@ local function flushFlex(vid, c)
     out[#out + 1] = o.p + o.x * (f.x > 0 and -0.10 or 0.10)
   end
   for _, p in ipairs(out) do if not finite(p) then return end end   -- a NaN would reach the car as text and break its pose()
+  -- no target further than FLEX_REACH from the seat: whatever bug makes one (a part never posed sat 200 m away), the car's nodes are never sent there
+  for i, p in ipairs(out) do
+    if p:length() > FLEX_REACH then
+      out[i] = p * (FLEX_REACH / p:length())
+      if not c.clampLogged then c.clampLogged = true log('W', 'slrrDrivers', 'flex target ' .. i .. ' was ' .. string.format('%.1f', p:length()) .. ' m from the seat: held at ' .. FLEX_REACH .. ' m') end
+    end
+  end
   c.sendWait = (c.sendWait or 0) + (c.lastDt or 0)
   if c.sent and c.sendWait < (vid == be:getPlayerVehicleID(0) and FLEX_SEND or FLEX_SEND_OTHER) then return end   -- at most 30 a second: the car eases between them
   local moved = not c.sent

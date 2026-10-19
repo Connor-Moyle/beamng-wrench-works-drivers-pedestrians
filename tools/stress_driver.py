@@ -368,6 +368,7 @@ def check_flex_driving():
     assert rng > 0.12, ("the hand barely moves on a steering sweep", rng)
     assert regrips >= 2, ("no hand-over-hand re-grips on a +-270 degree sweep", regrips)
     assert max(yaw) - min(yaw) > 0.3, ("the head does not turn into the corners", min(yaw), max(yaw))
+    assert all(math.sqrt(st["sent"][i + 1].x ** 2 + st["sent"][i + 1].y ** 2 + st["sent"][i + 1].z ** 2) <= 2.2 + 1e-9 for i in range(14)), "a flex target further than 2.2 m from the seat"
     assert len(st["sent"]) == 14, ("a flex pose is 14 joints: the eight limbs, head, face and two nodes round each wrist", len(st["sent"]))
     assert max(thumb) - min(thumb) > 0.3, ("the fist does not roll with the wheel (thumb node round the wrist)", min(thumb), max(thumb))
     assert max(face) - min(face) > 0.02, ("the face node does not swing sideways, so the rigged head cannot turn", min(face), max(face))
