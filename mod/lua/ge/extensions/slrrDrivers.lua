@@ -1344,6 +1344,7 @@ local function liveWheel(c, toSeat, wheelProp)
     end
     if c.hub0 == nil then
       c.hub0 = (math.abs(l.x) < 0.25 and l.y > 0.3 and l.y < 0.85 and l.z > -0.6 and l.z < -0.1) and l or false
+      if not c.hub0 then log('W', 'slrrDrivers', string.format('wheel of %s not measured: its hub node sits at %.2f %.2f %.2f from the seat (expected x within 0.25, y 0.3 to 0.85, z -0.6 to -0.1), so the default wheel is used', tostring(c.wheelMesh), l.x, l.y, l.z)) end
       c.hubF0 = c.hub0 and frame() or nil
       -- this car's own wheel: the prop's live transform gives the hub centre and the plane the rim lies in (a truck's wheel stands more upright
       -- than a saloon's, and its prop sits off its node)
