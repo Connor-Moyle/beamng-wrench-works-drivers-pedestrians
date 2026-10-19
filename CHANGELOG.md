@@ -1,5 +1,15 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
+## 1.6.1 (in progress)
+
+### Pedestrians
+- The Mods menu's Pedestrians tab description no longer names a map ("the pavements of the city").
+
+### Drivers (built, not yet seen in game)
+- The steering wheel the hands are placed on is the rim: a column, shaft, paddle, trim or button prop is no longer taken for it.
+- The wheel is measured again for 3 s if the first read fails, and the reason is logged. The cars whose wheel is still rejected by geometry stay out of the verified list until each has a passing sweep.
+- Dev tools: the coverage sweep reads the driver state after it has settled.
+
 ## 1.6.0 (release candidate)
 
 ### Pedestrians
