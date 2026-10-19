@@ -1,4 +1,8 @@
-# Changelog: Wrench Works: Drivers & Pedestrians
+# Changelog
+
+## Unreleased
+
+- The pedestrian behaviours (people stop, cross at the lights, busier areas, react to rain, shelter) and every Driver Injuries switch are tagged for the Active features page of the Mods menu (Wrench Works).: Wrench Works: Drivers & Pedestrians
 
 ## 1.6.1 (in progress)
 

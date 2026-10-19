@@ -453,7 +453,7 @@ M.settingsSchema = function()
   for _, sp in ipairs(SPEC) do
     local r = TUNE_RANGE[sp.key]
     if sp.bool then
-      fields[#fields + 1] = {id = 'inj_' .. sp.key, tab = 'injury', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
+      fields[#fields + 1] = {id = 'inj_' .. sp.key, feature = true, tab = 'injury', group = sp.group, type = 'bool', label = sp.label, tooltip = sp.tip, advanced = sp.advanced,
         default = T0[sp.key] ~= 0, apply = 'live',
         store = {kind = 'custom', get = function() return T[sp.key] ~= 0 end, set = function(v) M.setTune(sp.key, v and 1 or 0) end}}
     else
