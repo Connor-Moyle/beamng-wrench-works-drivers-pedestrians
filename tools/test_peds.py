@@ -674,11 +674,56 @@ def actor():
     print("actor ok")
 
 
+def road_stand():
+    """A walker that has rolled a stop is on the carriageway after a dodge in the same frame: it walks on, it is not left idle there."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute("math.randomseed(7)")
+    lua.execute(open(os.path.join(HERE, "bng_shim.lua")).read())
+    lua.execute("os.clock = function() return time or 0 end")
+    g = lua.globals()
+    g.py_json = lambda p: to_lua(lua, json.load(open(os.path.join(MOD, p.lstrip("/")))))         if os.path.exists(os.path.join(MOD, p.lstrip("/"))) else None
+    root_abs = os.path.join(MOD, "art", "slrr_pedestrians")
+    g.py_find = lambda root, pat: lua.table(*[
+        "/art/slrr_pedestrians/" + os.path.relpath(os.path.join(dp, f), root_abs).replace("\\", "/")
+        for dp, _, fs in os.walk(root_abs) for f in fs if f.endswith(pat.lstrip("*"))])
+    g.py_signals = lambda: to_lua(lua, SIGNALS)
+    road = {}
+    g.py_roads = lambda: to_lua(lua, road)
+    lua.execute(FAKE)
+    M = lua.execute(open(os.path.join(MOD, "lua", "ge", "extensions", "slrrPedestrians.lua")).read())
+    M.onExtensionLoaded()
+    M.onClientStartMission()
+    M.setCount(10)
+    M.setOptions(lua.table_from({"maxCount": 30, "idling": True, "crossing": False}))
+    dt = 1 / 30
+    t = [0]
+
+    def step():
+        g.time = t[0] * dt
+        t[0] += 1
+        M.onUpdate(dt, dt)
+    for _ in range(300):
+        step()
+    p = next(q for q in M.getState().peds.values() if q.state == "walk" and q.cross is None and q.pos is not None)
+    # a road 0.3 m to the walker's right, narrow enough that neither the spot nor the step ahead is on it
+    side = (p.fwd.y, -p.fwd.x)
+    cx, cy = p.pos.x + side[0] * 0.3, p.pos.y + side[1] * 0.3
+    road.update({"a": {"pos": {"x": cx - p.fwd.x * 10, "y": cy - p.fwd.y * 10, "z": p.pos.z}, "radius": 0.45, "links": {"b": {"drivability": 1}}},
+                 "b": {"pos": {"x": cx + p.fwd.x * 10, "y": cy + p.fwd.y * 10, "z": p.pos.z}, "radius": 0.45, "links": {"a": {"drivability": 1}}}})
+    M.resetRoads()
+    lua.execute("function stopNow(p) p.state, p.timer, p.dodgeSide = 'idle', 10, 0.3 end")
+    g.stopNow(p)            # idle, and a dodge that has just put them 0.3 m to the right
+    step()
+    assert p.state == "walk", "an idle walker moved onto the road in the same frame is left standing there: " + p.state
+    print("road stand ok")
+
+
 if __name__ == "__main__":
     main()
     player()
     actor()
     spectators()
     extra_spectators()
+    road_stand()
     footpaths()
     print("all ok")
