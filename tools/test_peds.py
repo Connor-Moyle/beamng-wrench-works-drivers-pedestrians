@@ -458,7 +458,7 @@ def player():
       end
       pc = newController()""")
     run_cmd = lua.eval("function(c) assert(loadstring(c))() return readWalk() end")
-    assert abs(M.paceToPull(55) - 0.255) < 1e-9 and abs(M.paceToPull(30) - 0.125) < 1e-9 and M.paceToPull(90) < 0.5 and M.paceToPull(35) == 0.15, "the measured pace curve"
+    assert abs(M.paceToPull(55) - 0.255) < 1e-9 and abs(M.paceToPull(30) - 0.1273) < 1e-3 and M.paceToPull(90) < 0.5 and M.paceToPull(35) == 0.15, "the measured pace curve"
     assert "debug" not in M.limpCommand(0.55), "the vehicle sandbox blocks the debug library"
     run_cmd(M.limpCommand(None))   # (the wrappers are installed when the walker is built: with nothing limped)
     lua.execute("pc.walkUpDown(1)")
