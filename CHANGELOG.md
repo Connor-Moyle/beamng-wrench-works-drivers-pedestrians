@@ -1,6 +1,6 @@
 # Changelog: Wrench Works: Drivers & Pedestrians
 
-## 1.7.0 (release candidate)
+## 1.6.0 (release candidate)
 
 ### Pedestrians
 - **Rain.** In rain people walk a faster walk (some run), the streets empty (up to 40 % of the crowd at the heaviest rain), and some stop under a
@@ -35,7 +35,7 @@ Built, with offline tests, but not yet seen working in the game. An item leaves 
   feed pauses for half a second around a vehicle switch or reset, and his head is not hidden or shown within half a second of a switch
   (a game crash at a vehicle switch with flex cars about, 2026-10-18).
 
-## 1.6.0
+### From the earlier 1.6.0 candidate (never released)
 
 ### Pedestrians
 - **More pedestrians by default.** The base count is 48 (was 36); a night run with the career's traffic at 36, 60 and 72 showed no extra frame cost.
