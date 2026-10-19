@@ -1379,7 +1379,7 @@ M.settingsSchema = function()
   local function opt(key) return {kind = 'custom', get = function() return M.getOptions()[key] end, set = function(v) M.setOptions({[key] = v}) end} end
   local tab = {id = 'pedestrians', title = 'Pedestrians', description = 'The people who walk the pavements of the city: how many, and what they do.'}
   local fields = {
-    {id = 'amount', tab = 'pedestrians', group = 'How many', type = 'enum', label = 'Pedestrians', default = DEFAULTS.amount, store = opt('amount'),
+    {id = 'amount', feature = true, tab = 'pedestrians', group = 'How many', type = 'enum', label = 'Pedestrians', default = DEFAULTS.amount, store = opt('amount'),
      tooltip = 'How many people walk the pavements. Off removes them all; Low and High are half and one and a half times the usual crowd.',
      options = {{id = 'off', label = 'Off'}, {id = 'low', label = 'Low'}, {id = 'medium', label = 'Medium'}, {id = 'high', label = 'High'}, {id = 'veryhigh', label = 'Very high'}}},
     {id = 'maxCount', tab = 'pedestrians', group = 'How many', type = 'slider', label = 'Most pedestrians at once', min = 0, max = 200, step = 10, unit = '', default = DEFAULTS.maxCount,

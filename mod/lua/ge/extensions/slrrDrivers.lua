@@ -2217,7 +2217,7 @@ M.settingsSchema = function()
      presets = {performance = 'hideFirstPerson', balanced = 'full', quality = 'full', max = 'full'},
      tooltip = 'Full animates him; Still keeps him in the seat without moving; the other two hide him in first person or everywhere.',
      store = {kind = 'custom', get = function() return M.getDisplayMode() end, set = function(v) M.setDisplayMode(v) end}},
-    {id = 'driver', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Who drives', default = people[2] and people[2].id or 'none', apply = 'live', options = people,
+    {id = 'driver', feature = true, offValue = 'none', tab = 'drivers', group = 'Driver', type = 'enum', label = 'Who drives', default = people[2] and people[2].id or 'none', apply = 'live', options = people,
      tooltip = 'The character behind the wheel of your cars.',
      store = {kind = 'custom', get = function() return M.getDefaultDriver() or 'none' end, set = function(v) M.setDefaultDriver(v ~= 'none' and v or nil) end}},
     {id = 'scale', tab = 'drivers', group = 'Look', type = 'slider', label = 'Size', min = 0.9, max = 1.1, step = 0.01, unit = 'x', default = 1, apply = 'live',

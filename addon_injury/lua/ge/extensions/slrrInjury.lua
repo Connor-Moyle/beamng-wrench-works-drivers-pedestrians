@@ -446,7 +446,7 @@ local SPEC = {
 -- (the registry drops a second one): the tunables are 'inj_<key>' so they cannot meet a pedestrian or driver field.
 M.settingsSchema = function()
   local fields = {
-    {id = 'injuryMode', tab = 'injury', group = 'Crashes', type = 'enum', label = 'Injuries', default = 'injuries', apply = 'live',
+    {id = 'injuryMode', feature = true, tab = 'injury', group = 'Crashes', type = 'enum', label = 'Injuries', default = 'injuries', apply = 'live',
      options = {{id = 'off', label = 'Off'}, {id = 'injuries', label = 'Injuries'}, {id = 'full', label = 'Injuries and death'}},
      tooltip = 'Off: crashes hurt nobody. Injuries: bruises, broken arms and legs, being knocked out. Injuries and death: a hard enough crash can also kill the driver.',
      store = {kind = 'custom', get = function() return mode end, set = function(v) M.setMode(v) end}}}
