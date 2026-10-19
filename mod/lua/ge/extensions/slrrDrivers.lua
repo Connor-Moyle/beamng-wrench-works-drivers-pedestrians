@@ -58,7 +58,7 @@ local SHOULDER_REACH = 0.05             -- m a shoulder comes forward into a lon
 local SEAT_SLIDE = 0.08                 -- m the seat may move toward a distant wheel before he leans
 local BREATH_HZ = 0.25
 local SEAT_BACK_REACH = vec3(0.5, -0.05, -0.12)   -- the hand on the passenger seat back (x toward the passenger)
-local REVERSE_TWIST = math.rad(17)      -- torso twist when looking back
+local REVERSE_TWIST = math.rad(30)      -- torso twist when looking back
 -- third person: the player's driver looks where the camera looks
 local LOOK_TORSO = math.rad(15)   -- the turn, split between head and torso
 local LOOK_GIVE_UP = math.rad(120)      -- a camera further round than this: he faces forward again
@@ -1555,7 +1555,7 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
   if t0 then prof.body = prof.body + os.clock() - t0 end
   -- reversing at walking pace: he twists round to look out of the back, an arm on the passenger seat (in every camera; the head only shows from outside)
   local reversing = animated and (e.gear or 0) < 0 and vec3(veh:getVelocity()):length() < T.reverseLookSpeed * ((c.revK or 0) > 0 and 1.25 or 1)   -- (a little slack once he is round, so he does not flicker at the limit)
-  c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 2, dt * 2)
+  c.revK = (c.revK or 0) + clamp((reversing and 1 or 0) - (c.revK or 0), -dt * 1.2, dt * 1.2)
   local back = c.seatLeft and -1 or 1   -- toward the passenger side (yaw is positive to the left)
   if c.revK > 0 then L = compose(L, rotZ(back * REVERSE_TWIST * smootheststep(c.revK))) end
   -- slow with the wipers on: he leans forward a little to see through the wet windscreen (not the rigged driver: his torso is fixed)
@@ -1718,8 +1718,11 @@ local function updateCar(vid, c, dt, dtSim, camPos, fpVid)
     local was = c.roll[side] or roll
     roll = was + clamp(wrapAngle(roll - was), -T.rollSpeed * dt, T.rollSpeed * dt)
     c.roll[side] = roll
+    -- the arm on the passenger seat back: the elbow goes forward and a little up (the arm lies along the seat top), not down
+    local pole = arm.pole
+    if c.revK > 0 and side == (back > 0 and 'l' or 'r') then pole = lerp(arm.pole, vec3(0.3 * (side == 'r' and 1 or -1), 1, 0.15), c.revK) end
     local function solve(t)
-      local elbow, wrist = ik(shoulder, t, arm.la, arm.lb, arm.pole)
+      local elbow, wrist = ik(shoulder, t, arm.la, arm.lb, pole)
       local n = (elbow - shoulder):cross(wrist - shoulder)
       local Df = delta(basis(wrist - elbow, n), arm.F0f)
       -- the wrist turns about the forearm (the fist stays on the rim and rotates with it)
