@@ -464,7 +464,7 @@ def check_settings():
     def ids(path, marker="settingsSchema = function"):
         text = open(os.path.join(MOD, path) if not path.startswith("..") else os.path.join(HERE, path), encoding="utf-8").read()
         body = text[text.index(marker):]
-        return re.findall(r"\{id = '([A-Za-z0-9_]+)', tab = ", body)
+        return re.findall(r"\{id = '([A-Za-z0-9_]+)',[^{}]*? tab = ", body)
     ped = ids("lua/ge/extensions/slrrPedestrians.lua")
     inj = ids("../addon_injury/lua/ge/extensions/slrrInjury.lua")
     mine = [lua.eval("(select(2, M.settingsSchema()))[%d].id" % i) for i in range(1, int(lua.eval("#(select(2, M.settingsSchema()))")) + 1)]
