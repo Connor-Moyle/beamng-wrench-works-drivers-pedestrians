@@ -25,6 +25,7 @@ def main():
     # the helmet is only added for a model that ships one
     src = open(os.path.join(HERE, "..", "mod", "lua", "ge", "extensions", "slrrDrivers.lua"), "rb").read().decode("cp1252")
     assert re.search(r"look\.helmet and FS:fileExists\(ROOT \.\. 'models/' \.\. d\.model \.\. '/helmet\.dae'\)", src), "rigged helmet is guarded by the shape's existence"
+    assert 'part skipped' in src and 'if not shape then goto continue end' in src, 'a part with no shape is skipped, not drawn'
     assert not bad, bad
     print("meshes ok: every part of every driver model exists, the rigged helmet needs its shape")
 

@@ -366,7 +366,7 @@ end
 local function skinnedShape(model, part, material, base)
   local src = ROOT .. 'models/' .. model .. '/' .. part .. '.dae'
   local text = readFile(src)
-  if not text then return src end
+  if not text then log('W', 'slrrDrivers', 'no shape ' .. src .. ', part skipped') return nil end   -- (a missing shape would draw as NO Mesh)
   -- the size in the name makes a re-converted mesh a new shape instead of the cached old one
   local dst = '/temp/slrr_drivers/' .. material .. '/' .. model .. '_' .. part .. '_' .. #text .. '.dae'
   if not FS:fileExists(dst) then writeFile(dst, (text:gsub(base or 'base_driver', material))) end
@@ -989,12 +989,12 @@ local function attach(vid)
       c.parts[p] = o
       goto continue
     end
+    local shape
+    if p == 'helmet' then shape = skinnedShape(d.model, 'helmet', helmetMaterial(look), 'base_helmet')
+    else shape = skinnedShape(d.model, p, c.material) end
+    if not shape then goto continue end
     local o = createObject('TSStatic')
-    if p == 'helmet' then
-      o:setField('shapeName', 0, skinnedShape(d.model, 'helmet', helmetMaterial(look), 'base_helmet'))
-    else
-      o:setField('shapeName', 0, skinnedShape(d.model, p, c.material))
-    end
+    o:setField('shapeName', 0, shape)
     if math.abs(size - 1) > 1e-3 then o.scale = vec3(size, size, size) end
     o:setField('collisionType', 0, 'None')
     o:setField('decalType', 0, 'None')
