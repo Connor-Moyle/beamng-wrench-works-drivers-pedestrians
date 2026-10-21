@@ -1,5 +1,9 @@
 # Changelog: Wrench Works: Driver Injuries
 
+## 0.2.1
+
+- The Injury switches are listed on the Active features page of ESC > Mods (Wrench Works). The extension unload mode is set before each extension loads, so BeamNG 0.40 does not warn. For BeamNG 0.40.
+
 ## 0.2.0 (release candidate)
 
 - **Damage adds up.** A hit scores on top of what he already carries from earlier crashes (two small knocks can bruise, a bruise plus a hard hit can knock him out), and a bruise fades from the score over ten minutes. Every scored crash restarts the blur, not only one that raises the level.
