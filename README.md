@@ -23,10 +23,12 @@ Puts the drivers and pedestrians from Street Legal Racing Redline into BeamNG.dr
 - **Visible in first person and in the mirrors.** Look down and you see your arms, chest and legs
   working. The camera sits inside his head, so the head never blocks your view, but it shows in the
   mirrors and turns with your view.
-- **Pedestrians walk the city.** On the Valo City map (SLRR's city rebuilt for BeamNG) SLRR's six
-  pedestrians walk SLRR's own sidewalks with SLRR's walk and idle animations, their feet planted.
-  They go round corners, stand about on corners, wait for green to cross at traffic lights, keep out of
-  each other's way, step round parked cars and jump out of the way of fast ones.
+- **Pedestrians walk the city.** On West Coast USA (and other maps with a road graph) SLRR's six
+  pedestrians walk sidewalks that are made from the road graph on first use, with SLRR's walk and idle
+  animations, their feet planted: busier downtown, Chinatown and beachfront, quieter suburbs, workers
+  in hi-vis at the docks and industrial areas. They go round corners, wait for green to cross at traffic
+  lights, keep out of each other's way, step round parked cars and jump out of the way of fast ones.
+  (SLRR's own city, Valo City, is on hold: its pavements are not part of this release.)
 - **Waves and slumps.** A driver waves out of the window, and a knocked-out one slumps over the wheel until he wakes (with the injury add-on).
 - **HD characters.** Alison, Carla, Eric and Manuel drive and also walk the streets.
 - **Crowds at venues.** Spectators stand at the drag strip, the race tracks and car meets, and cheer when a race ends.
@@ -45,7 +47,7 @@ Part of **Wrench Works Street Legal - West Coast**. In the career the garage's *
 
 ## Requirements
 
-BeamNG.drive 0.39. Nothing else: Wrench Works (the garage) and Street Legal (the career) are optional, and the mod works without them.
+BeamNG.drive 0.40. Nothing else: Wrench Works (the garage) and Street Legal (the career) are optional, and the mod works without them.
 
 ## Install
 
@@ -102,7 +104,7 @@ driver, and on big cabs (pickup, midtruck) the hands may not show on the wheel.
 
 ### Display modes
 
-Wrench Works' garage has a **Driver** setting for this. Without the garage, use the console:
+The **Pedestrians & Drivers** page in the Mods menu (ESC > Mods) has the Driver mode setting for this, with the helmet and the other switches (Active features lists them too). The console works as well:
 
 ```lua
 slrrDrivers.setDisplayMode('full')             -- animated driver everywhere (default)
