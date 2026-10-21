@@ -1,10 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.6.1
 
-- The pedestrian behaviours (people stop, cross at the lights, busier areas, react to rain, shelter) and every Driver Injuries switch are tagged for the Active features page of the Mods menu (Wrench Works).: Wrench Works: Drivers & Pedestrians
-
-## 1.6.1 (in progress)
+### Mods menu
+- The driver, pedestrian and injury switches (who drives, helmet, pedestrians and their behaviours such as stopping, crossing at the lights, busier areas, reacting to rain and sheltering, and every Driver Injuries switch) are listed on the Active features page of ESC > Mods (Wrench Works). A switch with an Off choice shows as a plain on/off switch that remembers the last choice.
 
 ### Pedestrians
 - The Mods menu's Pedestrians tab description no longer names a map ("the pavements of the city").
