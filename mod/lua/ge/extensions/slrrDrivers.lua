@@ -966,7 +966,7 @@ local function attach(vid)
   if tints[c.material] then tints[c.material].users = tints[c.material].users + 1 end
   local partList = {}
   for _, p in ipairs(PARTS) do table.insert(partList, p) end
-  if look.helmet then table.insert(partList, 'helmet') end
+  if look.helmet and FS:fileExists(ROOT .. 'models/' .. d.model .. '/helmet.dae') then table.insert(partList, 'helmet') end   -- (only the models with a helmet shape: a missing shape shows as NO Mesh)
   if props then
     local vd = core_vehicle_manager.getVehicleData(vid)
     local n = vd and vd.vdata and vd.vdata.nodes and vd.vdata.nodes[camNode]
