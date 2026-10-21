@@ -210,7 +210,7 @@ def main():
     assert M.getState(7).conscious and not lua.globals().blocked, "never woke"
     run(lua, M, [body(1, legs=200)] * 10)
     assert "rleg" in list(M.getState(7).broken.values()) and M.getState(7).limits.noDriving
-    assert any("slrrInjuryCaps = {steer = 1, pedal = 0.7}" in c for c in lua.globals().commands.values())
+    assert any("input.slrrInjuryCaps = {steer = 1, pedal = 0.7}" in c for c in lua.globals().commands.values())
     M.heal(7)
     assert M.getState(7).level == "none" and M.getState(7).recoverySeconds == 0
 

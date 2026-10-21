@@ -119,23 +119,23 @@ local function slump(vehId, on)
   if isPlayer(vehId) and slrrDrivers and slrrDrivers.setSlump then slrrDrivers.setSlump(vehId, on) end
 end
 
--- driving with a broken limb: the vehicle's own input is capped (one hand: less lock; right leg: 70 % pedal)
+-- driving with a broken limb: the vehicle's own input is capped (the state lives in fields of the car's input table, not in globals: the game warns about a new global) (one hand: less lock; right leg: 70 % pedal)
 local function setLimits(vehId, st)
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
   if not v then return end
   local steer = (st.parts.larm >= T.brokenAt or st.parts.rarm >= T.brokenAt) and 0.6 or 1
   local pedal = st.parts.rleg >= T.brokenAt and 0.7 or 1
   v:queueLuaCommand(string.format([[
-    if not slrrInjuryEvent then
-      slrrInjuryEvent = input.event
+    if not input.slrrInjuryEvent then
+      input.slrrInjuryEvent = input.event
       input.event = function(t, v, ...)
-        local c = slrrInjuryCaps or {}
+        local c = input.slrrInjuryCaps or {}
         if (t == 'throttle' or t == 'brake') and c.pedal then v = math.min(v, c.pedal)
         elseif t == 'steering' and c.steer then v = math.max(-c.steer, math.min(c.steer, v)) end
-        return slrrInjuryEvent(t, v, ...)
+        return input.slrrInjuryEvent(t, v, ...)
       end
     end
-    slrrInjuryCaps = {steer = %g, pedal = %g}]], steer, pedal))
+    input.slrrInjuryCaps = {steer = %g, pedal = %g}]], steer, pedal))
 end
 
 local function loadClips()
@@ -379,7 +379,7 @@ local function heal(vehId)
   state[vehId] = newState()
   state[vehId].grace = 0
   local v = be and be.getObjectByID and be:getObjectByID(vehId)
-  if v then v:queueLuaCommand('slrrInjuryCaps = nil') end
+  if v then v:queueLuaCommand('input.slrrInjuryCaps = nil') end
   overlays(vehId, state[vehId])
 end
 
