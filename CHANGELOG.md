@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.3
+
+For BeamNG 0.40. Driver Injuries is 0.2.2. The Drivers mod itself is unchanged; its version moves with the Injuries fix.
+
+- **Driver Injuries 0.2.2: one start warning fewer.** The game logged "set new global variable: slrrInjuryCaps to nil" (with a stack trace) once at start. The broken-limb input cap and the injury event now live in fields of the car's input table, so no global is created. Tested offline. **Not yet checked in the game:** a cold start without that warning, and that a broken arm or leg still caps the controls.
+
 ## 1.6.2
 
 For BeamNG 0.40. Driver Injuries is still 0.2.1.
