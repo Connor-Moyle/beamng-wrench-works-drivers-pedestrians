@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2
+
+For BeamNG 0.40. Driver Injuries is still 0.2.1.
+
+- **Fixed:** with **Helmet** switched on, a pink "NO Mesh" label floated above the car for the drivers that have no helmet model (Alison, Carla, Eric and Manuel). The helmet is now added only to drivers whose model has one (the police officer and the racer). Seen in the game with Carla, props rig, helmet on, on a respawned car: the label is gone and the log has no missing-mesh or shape-file line.
+- A driver part whose shape file is missing is skipped with one warning in the log instead of being handed to the game.
+- **Not yet checked in the game:** the helmet itself on the drivers that have one (the police officer and the racer).
+
 ## 1.6.1
 
 ### Mods menu
